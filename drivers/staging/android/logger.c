@@ -615,7 +615,7 @@ static int __init init_log(struct logger_log *log)
 static int __init logger_init(void)
 {
 	int ret;
-/* for logcat control by nv */
+/* for logcat control by nv - we don't want this Huawei
 #ifdef CONFIG_HUAWEI_KERNEL
     u16 nv_item = LOG_CTL_INFO_ITEM;
     struct log_ctl ctl_info;
@@ -629,6 +629,7 @@ static int __init logger_init(void)
     if((rval != 0) || (ctl_info.on_off_flag != USER_LOG_ON))
         return 0;	
 #endif
+*/
 	
 	ret = init_log(&log_main);
 	if (unlikely(ret))
