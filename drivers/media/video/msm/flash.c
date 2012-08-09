@@ -23,7 +23,6 @@
 #include <mach/gpio.h>
 
 /*BU5D07741 descpription: camera flash light*/
-#ifdef CONFIG_HUAWEI_KERNEL
 
 #include <linux/mfd/pmic8058.h>
 #include <linux/gpio.h>
@@ -50,7 +49,6 @@ static struct  pm_gpio camera_flash = {
 		.function       = PM_GPIO_FUNC_2,
 		.inv_int_pol 	= 1,
 	};
-#endif
 
 struct timer_list timer_flash;
 static struct msm_camera_sensor_info *sensor_data;
