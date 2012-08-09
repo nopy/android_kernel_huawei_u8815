@@ -1317,7 +1317,6 @@ static struct platform_device *surf_ffa_devices[] __initdata = {
 	&asoc_msm_pcm,
 	&asoc_msm_dai0,
 	&asoc_msm_dai1,
-<<<<<<< HEAD
 	/* Registration device */
 #ifdef CONFIG_HUAWEI_KERNEL
 	&keyboard_backlight_device,
@@ -1327,10 +1326,9 @@ static struct platform_device *surf_ffa_devices[] __initdata = {
 /* Registration device */
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 	&huawei_device_detect,
-=======
+#endif
 #ifdef CONFIG_ION_MSM
 	&ion_dev,
->>>>>>> 2c5a775... msm: msm7627a: Support ION on 7627a/8625
 #endif
 };
 
