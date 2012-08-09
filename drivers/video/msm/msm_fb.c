@@ -148,7 +148,6 @@ int msm_fb_debugfs_file_index;
 struct dentry *msm_fb_debugfs_root;
 struct dentry *msm_fb_debugfs_file[MSM_FB_MAX_DBGFS];
 
-#ifdef CONFIG_HUAWEI_KERNEL
 boolean lcd_have_resume = FALSE;
 /* Remove qcom backlight mechanism,user our own */
 boolean last_backlight_setting = FALSE;
@@ -158,7 +157,6 @@ struct msmfb_cabc_config last_cabc_mode;
 boolean last_cabc_setting = FALSE;
 boolean last_gamma_setting = FALSE;
 /*delete some lines*/
-#endif
 #ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION
 static int bright = -1;
 static struct timer_list bright_timer;
