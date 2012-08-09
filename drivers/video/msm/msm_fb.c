@@ -52,9 +52,7 @@
 #ifdef CONFIG_FB_DYNAMIC_GAMMA
 #include <linux/hardware_self_adapt.h>
 #endif
-#ifdef CONFIG_HUAWEI_KERNEL
 #include "hw_lcd_common.h"
-#endif
 
 #ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
 #include <mach/msm_battery.h>

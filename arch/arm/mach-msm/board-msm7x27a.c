@@ -56,13 +56,11 @@
 #include <mach/socinfo.h>
 #include "pm-boot.h"
 #include "board-msm7627a.h"
-#ifdef CONFIG_HUAWEI_KERNEL
 #include <linux/hardware_self_adapt.h>
 #include <linux/touch_platform_config.h>
 /*added for virtualkeys*/
 static char buf_virtualkey[500];
 static ssize_t  buf_vkey_size=0;
-#endif
 
 #ifdef CONFIG_HUAWEI_KERNEL
 #include <asm-arm/huawei/smem_vendor_huawei.h>
