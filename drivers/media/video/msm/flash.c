@@ -49,7 +49,7 @@ static struct  pm_gpio camera_flash = {
 		.function       = PM_GPIO_FUNC_2,
 		.inv_int_pol 	= 1,
 	};
-
+	
 struct timer_list timer_flash;
 static struct msm_camera_sensor_info *sensor_data;
 enum msm_cam_flash_stat{
