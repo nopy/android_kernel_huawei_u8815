@@ -936,8 +936,7 @@ CONFIG_WEXT_CORE=y
 CONFIG_WEXT_PROC=y
 CONFIG_WEXT_SPY=y
 CONFIG_WEXT_PRIV=y
-# <Dazzozo> Why is this A. under Bluetooth and B. a module if the stock ROM always loads it permanently at boot up? Consider setting to y as we have dhd_4330.ko.
-CONFIG_CFG80211=m
+CONFIG_CFG80211=y
 CONFIG_NL80211_TESTMODE=y
 # CONFIG_CFG80211_DEVELOPER_WARNINGS is not set
 # CONFIG_CFG80211_REG_DEBUG is not set
