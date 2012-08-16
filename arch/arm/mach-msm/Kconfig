@@ -2422,4 +2422,18 @@ config HUAWEI_RPC_CRASH_DEBUG
  	help
 	  Select Y if use rpc related logs.
 
+config HUAWEI_BT_BTLA_VER30
+	bool "Huawei BT BTLA"
+	depends on !HUAWEI_BT_BLUEZ_VER30
+	default n
+	help
+	  Select Y to use BTLA Bluetooth.
+
+config HUAWEI_BT_BLUEZ_VER30
+	bool "Huawei BT Bluez"
+	depends on !HUAWEI_BT_BTLA_VER30
+	default n
+	help
+	  Select Y to use Bluez Bluetooth.
+
 endif

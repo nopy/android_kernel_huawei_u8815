@@ -432,7 +432,7 @@ static struct platform_device smc91x_device = {
 
 /* The following config was used for WCN2243 only. 0xFD means wake.*/
 #ifdef CONFIG_HUAWEI_KERNEL
-#if (defined(CONFIG_SERIAL_MSM_HS) && defined(HUAWEI_BT_BLUEZ_VER30))
+#if (defined(CONFIG_SERIAL_MSM_HS) && defined(CONFIG_HUAWEI_BT_BLUEZ_VER30))
 static struct msm_serial_hs_platform_data msm_uart_dm1_pdata = {
 	.inject_rx_on_wakeup	= 1,
 	.rx_to_inject		= 0xFD,
@@ -1320,12 +1320,12 @@ static struct platform_device *surf_ffa_devices[] __initdata = {
 #endif
 	&msm_kgsl_3d0,
 /* for WCN2243 */
-#if defined(CONFIG_BT) && defined(HUAWEI_BT_BLUEZ_VER30)
+#if defined(CONFIG_BT) && defined(CONFIG_HUAWEI_BT_BLUEZ_VER30)
 	&msm_bt_power_device,
 #endif
 
 /* for BCM_4330 */
-#if defined(CONFIG_BT) && defined(HUAWEI_BT_BTLA_VER30)
+#if defined(CONFIG_BT) && defined(CONFIG_HUAWEI_BT_BTLA_VER30)
     &msm_bt_power_device,
     &msm_bluesleep_device,	
 #endif
@@ -2670,7 +2670,7 @@ static void __init msm7x2x_init(void)
 	msm7x27a_cfg_uart2dm_serial();
 /* The following config was used for WCN2243 only. */
 #ifdef CONFIG_HUAWEI_KERNEL
-#if (defined(CONFIG_SERIAL_MSM_HS) && defined(HUAWEI_BT_BLUEZ_VER30))
+#if (defined(CONFIG_SERIAL_MSM_HS) && defined(CONFIG_HUAWEI_BT_BLUEZ_VER30))
 	msm_uart_dm1_pdata.wakeup_irq = gpio_to_irq(UART1DM_RX_GPIO);
 	msm_device_uart_dm1.dev.platform_data = &msm_uart_dm1_pdata;
 #endif
@@ -2697,7 +2697,7 @@ static void __init msm7x2x_init(void)
 		#ifndef CONFIG_HUAWEI_CAMERA
 		msm7x27a_cfg_smsc911x();
 		#endif
-		#if (defined(HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
+		#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
                 /*before bt probe, config the bt_wake_msm gpio*/
                 bt_wake_msm_config();
         #endif
@@ -2722,10 +2722,10 @@ static void __init msm7x2x_init(void)
 #if defined(CONFIG_I2C) && defined(CONFIG_GPIO_SX150X)
 	register_i2c_devices();
 #endif
-#if (defined(HUAWEI_BT_BLUEZ_VER30) || (!defined(CONFIG_HUAWEI_KERNEL)))
+#if (defined(CONFIG_HUAWEI_BT_BLUEZ_VER30) || (!defined(CONFIG_HUAWEI_KERNEL)))
 	msm7627a_bt_power_init();
 #endif
-#if (defined(HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
+#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
 	bt_bcm4330_power_init();
 #endif
 #ifndef CONFIG_HUAWEI_KERNEL
