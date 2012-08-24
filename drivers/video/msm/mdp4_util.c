@@ -3106,3 +3106,124 @@ int mdp4_igc_lut_config(struct mdp_igc_lut_data *cfg)
 error:
 	return ret;
 }
+
+#define QSEED_TABLE_1_COUNT	2
+#define QSEED_TABLE_2_COUNT	1024
+
+static uint32_t mdp4_pp_block2qseed(uint32_t block)
+{
+	uint32_t valid = 0;
+	switch (block) {
+	case MDP_BLOCK_VG_1:
+	case MDP_BLOCK_VG_2:
+		valid = 0x1;
+		break;
+	default:
+		break;
+	}
+	return valid;
+}
+
+int mdp4_qseed_access_cfg(struct mdp_qseed_cfg *config, uint32_t base)
+{
+	int i, ret = 0;
+	uint32_t *values;
+
+	if ((config->table_num != 1) && (config->table_num != 2)) {
+		ret = -ENOTTY;
+		goto error;
+	}
+
+	if (((config->table_num == 1) && (config->len != QSEED_TABLE_1_COUNT))
+			|| ((config->table_num == 2) &&
+				(config->len != QSEED_TABLE_2_COUNT))) {
+		ret = -EINVAL;
+		goto error;
+	}
+
+	values = kmalloc(config->len * sizeof(uint32_t), GFP_KERNEL);
+	if (!values) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	base += (config->table_num == 1) ? MDP4_QSEED_TABLE1_OFF :
+							MDP4_QSEED_TABLE2_OFF;
+
+	if (config->ops & MDP_PP_OPS_WRITE) {
+		ret = copy_from_user(values, config->data,
+						sizeof(uint32_t) * config->len);
+		if (ret) {
+			pr_warn("%s: Error copying from user, %d", __func__,
+									ret);
+			ret = -EINVAL;
+			goto err_mem;
+		}
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		for (i = 0; i < config->len; i++) {
+			if (!(base & 0x3FF))
+				wmb();
+			MDP_OUTP(base , values[i]);
+			base += sizeof(uint32_t);
+		}
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+	} else if (config->ops & MDP_PP_OPS_READ) {
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		for (i = 0; i < config->len; i++) {
+			values[i] = inpdw(base);
+			if (!(base & 0x3FF))
+				rmb();
+			base += sizeof(uint32_t);
+		}
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+		ret = copy_to_user(config->data, values,
+						sizeof(uint32_t) * config->len);
+		if (ret) {
+			pr_warn("%s: Error copying to user, %d", __func__, ret);
+			ret = -EINVAL;
+			goto err_mem;
+		}
+	}
+
+err_mem:
+	kfree(values);
+error:
+	return ret;
+}
+
+int mdp4_qseed_cfg(struct mdp_qseed_cfg_data *config)
+{
+	int ret = 0;
+	struct mdp_qseed_cfg *cfg = &config->qseed_data;
+	uint32_t base;
+
+	if (!mdp4_pp_block2qseed(config->block)) {
+		ret = -ENOTTY;
+		goto error;
+	}
+
+	if ((cfg->ops & MDP_PP_OPS_READ) && (cfg->ops & MDP_PP_OPS_WRITE)) {
+		ret = -EPERM;
+		pr_warn("%s: Cannot read and write on the same request\n",
+								__func__);
+		goto error;
+	}
+	base = (uint32_t) (MDP_BASE + mdp_block2base(config->block));
+	ret = mdp4_qseed_access_cfg(cfg, base);
+
+error:
+	return ret;
+}
+u32 mdp4_get_mixer_num(u32 panel_type)
+{
+	u32 mixer_num;
+	if ((panel_type == TV_PANEL) ||
+			(panel_type == DTV_PANEL))
+		mixer_num = MDP4_MIXER1;
+	else if (panel_type == WRITEBACK_PANEL) {
+		mixer_num = MDP4_MIXER2;
+	} else {
+		mixer_num = MDP4_MIXER0;
+	}
+	return mixer_num;
+}
