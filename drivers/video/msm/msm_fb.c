@@ -151,7 +151,9 @@ boolean lcd_have_resume = FALSE;
 boolean last_backlight_setting = FALSE;
 int last_backlight_level = 0;
 int last_gamma_mode = GAMMA25;
+#ifdef CONFIG_FB_AUTO_CABC
 struct msmfb_cabc_config last_cabc_mode;
+#endif
 boolean last_cabc_setting = FALSE;
 boolean last_gamma_setting = FALSE;
 /*delete some lines*/
@@ -917,6 +919,7 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 						printk("%s:Waiting for LCD resume ,then set gamma mode =%d\n",__func__,last_gamma_mode);
 					}
 				}
+#ifdef CONFIG_FB_AUTO_CABC
 				if (is_panel_support_auto_cabc())
 				{
 					if(TRUE == last_cabc_setting)
@@ -926,7 +929,7 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 						printk("%s:Waiting for LCD resume ,then set cabc mode =%d\n",__func__,last_cabc_mode.mode);
 					}
 				}
-
+#endif
 #endif
 			}
 		}
@@ -956,6 +959,7 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 				printk("%s:Waiting for LCD resume ,then set gamma mode =%d\n",__func__,last_gamma_mode);
 			}
 		}
+#ifdef CONFIG_FB_AUTO_CABC
 		if (is_panel_support_auto_cabc())
 		{
 			if(TRUE == last_cabc_setting)
@@ -965,6 +969,7 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 				printk("%s:Waiting for LCD resume ,then set cabc mode =%d\n",__func__,last_cabc_mode.mode);
 			}
 		}
+#endif
 #endif
         break;
 #endif
