@@ -12,7 +12,8 @@
 
 #include "msm_fb.h"
 #include "mipi_dsi.h"
-#include "hw_lcd_common.h"#include <mach/rpc_pmapp.h>
+#include "hw_lcd_common.h"
+#include <mach/rpc_pmapp.h>
 
 #define LCD_DEVICE_NAME "mipi_cmd_rsp61408_wvga"
 
