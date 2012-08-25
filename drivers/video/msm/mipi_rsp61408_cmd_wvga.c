@@ -12,7 +12,7 @@
 
 #include "msm_fb.h"
 #include "mipi_dsi.h"
-#include "hw_lcd_common.h"#include <mach/rpc_pmapp.h>
+#include "hw_lcd_common.h"
 
 #define LCD_DEVICE_NAME "mipi_cmd_rsp61408_wvga"
 
@@ -118,9 +118,6 @@ static int mipi_rsp61408_lcd_off(struct platform_device *pdev)
 		return -ENODEV;
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
-
-	/* Hack! */
-	pmapp_disp_backlight_set_brightness(0);
 
 	process_mipi_table(mfd,&rsp61408_tx_buf,(struct sequence*)&rsp61408_wvga_standby_enter_table,
 		 ARRAY_SIZE(rsp61408_wvga_standby_enter_table), lcd_panel_wvga);
