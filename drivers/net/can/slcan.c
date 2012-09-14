@@ -583,9 +583,7 @@ static int slcan_open(struct tty_struct *tty)
 	/* Done.  We have linked the TTY line to a channel. */
 	rtnl_unlock();
 	tty->receive_room = 65536;	/* We don't flow control */
-
-	/* TTY layer expects 0 on success */
-	return 0;
+	return sl->dev->base_addr;
 
 err_free_chan:
 	sl->tty = NULL;

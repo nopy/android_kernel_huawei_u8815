@@ -10,7 +10,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-#ifdef CONFIG_ARCH_MSM_KRAIT
+#ifdef CONFIG_CPU_HAS_L2_PMU
 
 #include <linux/irq.h>
 
@@ -24,7 +24,7 @@
 #define L2PMCCNTSR 0x40A
 #define L2CYCLE_CTR_BIT 31
 #define L2CYCLE_CTR_EVENT_IDX 4
-#define L2CYCLE_CTR_RAW_CODE 0xfe
+#define L2CYCLE_CTR_RAW_CODE 0xff
 
 #define L2PMOVSR	0x406
 
@@ -117,18 +117,10 @@ static void set_evres(int event_groupsel, int event_reg, int event_group_code)
 	set_l2_indirect_reg(group_reg, resr_val);
 }
 
-static void set_evfilter_task_mode(int ctr)
+static void set_evfilter(int ctr)
 {
 	u32 filter_reg = (ctr * 16) + IA_L2PMXEVFILTER_BASE;
 	u32 filter_val = 0x000f0030 | 1 << smp_processor_id();
-
-	set_l2_indirect_reg(filter_reg, filter_val);
-}
-
-static void set_evfilter_sys_mode(int ctr)
-{
-	u32 filter_reg = (ctr * 16) + IA_L2PMXEVFILTER_BASE;
-	u32 filter_val = 0x000f003f;
 
 	set_l2_indirect_reg(filter_reg, filter_val);
 }
@@ -306,10 +298,7 @@ static void krait_l2_start_counter(struct perf_event *event, int flags)
 	set_evres(evdesc.event_groupsel, evdesc.event_reg,
 		  evdesc.event_group_code);
 
-	if (event->cpu < 0)
-		set_evfilter_task_mode(idx);
-	else
-		set_evfilter_sys_mode(idx);
+	set_evfilter(idx);
 
 out:
 	enable_intenset(idx);
@@ -525,7 +514,7 @@ static int pmu_reserve_hardware(void)
 			break;
 		}
 
-		irq_get_chip(irq)->irq_unmask(irq_get_irq_data(irq));
+		get_irq_chip(irq)->irq_unmask(irq_get_irq_data(irq));
 	}
 
 	if (err) {
@@ -593,16 +582,18 @@ static int krait_l2_event_init(struct perf_event *event)
 			atomic_inc(&active_l2_events);
 		else
 			return err;
+	} else {
+		if (atomic_read(&active_l2_events) > (MAX_KRAIT_L2_CTRS - 1)) {
+			pr_err("%s: No space left on PMU for event: %llx\n",
+			       __func__, event->attr.config);
+			atomic_dec(&active_l2_events);
+			return -ENOSPC;
+		}
 	}
 
+	hwc->config_base = event->attr.config;
 	hwc->config = 0;
 	hwc->event_base = 0;
-
-	/* Check if we came via perf default syms */
-	if (event->attr.config == PERF_COUNT_HW_L2_CYCLES)
-		hwc->config_base = L2CYCLE_CTR_RAW_CODE;
-	else
-		hwc->config_base = event->attr.config;
 
 	/* Only one CPU can control the cycle counter */
 	if (hwc->config_base == L2CYCLE_CTR_RAW_CODE) {

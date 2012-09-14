@@ -1006,7 +1006,6 @@ intel_tv_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode,
 	const struct video_levels *video_levels;
 	const struct color_conversion *color_conversion;
 	bool burst_ena;
-	int pipe = intel_crtc->pipe;
 
 	if (!tv_mode)
 		return;	/* can't happen (mode_prepare prevents this) */
@@ -1150,11 +1149,14 @@ intel_tv_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode,
 			   ((video_levels->black << TV_BLACK_LEVEL_SHIFT) |
 			    (video_levels->blank << TV_BLANK_LEVEL_SHIFT)));
 	{
-		int pipeconf_reg = PIPECONF(pipe);
-		int dspcntr_reg = DSPCNTR(intel_crtc->plane);
+		int pipeconf_reg = (intel_crtc->pipe == 0) ?
+			PIPEACONF : PIPEBCONF;
+		int dspcntr_reg = (intel_crtc->plane == 0) ?
+			DSPACNTR : DSPBCNTR;
 		int pipeconf = I915_READ(pipeconf_reg);
 		int dspcntr = I915_READ(dspcntr_reg);
-		int dspbase_reg = DSPADDR(intel_crtc->plane);
+		int dspbase_reg = (intel_crtc->plane == 0) ?
+			DSPAADDR : DSPBADDR;
 		int xpos = 0x0, ypos = 0x0;
 		unsigned int xsize, ysize;
 		/* Pipe must be off here */
@@ -1361,14 +1363,15 @@ intel_tv_detect(struct drm_connector *connector, bool force)
 	if (intel_tv->base.base.crtc && intel_tv->base.base.crtc->enabled) {
 		type = intel_tv_detect_type(intel_tv, connector);
 	} else if (force) {
-		struct intel_load_detect_pipe tmp;
+		struct drm_crtc *crtc;
+		int dpms_mode;
 
-		if (intel_get_load_detect_pipe(&intel_tv->base, connector,
-					       &mode, &tmp)) {
+		crtc = intel_get_load_detect_pipe(&intel_tv->base, connector,
+						  &mode, &dpms_mode);
+		if (crtc) {
 			type = intel_tv_detect_type(intel_tv, connector);
-			intel_release_load_detect_pipe(&intel_tv->base,
-						       connector,
-						       &tmp);
+			intel_release_load_detect_pipe(&intel_tv->base, connector,
+						       dpms_mode);
 		} else
 			return connector_status_unknown;
 	} else
@@ -1671,7 +1674,8 @@ intel_tv_init(struct drm_device *dev)
 	 *
 	 * More recent chipsets favour HDMI rather than integrated S-Video.
 	 */
-	connector->polled = DRM_CONNECTOR_POLL_CONNECT;
+	connector->polled =
+		DRM_CONNECTOR_POLL_CONNECT | DRM_CONNECTOR_POLL_DISCONNECT;
 
 	drm_connector_init(dev, connector, &intel_tv_connector_funcs,
 			   DRM_MODE_CONNECTOR_SVIDEO);

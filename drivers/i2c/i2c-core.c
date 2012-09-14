@@ -348,7 +348,7 @@ EXPORT_SYMBOL(i2c_verify_client);
 
 
 /* This is a permissive address validity check, I2C address map constraints
- * are purposely not enforced, except for the general call address. */
+ * are purposedly not enforced, except for the general call address. */
 static int i2c_check_client_addr_validity(const struct i2c_client *client)
 {
 	if (client->flags & I2C_CLIENT_TEN) {
@@ -537,7 +537,9 @@ i2c_new_device(struct i2c_adapter *adap, struct i2c_board_info const *info)
 	client->dev.parent = &client->adapter->dev;
 	client->dev.bus = &i2c_bus_type;
 	client->dev.type = &i2c_client_type;
+#ifdef CONFIG_OF
 	client->dev.of_node = info->of_node;
+#endif
 
 	dev_set_name(&client->dev, "%d-%04x", i2c_adapter_id(adap),
 		     client->addr);
@@ -797,10 +799,6 @@ static int i2c_do_add_adapter(struct i2c_driver *driver,
 
 	/* Let legacy drivers scan this bus for matching devices */
 	if (driver->attach_adapter) {
-		dev_warn(&adap->dev, "%s: attach_adapter method is deprecated\n",
-			 driver->driver.name);
-		dev_warn(&adap->dev, "Please use another way to instantiate "
-			 "your i2c_client\n");
 		/* We ignore the return code; if it fails, too bad */
 		driver->attach_adapter(adap);
 	}
@@ -985,8 +983,6 @@ static int i2c_do_del_adapter(struct i2c_driver *driver,
 
 	if (!driver->detach_adapter)
 		return 0;
-	dev_warn(&adapter->dev, "%s: detach_adapter method is deprecated\n",
-		 driver->driver.name);
 	res = driver->detach_adapter(adapter);
 	if (res)
 		dev_err(&adapter->dev, "detach_adapter failed (%d) "
@@ -1097,18 +1093,6 @@ EXPORT_SYMBOL(i2c_del_adapter);
 
 /* ------------------------------------------------------------------------- */
 
-int i2c_for_each_dev(void *data, int (*fn)(struct device *, void *))
-{
-	int res;
-
-	mutex_lock(&core_lock);
-	res = bus_for_each_dev(&i2c_bus_type, NULL, data, fn);
-	mutex_unlock(&core_lock);
-
-	return res;
-}
-EXPORT_SYMBOL_GPL(i2c_for_each_dev);
-
 static int __process_new_driver(struct device *dev, void *data)
 {
 	if (dev->type != &i2c_adapter_type)
@@ -1152,7 +1136,9 @@ int i2c_register_driver(struct module *owner, struct i2c_driver *driver)
 
 	INIT_LIST_HEAD(&driver->clients);
 	/* Walk the adapters that are already present */
-	i2c_for_each_dev(driver, __process_new_driver);
+	mutex_lock(&core_lock);
+	bus_for_each_dev(&i2c_bus_type, NULL, driver, __process_new_driver);
+	mutex_unlock(&core_lock);
 
 	return 0;
 }
@@ -1172,7 +1158,9 @@ static int __process_removed_driver(struct device *dev, void *data)
  */
 void i2c_del_driver(struct i2c_driver *driver)
 {
-	i2c_for_each_dev(driver, __process_removed_driver);
+	mutex_lock(&core_lock);
+	bus_for_each_dev(&i2c_bus_type, NULL, driver, __process_removed_driver);
+	mutex_unlock(&core_lock);
 
 	driver_unregister(&driver->driver);
 	pr_debug("i2c-core: driver [%s] unregistered\n", driver->driver.name);
@@ -1604,12 +1592,12 @@ i2c_new_probed_device(struct i2c_adapter *adap,
 }
 EXPORT_SYMBOL_GPL(i2c_new_probed_device);
 
-struct i2c_adapter *i2c_get_adapter(int nr)
+struct i2c_adapter *i2c_get_adapter(int id)
 {
 	struct i2c_adapter *adapter;
 
 	mutex_lock(&core_lock);
-	adapter = idr_find(&i2c_adapter_idr, nr);
+	adapter = idr_find(&i2c_adapter_idr, id);
 	if (adapter && !try_module_get(adapter->owner))
 		adapter = NULL;
 

@@ -39,8 +39,6 @@
 
 #define OPREGION_HEADER_OFFSET 0
 #define OPREGION_ACPI_OFFSET   0x100
-#define   ACPI_CLID 0x01ac /* current lid state indicator */
-#define   ACPI_CDCK 0x01b0 /* current docking state indicator */
 #define OPREGION_SWSCI_OFFSET  0x200
 #define OPREGION_ASLE_OFFSET   0x300
 #define OPREGION_VBT_OFFSET    0x400
@@ -490,8 +488,6 @@ int intel_opregion_setup(struct drm_device *dev)
 	}
 	opregion->header = base;
 	opregion->vbt = base + OPREGION_VBT_OFFSET;
-
-	opregion->lid_state = base + ACPI_CLID;
 
 	mboxes = opregion->header->mboxes;
 	if (mboxes & MBOX_ACPI) {

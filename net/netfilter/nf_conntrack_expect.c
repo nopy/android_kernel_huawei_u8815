@@ -319,8 +319,7 @@ static void nf_ct_expect_insert(struct nf_conntrack_expect *exp)
 	const struct nf_conntrack_expect_policy *p;
 	unsigned int h = nf_ct_expect_dst_hash(&exp->tuple);
 
-	/* two references : one for hash insert, one for the timer */
-	atomic_add(2, &exp->use);
+	atomic_inc(&exp->use);
 
 	if (master_help) {
 		hlist_add_head(&exp->lnode, &master_help->expectations);
@@ -334,14 +333,12 @@ static void nf_ct_expect_insert(struct nf_conntrack_expect *exp)
 	setup_timer(&exp->timeout, nf_ct_expectation_timed_out,
 		    (unsigned long)exp);
 	if (master_help) {
-		p = &rcu_dereference_protected(
-				master_help->helper,
-				lockdep_is_held(&nf_conntrack_lock)
-				)->expect_policy[exp->class];
+		p = &master_help->helper->expect_policy[exp->class];
 		exp->timeout.expires = jiffies + p->timeout * HZ;
 	}
 	add_timer(&exp->timeout);
 
+	atomic_inc(&exp->use);
 	NF_CT_STAT_INC(net, expect_create);
 }
 
@@ -372,10 +369,7 @@ static inline int refresh_timer(struct nf_conntrack_expect *i)
 	if (!del_timer(&i->timeout))
 		return 0;
 
-	p = &rcu_dereference_protected(
-		master_help->helper,
-		lockdep_is_held(&nf_conntrack_lock)
-		)->expect_policy[i->class];
+	p = &master_help->helper->expect_policy[i->class];
 	i->timeout.expires = jiffies + p->timeout * HZ;
 	add_timer(&i->timeout);
 	return 1;
@@ -413,10 +407,7 @@ static inline int __nf_ct_expect_check(struct nf_conntrack_expect *expect)
 	}
 	/* Will be over limit? */
 	if (master_help) {
-		p = &rcu_dereference_protected(
-			master_help->helper,
-			lockdep_is_held(&nf_conntrack_lock)
-			)->expect_policy[expect->class];
+		p = &master_help->helper->expect_policy[expect->class];
 		if (p->max_expected &&
 		    master_help->expecting[expect->class] >= p->max_expected) {
 			evict_oldest_expect(master, expect);
@@ -487,7 +478,7 @@ static struct hlist_node *ct_expect_get_first(struct seq_file *seq)
 	struct hlist_node *n;
 
 	for (st->bucket = 0; st->bucket < nf_ct_expect_hsize; st->bucket++) {
-		n = rcu_dereference(hlist_first_rcu(&net->ct.expect_hash[st->bucket]));
+		n = rcu_dereference(net->ct.expect_hash[st->bucket].first);
 		if (n)
 			return n;
 	}
@@ -500,11 +491,11 @@ static struct hlist_node *ct_expect_get_next(struct seq_file *seq,
 	struct net *net = seq_file_net(seq);
 	struct ct_expect_iter_state *st = seq->private;
 
-	head = rcu_dereference(hlist_next_rcu(head));
+	head = rcu_dereference(head->next);
 	while (head == NULL) {
 		if (++st->bucket >= nf_ct_expect_hsize)
 			return NULL;
-		head = rcu_dereference(hlist_first_rcu(&net->ct.expect_hash[st->bucket]));
+		head = rcu_dereference(net->ct.expect_hash[st->bucket].first);
 	}
 	return head;
 }
@@ -639,7 +630,8 @@ int nf_conntrack_expect_init(struct net *net)
 	}
 
 	net->ct.expect_count = 0;
-	net->ct.expect_hash = nf_ct_alloc_hashtable(&nf_ct_expect_hsize, 0);
+	net->ct.expect_hash = nf_ct_alloc_hashtable(&nf_ct_expect_hsize,
+						  &net->ct.expect_vmalloc, 0);
 	if (net->ct.expect_hash == NULL)
 		goto err1;
 
@@ -661,7 +653,8 @@ err3:
 	if (net_eq(net, &init_net))
 		kmem_cache_destroy(nf_ct_expect_cachep);
 err2:
-	nf_ct_free_hashtable(net->ct.expect_hash, nf_ct_expect_hsize);
+	nf_ct_free_hashtable(net->ct.expect_hash, net->ct.expect_vmalloc,
+			     nf_ct_expect_hsize);
 err1:
 	return err;
 }
@@ -673,5 +666,6 @@ void nf_conntrack_expect_fini(struct net *net)
 		rcu_barrier(); /* Wait for call_rcu() before destroy */
 		kmem_cache_destroy(nf_ct_expect_cachep);
 	}
-	nf_ct_free_hashtable(net->ct.expect_hash, nf_ct_expect_hsize);
+	nf_ct_free_hashtable(net->ct.expect_hash, net->ct.expect_vmalloc,
+			     nf_ct_expect_hsize);
 }

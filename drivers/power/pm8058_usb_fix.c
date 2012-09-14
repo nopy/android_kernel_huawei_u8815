@@ -300,7 +300,7 @@ static int __devinit pm8058_charger_probe(struct platform_device *pdev)
 {
 	struct pm8058_chip *pm_chip;
 
-	pm_chip = dev_get_drvdata(pdev->dev.parent);
+	pm_chip = platform_get_drvdata(pdev);
 	if (pm_chip == NULL) {
 		pr_err("%s:no parent data passed in.\n", __func__);
 		return -EFAULT;

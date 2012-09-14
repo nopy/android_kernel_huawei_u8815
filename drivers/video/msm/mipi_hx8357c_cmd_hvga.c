@@ -12,14 +12,13 @@
 #include<linux/gpio.h>
 #include "msm_fb.h"
 #include "mipi_dsi.h"
-#include "hw_lcd_common.h"
+#include "lcdc_huawei_config.h"
 
 
 #define LCD_DEVICE_NAME "mipi_cmd_hx8357c_hvga"
 
 static lcd_panel_type lcd_panel_hvga = LCD_NONE;
 
-/*< DTS2011110706222 qitongliang 20111201 begin */
 /*mipi dsi register setting , help qualcomm to set.*/
 static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = 
 {
@@ -38,7 +37,6 @@ static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db =
     0x01, 0x0f, 0x0f, 
     0x05, 0x14, 0x03, 0x0, 0x0, 0x0, 0x20, 0x0, 0x02, 0x0},
 };
-/* DTS2011110706222 qitongliang 20111201 end >*/
 
 static struct dsi_buf hx8357c_tx_buf;
 static struct sequence * hx8357c_lcd_init_table_debug = NULL;
@@ -196,9 +194,7 @@ static int __init mipi_cmd_hx8357c_hvga_init(void)
 		pinfo->bl_max = 255;
 		pinfo->bl_min = 30;
 		pinfo->fb_num = 2;
-        /*< DTS2011110706222 qitongliang 20111201 begin */
         pinfo->clk_rate = 250000000;/* 60fps */
-        /* DTS2011110706222 qitongliang 20111201 end >*/
 		pinfo->lcd.refx100 = 6000; /* adjust refx100 to prevent tearing */
 
 		pinfo->mipi.mode = DSI_CMD_MODE;

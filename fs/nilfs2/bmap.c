@@ -25,6 +25,7 @@
 #include <linux/errno.h>
 #include "nilfs.h"
 #include "bmap.h"
+#include "sb.h"
 #include "btree.h"
 #include "direct.h"
 #include "btnode.h"
@@ -34,9 +35,7 @@
 
 struct inode *nilfs_bmap_get_dat(const struct nilfs_bmap *bmap)
 {
-	struct the_nilfs *nilfs = bmap->b_inode->i_sb->s_fs_info;
-
-	return nilfs->ns_dat;
+	return NILFS_I_NILFS(bmap->b_inode)->ns_dat;
 }
 
 static int nilfs_bmap_convert_error(struct nilfs_bmap *bmap,
@@ -426,6 +425,17 @@ int nilfs_bmap_test_and_clear_dirty(struct nilfs_bmap *bmap)
 /*
  * Internal use only
  */
+
+void nilfs_bmap_add_blocks(const struct nilfs_bmap *bmap, int n)
+{
+	inode_add_bytes(bmap->b_inode, (1 << bmap->b_inode->i_blkbits) * n);
+}
+
+void nilfs_bmap_sub_blocks(const struct nilfs_bmap *bmap, int n)
+{
+	inode_sub_bytes(bmap->b_inode, (1 << bmap->b_inode->i_blkbits) * n);
+}
+
 __u64 nilfs_bmap_data_get_key(const struct nilfs_bmap *bmap,
 			      const struct buffer_head *bh)
 {

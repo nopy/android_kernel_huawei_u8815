@@ -12,6 +12,7 @@
 #include <linux/uio.h>
 #include <linux/socket.h>
 #include <linux/in.h>
+#include <linux/kref.h>
 #include <linux/ktime.h>
 #include <linux/sunrpc/sched.h>
 #include <linux/sunrpc/xdr.h>
@@ -141,12 +142,11 @@ enum xprt_transports {
 	XPRT_TRANSPORT_UDP	= IPPROTO_UDP,
 	XPRT_TRANSPORT_TCP	= IPPROTO_TCP,
 	XPRT_TRANSPORT_BC_TCP	= IPPROTO_TCP | XPRT_TRANSPORT_BC,
-	XPRT_TRANSPORT_RDMA	= 256,
-	XPRT_TRANSPORT_LOCAL	= 257,
+	XPRT_TRANSPORT_RDMA	= 256
 };
 
 struct rpc_xprt {
-	atomic_t		count;		/* Reference count */
+	struct kref		kref;		/* Reference count */
 	struct rpc_xprt_ops *	ops;		/* transport methods */
 
 	const struct rpc_timeout *timeout;	/* timeout parms */

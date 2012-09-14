@@ -24,109 +24,6 @@
 
 #include "clock.h"
 
-/* Find the voltage level required for a given rate. */
-static int find_vdd_level(struct clk *clk, unsigned long rate)
-{
-	int level;
-
-	for (level = 0; level < ARRAY_SIZE(clk->fmax); level++)
-		if (rate <= clk->fmax[level])
-			break;
-
-	if (level == ARRAY_SIZE(clk->fmax)) {
-		pr_err("Rate %lu for %s is greater than highest Fmax\n", rate,
-			clk->dbg_name);
-		return -EINVAL;
-	}
-
-	return level;
-}
-
-/* Update voltage level given the current votes. */
-static int update_vdd(struct clk_vdd_class *vdd_class)
-{
-	int level, rc;
-
-	for (level = ARRAY_SIZE(vdd_class->level_votes)-1; level > 0; level--)
-		if (vdd_class->level_votes[level])
-			break;
-
-	if (level == vdd_class->cur_level)
-		return 0;
-
-	rc = vdd_class->set_vdd(vdd_class, level);
-	if (!rc)
-		vdd_class->cur_level = level;
-
-	return rc;
-}
-
-/* Vote for a voltage level. */
-int vote_vdd_level(struct clk_vdd_class *vdd_class, int level)
-{
-	unsigned long flags;
-	int rc;
-
-	spin_lock_irqsave(&vdd_class->lock, flags);
-	vdd_class->level_votes[level]++;
-	rc = update_vdd(vdd_class);
-	if (rc)
-		vdd_class->level_votes[level]--;
-	spin_unlock_irqrestore(&vdd_class->lock, flags);
-
-	return rc;
-}
-
-/* Remove vote for a voltage level. */
-int unvote_vdd_level(struct clk_vdd_class *vdd_class, int level)
-{
-	unsigned long flags;
-	int rc = 0;
-
-	spin_lock_irqsave(&vdd_class->lock, flags);
-	if (WARN(!vdd_class->level_votes[level],
-			"Reference counts are incorrect for %s level %d\n",
-			vdd_class->class_name, level))
-		goto out;
-	vdd_class->level_votes[level]--;
-	rc = update_vdd(vdd_class);
-	if (rc)
-		vdd_class->level_votes[level]++;
-out:
-	spin_unlock_irqrestore(&vdd_class->lock, flags);
-	return rc;
-}
-
-/* Vote for a voltage level corresponding to a clock's rate. */
-static int vote_rate_vdd(struct clk *clk, unsigned long rate)
-{
-	int level;
-
-	if (!clk->vdd_class)
-		return 0;
-
-	level = find_vdd_level(clk, rate);
-	if (level < 0)
-		return level;
-
-	return vote_vdd_level(clk->vdd_class, level);
-}
-
-/* Remove vote for a voltage level corresponding to a clock's rate. */
-static void unvote_rate_vdd(struct clk *clk, unsigned long rate)
-{
-	int level;
-
-	if (!clk->vdd_class)
-		return;
-
-	level = find_vdd_level(clk, rate);
-	if (level < 0)
-		return;
-
-	unvote_vdd_level(clk->vdd_class, level);
-}
-
 /*
  * Standard clock functions defined in include/linux/clk.h
  */
@@ -142,45 +39,21 @@ int clk_enable(struct clk *clk)
 	spin_lock_irqsave(&clk->lock, flags);
 	if (clk->count == 0) {
 		parent = clk_get_parent(clk);
-
 		ret = clk_enable(parent);
 		if (ret)
-			goto err_enable_parent;
-		ret = clk_enable(clk->depends);
-		if (ret)
-			goto err_enable_depends;
+			goto out;
 
-		ret = vote_rate_vdd(clk, clk->rate);
-		if (ret)
-			goto err_vote_vdd;
 		if (clk->ops->enable)
 			ret = clk->ops->enable(clk);
-		if (ret)
-			goto err_enable_clock;
-	} else if (clk->flags & CLKFLAG_HANDOFF_RATE) {
-		/*
-		 * The clock was already enabled by handoff code so there is no
-		 * need to enable it again here. Clearing the handoff flag will
-		 * prevent the lateinit handoff code from disabling the clock if
-		 * a client driver still has it enabled.
-		 */
-		clk->flags &= ~CLKFLAG_HANDOFF_RATE;
-		goto out;
+		if (ret) {
+			clk_disable(parent);
+			goto out;
+		}
 	}
 	clk->count++;
 out:
 	spin_unlock_irqrestore(&clk->lock, flags);
 
-	return 0;
-
-err_enable_clock:
-	unvote_rate_vdd(clk, clk->rate);
-err_vote_vdd:
-	clk_disable(clk->depends);
-err_enable_depends:
-	clk_disable(parent);
-err_enable_parent:
-	spin_unlock_irqrestore(&clk->lock, flags);
 	return ret;
 }
 EXPORT_SYMBOL(clk_enable);
@@ -188,20 +61,18 @@ EXPORT_SYMBOL(clk_enable);
 void clk_disable(struct clk *clk)
 {
 	unsigned long flags;
+	struct clk *parent;
 
 	if (!clk)
 		return;
 
 	spin_lock_irqsave(&clk->lock, flags);
-	if (WARN(clk->count == 0, "%s is unbalanced", clk->dbg_name))
+	if (WARN_ON(clk->count == 0))
 		goto out;
 	if (clk->count == 1) {
-		struct clk *parent = clk_get_parent(clk);
-
 		if (clk->ops->disable)
 			clk->ops->disable(clk);
-		unvote_rate_vdd(clk, clk->rate);
-		clk_disable(clk->depends);
+		parent = clk_get_parent(clk);
 		clk_disable(parent);
 	}
 	clk->count--;
@@ -230,39 +101,10 @@ EXPORT_SYMBOL(clk_get_rate);
 
 int clk_set_rate(struct clk *clk, unsigned long rate)
 {
-	unsigned long start_rate, flags;
-	int rc;
-
 	if (!clk->ops->set_rate)
 		return -ENOSYS;
 
-	spin_lock_irqsave(&clk->lock, flags);
-	if (clk->count) {
-		start_rate = clk->rate;
-		/* Enforce vdd requirements for target frequency. */
-		rc = vote_rate_vdd(clk, rate);
-		if (rc)
-			goto err_vote_vdd;
-		rc = clk->ops->set_rate(clk, rate);
-		if (rc)
-			goto err_set_rate;
-		/* Release vdd requirements for starting frequency. */
-		unvote_rate_vdd(clk, start_rate);
-	} else {
-		rc = clk->ops->set_rate(clk, rate);
-	}
-
-	if (!rc)
-		clk->rate = rate;
-
-	spin_unlock_irqrestore(&clk->lock, flags);
-	return rc;
-
-err_set_rate:
-	unvote_rate_vdd(clk, rate);
-err_vote_vdd:
-	spin_unlock_irqrestore(&clk->lock, flags);
-	return rc;
+	return clk->ops->set_rate(clk, rate);
 }
 EXPORT_SYMBOL(clk_set_rate);
 
@@ -274,6 +116,15 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 	return clk->ops->round_rate(clk, rate);
 }
 EXPORT_SYMBOL(clk_round_rate);
+
+int clk_set_min_rate(struct clk *clk, unsigned long rate)
+{
+	if (!clk->ops->set_min_rate)
+		return -ENOSYS;
+
+	return clk->ops->set_min_rate(clk, rate);
+}
+EXPORT_SYMBOL(clk_set_min_rate);
 
 int clk_set_max_rate(struct clk *clk, unsigned long rate)
 {
@@ -313,34 +164,22 @@ int clk_set_flags(struct clk *clk, unsigned long flags)
 }
 EXPORT_SYMBOL(clk_set_flags);
 
-static struct clock_init_data __initdata *clk_init_data;
+static struct clk_lookup *msm_clocks;
+static unsigned msm_num_clocks;
 
-void __init msm_clock_init(struct clock_init_data *data)
+void __init msm_clock_init(struct clk_lookup *clock_tbl, size_t num_clocks)
 {
 	unsigned n;
-	struct clk_lookup *clock_tbl;
-	size_t num_clocks;
-
-	clk_init_data = data;
-	if (clk_init_data->init)
-		clk_init_data->init();
-
-	clock_tbl = data->table;
-	num_clocks = data->size;
 
 	for (n = 0; n < num_clocks; n++) {
 		struct clk *clk = clock_tbl[n].clk;
 		struct clk *parent = clk_get_parent(clk);
 		clk_set_parent(clk, parent);
-		if (clk->ops->handoff && !(clk->flags & CLKFLAG_HANDOFF_RATE)) {
-			if (clk->ops->handoff(clk)) {
-				clk->flags |= CLKFLAG_HANDOFF_RATE;
-				clk_enable(clk);
-			}
-		}
 	}
 
 	clkdev_add_table(clock_tbl, num_clocks);
+	msm_clocks = clock_tbl;
+	msm_num_clocks = num_clocks;
 }
 
 /*
@@ -350,14 +189,13 @@ void __init msm_clock_init(struct clock_init_data *data)
  */
 static int __init clock_late_init(void)
 {
-	unsigned n, count = 0;
+	unsigned n;
 	unsigned long flags;
-	int ret = 0;
+	unsigned count = 0;
 
-	clock_debug_init(clk_init_data);
-	for (n = 0; n < clk_init_data->size; n++) {
-		struct clk *clk = clk_init_data->table[n].clk;
-		bool handoff = false;
+	clock_debug_init(msm_clocks, msm_num_clocks);
+	for (n = 0; n < msm_num_clocks; n++) {
+		struct clk *clk = msm_clocks[n].clk;
 
 		clock_debug_add(clk);
 		if (!(clk->flags & CLKFLAG_SKIP_AUTO_OFF)) {
@@ -366,22 +204,10 @@ static int __init clock_late_init(void)
 				count++;
 				clk->ops->auto_off(clk);
 			}
-			if (clk->flags & CLKFLAG_HANDOFF_RATE) {
-				clk->flags &= ~CLKFLAG_HANDOFF_RATE;
-				handoff = true;
-			}
 			spin_unlock_irqrestore(&clk->lock, flags);
-			/*
-			 * Calling clk_disable() outside the lock is safe since
-			 * it doesn't need to be atomic with the flag change.
-			 */
-			if (handoff)
-				clk_disable(clk);
 		}
 	}
 	pr_info("clock_late_init() disabled %d unused clocks\n", count);
-	if (clk_init_data->late_init)
-		ret = clk_init_data->late_init();
-	return ret;
+	return 0;
 }
 late_initcall(clock_late_init);

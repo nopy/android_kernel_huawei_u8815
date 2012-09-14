@@ -195,8 +195,11 @@ void free_ieee80211(struct net_device *dev)
 {
 	struct ieee80211_device *ieee = netdev_priv(dev);
 	int i;
-	kfree(ieee->pHTInfo);
-	ieee->pHTInfo = NULL;
+	if (ieee->pHTInfo != NULL)
+	{
+		kfree(ieee->pHTInfo);
+		ieee->pHTInfo = NULL;
+	}
 	RemoveAllTS(ieee);
 	ieee80211_softmac_free(ieee);
 	del_timer_sync(&ieee->crypt_deinit_timer);
@@ -219,7 +222,7 @@ void free_ieee80211(struct net_device *dev)
 #ifdef CONFIG_IEEE80211_DEBUG
 
 u32 ieee80211_debug_level = 0;
-static int debug =
+static int debug = \
 	/* IEEE80211_DL_INFO	| */
 	/* IEEE80211_DL_WX	| */
 	/* IEEE80211_DL_SCAN	| */

@@ -161,7 +161,7 @@ struct ubi_work {
 	int torture;
 };
 
-#ifdef CONFIG_MTD_UBI_DEBUG
+#ifdef CONFIG_MTD_UBI_DEBUG_PARANOID
 static int paranoid_check_ec(struct ubi_device *ubi, int pnum, int ec);
 static int paranoid_check_in_wl_tree(struct ubi_wl_entry *e,
 				     struct rb_root *root);
@@ -613,7 +613,7 @@ static void schedule_ubi_work(struct ubi_device *ubi, struct ubi_work *wrk)
 	list_add_tail(&wrk->list, &ubi->works);
 	ubi_assert(ubi->works_count >= 0);
 	ubi->works_count += 1;
-	if (ubi->thread_enabled && !ubi_dbg_is_bgt_disabled())
+	if (ubi->thread_enabled)
 		wake_up_process(ubi->bgt_thread);
 	spin_unlock(&ubi->wl_lock);
 }
@@ -1364,7 +1364,7 @@ int ubi_thread(void *u)
 
 		spin_lock(&ubi->wl_lock);
 		if (list_empty(&ubi->works) || ubi->ro_mode ||
-		    !ubi->thread_enabled || ubi_dbg_is_bgt_disabled()) {
+			       !ubi->thread_enabled) {
 			set_current_state(TASK_INTERRUPTIBLE);
 			spin_unlock(&ubi->wl_lock);
 			schedule();
@@ -1561,7 +1561,7 @@ void ubi_wl_close(struct ubi_device *ubi)
 	kfree(ubi->lookuptbl);
 }
 
-#ifdef CONFIG_MTD_UBI_DEBUG
+#ifdef CONFIG_MTD_UBI_DEBUG_PARANOID
 
 /**
  * paranoid_check_ec - make sure that the erase counter of a PEB is correct.
@@ -1570,17 +1570,13 @@ void ubi_wl_close(struct ubi_device *ubi)
  * @ec: the erase counter to check
  *
  * This function returns zero if the erase counter of physical eraseblock @pnum
- * is equivalent to @ec, and a negative error code if not or if an error
- * occurred.
+ * is equivalent to @ec, and a negative error code if not or if an error occurred.
  */
 static int paranoid_check_ec(struct ubi_device *ubi, int pnum, int ec)
 {
 	int err;
 	long long read_ec;
 	struct ubi_ec_hdr *ec_hdr;
-
-	if (!(ubi_chk_flags & UBI_CHK_GEN))
-		return 0;
 
 	ec_hdr = kzalloc(ubi->ec_hdr_alsize, GFP_NOFS);
 	if (!ec_hdr)
@@ -1618,9 +1614,6 @@ out_free:
 static int paranoid_check_in_wl_tree(struct ubi_wl_entry *e,
 				     struct rb_root *root)
 {
-	if (!(ubi_chk_flags & UBI_CHK_GEN))
-		return 0;
-
 	if (in_wl_tree(e, root))
 		return 0;
 
@@ -1643,9 +1636,6 @@ static int paranoid_check_in_pq(struct ubi_device *ubi, struct ubi_wl_entry *e)
 	struct ubi_wl_entry *p;
 	int i;
 
-	if (!(ubi_chk_flags & UBI_CHK_GEN))
-		return 0;
-
 	for (i = 0; i < UBI_PROT_QUEUE_LEN; ++i)
 		list_for_each_entry(p, &ubi->pq[i], u.list)
 			if (p == e)
@@ -1656,5 +1646,4 @@ static int paranoid_check_in_pq(struct ubi_device *ubi, struct ubi_wl_entry *e)
 	ubi_dbg_dump_stack();
 	return -EINVAL;
 }
-
-#endif /* CONFIG_MTD_UBI_DEBUG */
+#endif /* CONFIG_MTD_UBI_DEBUG_PARANOID */

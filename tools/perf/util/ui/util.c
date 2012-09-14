@@ -9,7 +9,6 @@
 #include "../debug.h"
 #include "browser.h"
 #include "helpline.h"
-#include "ui.h"
 #include "util.h"
 
 static void newt_form__set_exit_keys(newtComponent self)
@@ -119,12 +118,10 @@ void ui__warning(const char *format, ...)
 	va_list args;
 
 	va_start(args, format);
-	if (use_browser > 0) {
-		pthread_mutex_lock(&ui__lock);
+	if (use_browser > 0)
 		newtWinMessagev((char *)warning_str, (char *)ok,
 				(char *)format, args);
-		pthread_mutex_unlock(&ui__lock);
-	} else
+	else
 		vfprintf(stderr, format, args);
 	va_end(args);
 }

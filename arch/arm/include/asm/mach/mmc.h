@@ -28,8 +28,7 @@ struct msm_mmc_reg_data {
 	/* regulator name */
 	const char *name;
 	/* voltage level to be set */
-	unsigned int low_vol_level;
-	unsigned int high_vol_level;
+	unsigned int level;
 	/* Load values for low power and high power mode */
 	unsigned int lpm_uA;
 	unsigned int hpm_uA;
@@ -37,11 +36,6 @@ struct msm_mmc_reg_data {
 	 * is set voltage supported for this regulator?
 	 * false => set voltage is not supported
 	 * true  => set voltage is supported
-	 *
-	 * Some regulators (like gpio-regulators, LVS (low voltage swtiches)
-	 * PMIC regulators) dont have the capability to call
-	 * regulator_set_voltage or regulator_set_optimum_mode
-	 * Use this variable to indicate if its a such regulator or not
 	 */
 	bool set_voltage_sup;
 	/* is this regulator enabled? */
@@ -114,12 +108,6 @@ struct msm_mmc_pin_data {
 
 struct mmc_platform_data {
 	unsigned int ocr_mask;			/* available voltages */
-	int built_in;				/* built-in device flag */
-	int card_present;			/* card detect state */
-	u32 (*translate_vdd)(struct device *, unsigned int);
-	unsigned int (*status)(struct device *);
-	struct embedded_sdio_data *embedded_sdio;
-	int (*register_status_notify)(void (*callback)(int card_present, void *dev_id), void *dev_id);
 	/*
 	 * XPC controls the maximum current in the
 	 * default speed mode of SDXC card.
@@ -127,21 +115,25 @@ struct mmc_platform_data {
 	unsigned int xpc_cap;
 	/* Supported UHS-I Modes */
 	unsigned int uhs_caps;
+	u32 (*translate_vdd)(struct device *, unsigned int);
 	void (*sdio_lpm_gpio_setup)(struct device *, unsigned int);
+	unsigned int (*status)(struct device *);
         unsigned int status_irq;
 	unsigned int status_gpio;
-	/* Indicates the polarity of the GPIO line when card is inserted */
-	bool is_status_gpio_active_low;
+        struct embedded_sdio_data *embedded_sdio;
         unsigned int sdiowakeup_irq;
+	int (*register_status_notify)(void (*callback)(int card_present, void *dev_id), void *dev_id);
         unsigned long irq_flags;
         unsigned long mmc_bus_width;
         int (*wpswitch) (struct device *);
+	int dummy52_required;
 	unsigned int msmsdcc_fmin;
 	unsigned int msmsdcc_fmid;
 	unsigned int msmsdcc_fmax;
 	bool nonremovable;
 	bool pclk_src_dfab;
 	int (*cfg_mpm_sdiowakeup)(struct device *, unsigned);
+	bool sdcc_v4_sup;
 	unsigned int wpswitch_gpio;
 	unsigned char wpswitch_polarity;
 	struct msm_mmc_slot_reg_data *vreg_data;
@@ -149,10 +141,6 @@ struct mmc_platform_data {
 	unsigned int *sup_clk_table;
 	unsigned char sup_clk_cnt;
 	struct msm_mmc_pin_data *pin_data;
-	bool disable_bam;
-	bool disable_runtime_pm;
-	bool disable_cmd23;
-	u32 swfi_latency;
 };
 
 #endif

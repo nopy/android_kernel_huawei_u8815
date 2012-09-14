@@ -23,11 +23,10 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/version.h>
-#include <linux/sched.h>
 #include <asm/uaccess.h>
 
 #include "idle_stats.h"
-#include <mach/cpuidle.h>
+#include "cpuidle.h"
 
 /******************************************************************************
  * Debug Definitions

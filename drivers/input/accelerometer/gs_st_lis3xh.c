@@ -30,7 +30,6 @@
 #include <linux/miscdevice.h>
 #include <asm/uaccess.h>
 #include <linux/slab.h>
-#include <mach/vreg.h>
 
 #include <linux/gs_st_lis3xh.h>
 #include "linux/hardware_self_adapt.h"
@@ -79,31 +78,6 @@ static compass_gs_position_type  compass_gs_position=COMPASS_TOP_GS_TOP;
 static void gs_early_suspend(struct early_suspend *h);
 static void gs_late_resume(struct early_suspend *h);
 #endif
-
-static inline int reg_read(struct gs_data *gs , int reg);
-static int lis3xh_debug_mask;
-module_param_named(lis3xh_debug, lis3xh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
-
-#define lis3xh_DBG(x...) do {\
-    if (lis3xh_debug_mask) \
-        printk(KERN_DEBUG x);\
-    } while (0)
-#define lis3xh_PRINT_PER_TIMES 100
-unsigned int list3xh_times = 0;
-
-void lis3xh_print_debug(int start_reg,int end_reg)
-{
-        int reg, ret;
-
-        for(reg = start_reg ; reg <= end_reg ; reg ++)
-        {
-			/* read reg value */
-            ret = reg_read(this_gs_data,reg);
-			/* print reg info */
-            lis3xh_DBG("lis3xh reg 0x%x values 0x%x\n",reg,ret);
-        }
-
-}
 
 static inline int reg_read(struct gs_data *gs , int reg)
 {
@@ -192,9 +166,10 @@ static int gs_st_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 gs_st_ioctl(struct file *file, unsigned int cmd,
-	   unsigned long arg)
+		unsigned long arg)
 {
 	
 	void __user *argp = (void __user *)arg;
@@ -275,6 +250,7 @@ gs_st_ioctl(struct file *file, unsigned int cmd,
 	return 0;
 }
 
+/* modify iotcl interface */
 static struct file_operations gs_st_fops = {
 	.owner = THIS_MODULE,
 	.open = gs_st_open,
@@ -291,7 +267,7 @@ static struct miscdevice gsensor_device = {
 static void gs_work_func(struct work_struct *work)
 {
 	int status;	
-	int x = 0, y = 0, z = 0;
+	int x, y, z;
 	u16 u16x, u16y, u16z;
 	u8 u8xl, u8xh, u8yl, u8yh, u8zl, u8zh;
 	int sesc = accel_delay / 1000;
@@ -346,7 +322,8 @@ static void gs_work_func(struct work_struct *work)
 		y = (MG_PER_SAMPLE*40*(s16)y)/FILTER_SAMPLE_NUMBER/10;
 		z = (MG_PER_SAMPLE*40*(s16)z)/FILTER_SAMPLE_NUMBER/10;
 
-		lis3xh_DBG("Gs_lis3xh:A  x : %d y : %d z : %d \n", x,y,z);
+		GS_DEBUG("gs_st_list3xh  A  x :0x%x y :0x%x z :0x%x \n", x,y,z);
+
 		/*report different values by machines*/
 		if((compass_gs_position==COMPASS_TOP_GS_BOTTOM)||(compass_gs_position==COMPASS_BOTTOM_GS_BOTTOM)||(compass_gs_position==COMPASS_NONE_GS_BOTTOM))
 		{
@@ -389,20 +366,6 @@ static void gs_work_func(struct work_struct *work)
 		gs_sensor_data[2]= -z;
 	}
 
-    lis3xh_DBG("Gs_lis3xh:A  x : %d y : %d z : %d \n", x,y,z);
-    if(lis3xh_debug_mask)
-    {
-	    /* print reg info in such times */
-		if(!(++list3xh_times%lis3xh_PRINT_PER_TIMES))  
-		{
-			/* count return to 0 */
-			list3xh_times = 0;
-			lis3xh_print_debug(GS_ST_REG_STATUS_AUX,GS_ST_REG_WHO_AM_I);
-			lis3xh_print_debug(GS_ST_REG_TEMP_CFG_REG,GS_ST_REG_OUT_ZH);
-			lis3xh_print_debug(GS_ST_REG_FF_WU_CFG_1,GS_ST_REG_CLICK_SRC);
-			lis3xh_print_debug(GS_ST_REG_CLICK_THSY_X,GS_ST_REG_CLICK_WINDOW);
-		}
-    }
 	if (gs->use_irq)
 		enable_irq(gs->client->irq);
 	else
@@ -460,11 +423,10 @@ static int gs_probe(
 	struct i2c_client *client, const struct i2c_device_id *id)
 {	
 	int ret;
+    u8 reg_st = 0;
 	struct gs_data *gs;
-	int reg_st;
 	struct gs_platform_data *pdata = NULL;
 
-	/*delete 19 lines*/
 	printk("my gs_probe_lis3xh\n");
     
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
@@ -473,17 +435,8 @@ static int gs_probe(
 		goto err_check_functionality_failed;
 	}
 	
-	/*turn on the power*/
 	pdata = client->dev.platform_data;
 	if (pdata){
-#ifdef CONFIG_ARCH_MSM7X30
-		if(pdata->gs_power != NULL){
-			ret = pdata->gs_power(IC_PM_ON);
-			if(ret < 0 ){
-				goto err_check_functionality_failed;
-			}
-		}
-#endif
 		if(pdata->adapt_fn != NULL){
 			ret = pdata->adapt_fn();
 			if(ret > 0){
@@ -492,7 +445,7 @@ static int gs_probe(
 				if(client->addr == 0){
 					printk(KERN_ERR "%s: bad i2c address = %d\n", __FUNCTION__, client->addr);
 					ret = -EFAULT;
-					goto err_power_failed;
+					goto err_check_functionality_failed;
 				}
 			}
 		}
@@ -506,7 +459,7 @@ static int gs_probe(
 			if(*(pdata->init_flag)){
 				printk(KERN_ERR "gs_list3xh probe failed, because the othe gsensor has been probed.\n");
 				ret = -ENODEV;
-				goto err_power_failed;
+				goto err_check_functionality_failed;
 			}
 		}
 	}
@@ -514,7 +467,7 @@ static int gs_probe(
 	ret = gs_config_int_pin();
 	if(ret <0)
 	{
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 #endif
 
@@ -597,7 +550,7 @@ static int gs_probe(
 
 	set_bit(EV_ABS,gs->input_dev->evbit);
 	
-	/* modify for ES-version*/
+	/* modify the func of init */
 	input_set_abs_params(gs->input_dev, ABS_X, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Y, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Z, -11520, 11520, 0, 0);
@@ -672,13 +625,7 @@ err_alloc_data_failed:
 #ifndef   GS_POLLING 
 	gs_free_int();
 #endif
-/*turn down the power*/	
-err_power_failed:
-#ifdef CONFIG_ARCH_MSM7X30
-	if(pdata->gs_power != NULL){
-		pdata->gs_power(IC_PM_OFF);
-	}
-#endif
+
 err_check_functionality_failed:
 	return ret;
 }

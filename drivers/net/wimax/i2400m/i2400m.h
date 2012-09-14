@@ -526,7 +526,7 @@ struct i2400m_barker_db;
  *
  * @barker: barker type that the device uses; this is initialized by
  *     i2400m_is_boot_barker() the first time it is called. Then it
- *     won't change during the life cycle of the device and every time
+ *     won't change during the life cycle of the device and everytime
  *     a boot barker is received, it is just verified for it being the
  *     same.
  *
@@ -928,7 +928,7 @@ extern void i2400m_report_tlv_rf_switches_status(
 	struct i2400m *, const struct i2400m_tlv_rf_switches_status *);
 
 /*
- * Helpers for firmware backwards compatibility
+ * Helpers for firmware backwards compability
  *
  * As we aim to support at least the firmware version that was
  * released with the previous kernel/driver release, some code will be

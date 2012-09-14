@@ -16,7 +16,6 @@
 #include <linux/device.h>
 #include <linux/suspend.h>
 #include <linux/reboot.h>
-#include <linux/acpi.h>
 
 #include <asm/io.h>
 
@@ -200,6 +199,8 @@ static void acpi_pm_end(void)
 #endif /* CONFIG_ACPI_SLEEP */
 
 #ifdef CONFIG_SUSPEND
+extern void do_suspend_lowlevel(void);
+
 static u32 acpi_suspend_states[] = {
 	[PM_SUSPEND_ON] = ACPI_STATE_S0,
 	[PM_SUSPEND_STANDBY] = ACPI_STATE_S1,
@@ -242,11 +243,20 @@ static int acpi_suspend_begin(suspend_state_t pm_state)
 static int acpi_suspend_enter(suspend_state_t pm_state)
 {
 	acpi_status status = AE_OK;
+	unsigned long flags = 0;
 	u32 acpi_state = acpi_target_sleep_state;
-	int error;
 
 	ACPI_FLUSH_CPU_CACHE();
 
+	/* Do arch specific saving of state. */
+	if (acpi_state == ACPI_STATE_S3) {
+		int error = acpi_save_state_mem();
+
+		if (error)
+			return error;
+	}
+
+	local_irq_save(flags);
 	switch (acpi_state) {
 	case ACPI_STATE_S1:
 		barrier();
@@ -254,10 +264,7 @@ static int acpi_suspend_enter(suspend_state_t pm_state)
 		break;
 
 	case ACPI_STATE_S3:
-		error = acpi_suspend_lowlevel();
-		if (error)
-			return error;
-		pr_info(PREFIX "Low-level resume complete\n");
+		do_suspend_lowlevel();
 		break;
 	}
 
@@ -282,6 +289,13 @@ static int acpi_suspend_enter(suspend_state_t pm_state)
 	acpi_disable_all_gpes();
 	/* Allow EC transactions to happen. */
 	acpi_ec_unblock_transactions_early();
+
+	local_irq_restore(flags);
+	printk(KERN_DEBUG "Back to C!\n");
+
+	/* restore processor state */
+	if (acpi_state == ACPI_STATE_S3)
+		acpi_restore_state_mem();
 
 	suspend_nvs_restore();
 
@@ -458,13 +472,16 @@ static int acpi_hibernation_begin(void)
 static int acpi_hibernation_enter(void)
 {
 	acpi_status status = AE_OK;
+	unsigned long flags = 0;
 
 	ACPI_FLUSH_CPU_CACHE();
 
+	local_irq_save(flags);
 	/* This shouldn't return.  If it returns, we have a problem */
 	status = acpi_enter_sleep_state(ACPI_STATE_S4);
 	/* Reprogram control registers and execute _BFS */
 	acpi_leave_sleep_state_prep(ACPI_STATE_S4);
+	local_irq_restore(flags);
 
 	return ACPI_SUCCESS(status) ? 0 : -EFAULT;
 }
@@ -568,7 +585,7 @@ int acpi_suspend(u32 acpi_state)
 	return -EINVAL;
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_OPS
 /**
  *	acpi_pm_device_sleep_state - return preferred power state of ACPI device
  *		in the system sleep state given by %acpi_target_sleep_state
@@ -654,7 +671,7 @@ int acpi_pm_device_sleep_state(struct device *dev, int *d_min_p)
 		*d_min_p = d_min;
 	return d_max;
 }
-#endif /* CONFIG_PM */
+#endif /* CONFIG_PM_OPS */
 
 #ifdef CONFIG_PM_SLEEP
 /**

@@ -21,8 +21,8 @@
 #include <linux/posix_acl_xattr.h>
 #include "xattr.h"
 #include "acl.h"
-#include "v9fs.h"
 #include "v9fs_vfs.h"
+#include "v9fs.h"
 
 static struct posix_acl *__v9fs_get_acl(struct p9_fid *fid, char *name)
 {
@@ -59,8 +59,7 @@ int v9fs_get_acl(struct inode *inode, struct p9_fid *fid)
 	struct v9fs_session_info *v9ses;
 
 	v9ses = v9fs_inode2v9ses(inode);
-	if (((v9ses->flags & V9FS_ACCESS_MASK) != V9FS_ACCESS_CLIENT) ||
-			((v9ses->flags & V9FS_ACL_MASK) != V9FS_POSIX_ACL)) {
+	if ((v9ses->flags & V9FS_ACCESS_MASK) != V9FS_ACCESS_CLIENT) {
 		set_cached_acl(inode, ACL_TYPE_DEFAULT, NULL);
 		set_cached_acl(inode, ACL_TYPE_ACCESS, NULL);
 		return 0;
@@ -72,14 +71,10 @@ int v9fs_get_acl(struct inode *inode, struct p9_fid *fid)
 	if (!IS_ERR(dacl) && !IS_ERR(pacl)) {
 		set_cached_acl(inode, ACL_TYPE_DEFAULT, dacl);
 		set_cached_acl(inode, ACL_TYPE_ACCESS, pacl);
+		posix_acl_release(dacl);
+		posix_acl_release(pacl);
 	} else
 		retval = -EIO;
-
-	if (!IS_ERR(dacl))
-		posix_acl_release(dacl);
-
-	if (!IS_ERR(pacl))
-		posix_acl_release(pacl);
 
 	return retval;
 }
@@ -105,10 +100,9 @@ int v9fs_check_acl(struct inode *inode, int mask, unsigned int flags)
 		return -ECHILD;
 
 	v9ses = v9fs_inode2v9ses(inode);
-	if (((v9ses->flags & V9FS_ACCESS_MASK) != V9FS_ACCESS_CLIENT) ||
-			((v9ses->flags & V9FS_ACL_MASK) != V9FS_POSIX_ACL)) {
+	if ((v9ses->flags & V9FS_ACCESS_MASK) != V9FS_ACCESS_CLIENT) {
 		/*
-		 * On access = client  and acl = on mode get the acl
+		 * On access = client mode get the acl
 		 * values from the server
 		 */
 		return 0;
@@ -134,10 +128,6 @@ static int v9fs_set_acl(struct dentry *dentry, int type, struct posix_acl *acl)
 	struct inode *inode = dentry->d_inode;
 
 	set_cached_acl(inode, type, acl);
-
-	if (!acl)
-		return 0;
-
 	/* Set a setxattr request to server */
 	size = posix_acl_xattr_size(acl->a_count);
 	buffer = kmalloc(size, GFP_KERNEL);
@@ -185,15 +175,14 @@ int v9fs_acl_chmod(struct dentry *dentry)
 }
 
 int v9fs_set_create_acl(struct dentry *dentry,
-			struct posix_acl **dpacl, struct posix_acl **pacl)
+			struct posix_acl *dpacl, struct posix_acl *pacl)
 {
-	if (dentry) {
-		v9fs_set_acl(dentry, ACL_TYPE_DEFAULT, *dpacl);
-		v9fs_set_acl(dentry, ACL_TYPE_ACCESS, *pacl);
-	}
-	posix_acl_release(*dpacl);
-	posix_acl_release(*pacl);
-	*dpacl = *pacl = NULL;
+	if (dpacl)
+		v9fs_set_acl(dentry, ACL_TYPE_DEFAULT, dpacl);
+	if (pacl)
+		v9fs_set_acl(dentry, ACL_TYPE_ACCESS, pacl);
+	posix_acl_release(dpacl);
+	posix_acl_release(pacl);
 	return 0;
 }
 
@@ -215,11 +204,11 @@ int v9fs_acl_mode(struct inode *dir, mode_t *modep,
 		struct posix_acl *clone;
 
 		if (S_ISDIR(mode))
-			*dpacl = posix_acl_dup(acl);
+			*dpacl = acl;
 		clone = posix_acl_clone(acl, GFP_NOFS);
-		posix_acl_release(acl);
+		retval = -ENOMEM;
 		if (!clone)
-			return -ENOMEM;
+			goto cleanup;
 
 		retval = posix_acl_create_masq(clone, &mode);
 		if (retval < 0) {
@@ -228,12 +217,11 @@ int v9fs_acl_mode(struct inode *dir, mode_t *modep,
 		}
 		if (retval > 0)
 			*pacl = clone;
-		else
-			posix_acl_release(clone);
 	}
 	*modep  = mode;
 	return 0;
 cleanup:
+	posix_acl_release(acl);
 	return retval;
 
 }
@@ -266,7 +254,7 @@ static int v9fs_xattr_get_acl(struct dentry *dentry, const char *name,
 	if (strcmp(name, "") != 0)
 		return -EINVAL;
 
-	v9ses = v9fs_dentry2v9ses(dentry);
+	v9ses = v9fs_inode2v9ses(dentry->d_inode);
 	/*
 	 * We allow set/get/list of acl when access=client is not specified
 	 */
@@ -316,7 +304,7 @@ static int v9fs_xattr_set_acl(struct dentry *dentry, const char *name,
 	if (strcmp(name, "") != 0)
 		return -EINVAL;
 
-	v9ses = v9fs_dentry2v9ses(dentry);
+	v9ses = v9fs_inode2v9ses(dentry->d_inode);
 	/*
 	 * set the attribute on the remote. Without even looking at the
 	 * xattr value. We leave it to the server to validate
@@ -327,7 +315,7 @@ static int v9fs_xattr_set_acl(struct dentry *dentry, const char *name,
 
 	if (S_ISLNK(inode->i_mode))
 		return -EOPNOTSUPP;
-	if (!inode_owner_or_capable(inode))
+	if (!is_owner_or_cap(inode))
 		return -EPERM;
 	if (value) {
 		/* update the cached acl value */

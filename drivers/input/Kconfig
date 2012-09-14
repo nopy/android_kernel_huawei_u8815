@@ -170,6 +170,16 @@ config INPUT_KEYRESET
 	  To compile this driver as a module, choose M here: the
 	  module will be called keyreset.
 
+config XEN_KBDDEV_FRONTEND
+	tristate "Xen virtual keyboard and mouse support"
+	depends on XEN_FBDEV_FRONTEND
+	default y
+	select XEN_XENBUS_FRONTEND
+	help
+	  This driver implements the front-end of the Xen virtual
+	  keyboard and mouse device driver.  It communicates with a back-end
+	  in another domain.
+
 comment "Input Device Drivers"
 
 source "drivers/input/keyboard/Kconfig"
@@ -181,6 +191,7 @@ source "drivers/input/joystick/Kconfig"
 source "drivers/input/tablet/Kconfig"
 
 source "drivers/input/touchscreen/Kconfig"
+
 source "drivers/input/accelerometer/Kconfig"
 source "drivers/input/misc/Kconfig"
 

@@ -74,26 +74,27 @@ struct platform_device msm_device_uart2 = {
  * SSBIs
  */
 
-#ifdef CONFIG_MSM_SSBI
-#define MSM_SSBI1_PHYS          0x94080000
-#define MSM_SSBI_PMIC1_PHYS     MSM_SSBI1_PHYS
-static struct resource msm_ssbi_pmic1_resources[] = {
+#ifdef CONFIG_I2C_SSBI
+
+#define MSM_SSBI1_PHYS		0x94080000
+#define MSM_SSBI1_SIZE		SZ_4K
+
+static struct resource msm_ssbi1_resources[] = {
 	{
-		.start  = MSM_SSBI_PMIC1_PHYS,
-		.end    = MSM_SSBI_PMIC1_PHYS + SZ_4K - 1,
-		.flags  = IORESOURCE_MEM,
+		.name   = "ssbi_base",
+		.start	= MSM_SSBI1_PHYS,
+		.end	= MSM_SSBI1_PHYS + MSM_SSBI1_SIZE - 1,
+		.flags	= IORESOURCE_MEM,
 	},
 };
 
-struct platform_device msm_device_ssbi_pmic1 = {
-	.name           = "msm_ssbi",
-	.id             = 0,
-	.resource       = msm_ssbi_pmic1_resources,
-	.num_resources  = ARRAY_SIZE(msm_ssbi_pmic1_resources),
+struct platform_device msm_device_ssbi1 = {
+	.name		= "i2c_ssbi",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(msm_ssbi1_resources),
+	.resource	= msm_ssbi1_resources,
 };
-#endif
 
-#ifdef CONFIG_I2C_SSBI
 #define MSM_SSBI2_PHYS		0x94090000
 #define MSM_SSBI2_SIZE		SZ_4K
 
@@ -232,21 +233,12 @@ struct platform_device msm_device_smd = {
  * ADM
  */
 
-static struct resource msm_dmov_resource[] = {
+struct resource msm_dmov_resource[] = {
 	{
 		.start = INT_ADM_AARM,
+		.end = (resource_size_t) MSM_DMOV_BASE,
 		.flags = IORESOURCE_IRQ,
 	},
-	{
-		.start = 0x94610000,
-		.end = 0x94610000 + SZ_4K - 1,
-		.flags = IORESOURCE_MEM,
-	},
-};
-
-static struct msm_dmov_pdata msm_dmov_pdata = {
-	.sd = 3,
-	.sd_size = 0x400,
 };
 
 struct platform_device msm_device_dmov = {
@@ -254,9 +246,6 @@ struct platform_device msm_device_dmov = {
 	.id	= -1,
 	.resource = msm_dmov_resource,
 	.num_resources = ARRAY_SIZE(msm_dmov_resource),
-	.dev = {
-		.platform_data = &msm_dmov_pdata,
-	},
 };
 
 /*

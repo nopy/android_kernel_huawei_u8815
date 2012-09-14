@@ -22,7 +22,6 @@
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
-#include <linux/syscore_ops.h>
 #include <trace/events/power.h>
 
 #include "power.h"
@@ -165,26 +164,25 @@ static int suspend_enter(suspend_state_t state)
 
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
-	
 	/*add qcom debug code*/
-    #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
+#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 	print_dpm_list();
 	printk("print_dpm_list in suspend end\n");
-    #endif
+#endif
 
-	error = syscore_suspend();
+	error = sysdev_suspend(PMSG_SUSPEND);
 	if (!error) {
 		if (!(suspend_test(TEST_CORE) || pm_wakeup_pending())) {
 			error = suspend_ops->enter(state);
 			events_check_enabled = false;
 		}
-		syscore_resume();
+		sysdev_resume();
 	}
 	/*add qcom debug code*/
-    #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
+#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 	print_dpm_list();
 	printk("print_dpm_list in resume end\n");
-    #endif
+#endif
 
 	arch_suspend_enable_irqs();
 	BUG_ON(irqs_disabled());
@@ -224,6 +222,7 @@ int suspend_devices_and_enter(suspend_state_t state)
 			goto Close;
 	}
 	suspend_console();
+	pm_restrict_gfp_mask();
 	suspend_test_start();
 	error = dpm_suspend_start(PMSG_SUSPEND);
 	if (error) {
@@ -234,12 +233,13 @@ int suspend_devices_and_enter(suspend_state_t state)
 	if (suspend_test(TEST_DEVICES))
 		goto Recover_platform;
 
-	error = suspend_enter(state);
+	suspend_enter(state);
 
  Resume_devices:
 	suspend_test_start();
 	dpm_resume_end(PMSG_RESUME);
 	suspend_test_finish("resume devices");
+	pm_restore_gfp_mask();
 	resume_console();
  Close:
 	if (suspend_ops->end)
@@ -298,9 +298,7 @@ int enter_state(suspend_state_t state)
 		goto Finish;
 
 	pr_debug("PM: Entering %s sleep\n", pm_states[state]);
-	pm_restrict_gfp_mask();
 	error = suspend_devices_and_enter(state);
-	pm_restore_gfp_mask();
 
  Finish:
 	pr_debug("PM: Finishing wakeup.\n");
@@ -309,6 +307,11 @@ int enter_state(suspend_state_t state)
 	mutex_unlock(&pm_mutex);
 	return error;
 }
+
+#ifdef CONFIG_HUAWEI_KERNEL
+/* Function declaration, exported from earlysuspend.c */
+void set_up_threshold(int screen_on);
+#endif
 
 /**
  *	pm_suspend - Externally visible function for suspending system.
@@ -319,6 +322,10 @@ int enter_state(suspend_state_t state)
  */
 int pm_suspend(suspend_state_t state)
 {
+#ifdef CONFIG_HUAWEI_KERNEL
+    /* Set up_threshold to DEF_FREQUENCY_UP_THRESHOLD when system is ready to suspend */
+    set_up_threshold(true);
+#endif
 	if (state > PM_SUSPEND_ON && state <= PM_SUSPEND_MAX)
 		return enter_state(state);
 	return -EINVAL;

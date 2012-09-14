@@ -1,15 +1,22 @@
+
 /*
  * Copyright (C) 2008 The HUAWEI ,inc
  * All rights reserved.
- *
  */
 #ifndef _SMEM_VENDOR_HUAWEI_H_
 #define _SMEM_VENDOR_HUAWEI_H_
 
-
+#define VENDOR_PROP_CMDLINE_ID  " androidboot.localproppath="
 #define APP_USB_SERIAL_LEN   16
-
 #define VENDOR_NAME_LEN      32
+#define MAGIC_NUMBER_FACTORY 0xD0D79D41
+#define MAGIC_NUMBER_NORMAL  0xA77011F2
+#define NETWORK_UMTS         1
+#define NETWORK_CDMA         2
+
+unsigned char network_is_cdma(void);
+unsigned char bootimage_is_recovery(void);
+unsigned char runmode_is_factory(void);
 
 typedef struct _app_usb_para_smem
 {
@@ -22,31 +29,20 @@ typedef struct _app_verder_name
 {
   unsigned char vender_name[VENDOR_NAME_LEN];
   unsigned char country_name[VENDOR_NAME_LEN];
-  /* del the update state */
 }app_vender_name;
 
-/* This struct is differnt in 7x30 and 7x25a/27a
- * We don't read the struct form SMEM, but get the struct members from cmdline.
- * If you want to read usb_para and vender_para in 7x30 or 7x25a/27a,
- * use the golable variable smem_huawei_vender usb_para_data dirctly,
- * and the variable has been initialized already.
- * If you want to use other members in 7x25a/27a, define new variables,
- * and initialize it in import_kernel_nv() in smem_vendor_huawei.c
- */
-/*Only 7x30 platform use this struct.  Only match with 7X30 platform !!!*/
-/*Not need modify for 7x27A platform.*/
 typedef struct
 {
   app_usb_para_smem      usb_para;
   app_vender_name   vender_para;
-  unsigned char    sb_state_rs_sdata[12];/*size == sizeof(sb_smem_data_type)*/
+  unsigned               network_type;
+  unsigned               run_mode;
+  unsigned char          reserved[32];
 } smem_huawei_vender;
-
-extern smem_huawei_vender usb_para_data;
-extern void import_kernel_cmdline(void);
 
 #define COUNTRY_JAPAN   "jp"
 #define VENDOR_EMOBILE  "emobile"
-
+#define COUNTRY_US   "us"
+#define VENDOR_TRACFONE  "tracfone"
 #endif //_SMEM_VENDOR_HUAWEI_H_
 

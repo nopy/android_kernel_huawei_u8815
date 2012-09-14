@@ -474,81 +474,63 @@ static void init_kp_devices(struct kset *kset, struct input_dev* in)
 #endif
 }
 
-/* fix the kernel panic due to the absinfo null pointer in 3.0.1 */
-static int do_ts_input_probe(void)
+static int do_late_probe(void)
 {
     int ret = 0;
-    struct input_dev* current_ts_dev = kset_find_input_devices(devices_kset);
+    struct input_dev* current_ts_dev;
+        
+    current_ts_dev = kset_find_input_devices(devices_kset);
 
     /* has found a touch dev */
-    if(!current_ts_dev)
+    if(current_ts_dev != NULL)
     {
-        return 0;
-    }
-
-    KEY_TEST_DEBUG("prob touch dev ...\n");
-    /*touch screen input dev init*/
-    key_test_dev->ts_input_dev = input_allocate_device();
-    if (key_test_dev->ts_input_dev == NULL)
-    {
-        KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Failed to allocate ts test input device\n");
-        return -ENOMEM;
-    }
-
-    key_test_dev->ts_input_dev->name = "ts_test_input";
-    key_test_dev->ts_input_dev->mtsize = current_ts_dev->mtsize;
-    input_alloc_absinfo(key_test_dev->ts_input_dev);
-	/*fix the absinfo null pointer*/
-    if (!key_test_dev->ts_input_dev->absinfo || !current_ts_dev->absinfo) 
-    {
-        ret = -ENOMEM;
-        goto err_ts_input_free;
-    }
-
-    memcpy(key_test_dev->ts_input_dev->absinfo, current_ts_dev->absinfo, sizeof(struct input_absinfo));
-    memcpy(key_test_dev->ts_input_dev->evbit, current_ts_dev->evbit, sizeof(current_ts_dev->evbit));
-    memcpy(key_test_dev->ts_input_dev->keybit, current_ts_dev->keybit, sizeof(current_ts_dev->keybit));
-    memcpy(key_test_dev->ts_input_dev->absbit, current_ts_dev->absbit, sizeof(current_ts_dev->absbit));
-
-    ret = input_register_device(key_test_dev->ts_input_dev);
-    if (ret)
-    {
-        KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Unable to register %s input device\n", key_test_dev->ts_input_dev->name);
-        goto err_ts_input_free;
-    }   
-
-    /*init work for ts*/
-    ts_wq = create_singlethread_workqueue("key_test_wq");
-
-    if (!ts_wq)
-    {
-        ret = -ENOMEM; 
-        KEY_TEST_DEBUG("create synaptics_wq error\n");
-        goto err_ts_input_unregister;
-    }
-    INIT_WORK(&key_test_dev->work, ts_work_fun);
-
-    return 0;
+        KEY_TEST_DEBUG("prob touch dev ...\n");
+        /*touch screen input dev init*/
+        key_test_dev->ts_input_dev = input_allocate_device();
+        if (key_test_dev->ts_input_dev == NULL)
+        {
+            ret = -ENOMEM;
+            KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Failed to allocate ts test input device\n");
+            goto keypad_dev_prob;
+        }
+        key_test_dev->ts_input_dev->name = "ts_test_input";
         
-err_ts_input_unregister:
-    input_unregister_device(key_test_dev->ts_input_dev);
-err_ts_input_free:
-    input_free_device(key_test_dev->ts_input_dev);
+        memcpy(key_test_dev->ts_input_dev->evbit, current_ts_dev->evbit, sizeof(current_ts_dev->evbit));
+        memcpy(key_test_dev->ts_input_dev->keybit, current_ts_dev->keybit, sizeof(current_ts_dev->keybit));
+        memcpy(key_test_dev->ts_input_dev->absbit, current_ts_dev->absbit, sizeof(current_ts_dev->absbit));
+        
+        ret = input_register_device(key_test_dev->ts_input_dev);
+        if (ret)
+        {
+            input_free_device(key_test_dev->ts_input_dev);
+            KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Unable to register %s input device\n", key_test_dev->ts_input_dev->name);
+            ret = -ENODEV;
+            goto keypad_dev_prob;
+        }   
+        
+        /*init work for ts*/
+        ts_wq = create_singlethread_workqueue("key_test_wq");
+        
+        if (!ts_wq)
+        {
+            input_unregister_device(key_test_dev->ts_input_dev);
+            KEY_TEST_DEBUG("create synaptics_wq error\n");
+            ret = -ENOMEM;
+            goto keypad_dev_prob;
+        }
+        INIT_WORK(&key_test_dev->work, ts_work_fun);
+    }
 
-    return ret;
-}
-
-static int do_kp_input_probe(void)
-{
-    int ret = 0;
+keypad_dev_prob:
     KEY_TEST_DEBUG("prob keypad dev ...\n");
     
     /*keypad input dev init*/
     key_test_dev->kp_input_dev = input_allocate_device();
     if (key_test_dev->kp_input_dev == NULL)
     {
+        ret = -ENOMEM;
         KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Failed to allocate keypad test input device\n");
-        return -ENOMEM;
+        goto keypad_prob_failed;
     }
 
     key_test_dev->kp_input_dev->name = "kp_test_input";
@@ -559,8 +541,9 @@ static int do_kp_input_probe(void)
     ret = input_register_device(key_test_dev->kp_input_dev);
     if (ret)
     {
-        KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Unable to register %s input device\n", key_test_dev->kp_input_dev->name);
-        goto err_kp_input_free;
+        input_free_device(key_test_dev->kp_input_dev);
+        KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Unable to register %s input device\n", key_test_dev->ts_input_dev->name);
+        goto keypad_prob_failed;
     }   
 
     /*init long key timer*/
@@ -574,29 +557,15 @@ static int do_kp_input_probe(void)
     ret = init_key_test_cdev(key_test_dev);
     if(ret)
     {
+        input_unregister_device(key_test_dev->kp_input_dev);
+        ret = -ENOENT;
         KEY_TEST_DEBUG(KERN_ERR "huawei_key_test_probe: Failed to init kp input dev\n");
-        goto err_kp_input_unregister;
+        goto keypad_prob_failed;
     }
 
     return 0;
-    
-err_kp_input_unregister:
-    input_unregister_device(key_test_dev->kp_input_dev);
-err_kp_input_free:
-    input_free_device(key_test_dev->kp_input_dev);
-
+keypad_prob_failed:
     return ret;
-}
-
-static int do_late_probe(void)
-{
-    int ret = do_ts_input_probe();
-    if (!ret)
-    {
-        return ret;
-    }
-    
-    return do_kp_input_probe();
 }
 
 /*this function must be invoked after gpio_event driver init*/

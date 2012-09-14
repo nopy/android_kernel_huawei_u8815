@@ -38,7 +38,7 @@ enum audio_mvs_state_type {
 
 struct audio_mvs_buf_node {
 	struct list_head list;
-	struct q6_msm_audio_mvs_frame frame;
+	struct msm_audio_mvs_frame frame;
 };
 
 struct audio_mvs_info_type {
@@ -47,7 +47,6 @@ struct audio_mvs_info_type {
 	uint32_t mvs_mode;
 	uint32_t rate_type;
 	uint32_t dtx_mode;
-	struct q_min_max_rate min_max_rate;
 
 	struct list_head in_queue;
 	struct list_head free_in_queue;
@@ -55,7 +54,6 @@ struct audio_mvs_info_type {
 	struct list_head out_queue;
 	struct list_head free_out_queue;
 
-	wait_queue_head_t in_wait;
 	wait_queue_head_t out_wait;
 
 	struct mutex lock;
@@ -111,8 +109,7 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 			 * Bits 0-3: Frame rate
 			 * Bits 4-7: Frame type
 			 */
-			buf_node->frame.header.frame_type =
-						((*voc_pkt) & 0xF0) >> 4;
+			buf_node->frame.frame_type = ((*voc_pkt) & 0xF0) >> 4;
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			buf_node->frame.len = pkt_len - DSP_FRAME_HDR_LEN;
@@ -126,7 +123,7 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 		}
 
 		case MVS_MODE_IS127: {
-			buf_node->frame.header.packet_rate = (*voc_pkt) & 0x0F;
+			buf_node->frame.frame_type = 0;
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			buf_node->frame.len = pkt_len - DSP_FRAME_HDR_LEN;
@@ -149,7 +146,7 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 			 * Header format:
 			 * Bits 0-1: Frame type
 			 */
-			buf_node->frame.header.frame_type = (*voc_pkt) & 0x03;
+			buf_node->frame.frame_type = (*voc_pkt) & 0x03;
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			/* There are two frames in the buffer. Length of the
@@ -179,8 +176,7 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 				 * Header format:
 				 * Bits 0-1: Frame type
 				 */
-				buf_node->frame.header.frame_type =
-							(*voc_pkt) & 0x03;
+				buf_node->frame.frame_type = (*voc_pkt) & 0x03;
 				voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 				/* There are two frames in the buffer. Length
@@ -205,7 +201,6 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 			break;
 		}
 
-		case MVS_MODE_G711:
 		case MVS_MODE_G711A: {
 			/* G711 frames are 10ms each, but the DSP works with
 			 * 20ms frames and sends two 10ms frames per buffer.
@@ -213,16 +208,11 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 			 * buffers.
 			 */
 			/* Remove the first DSP frame info header.
-			 * Header format: G711A
+			 * Header format:
 			 * Bits 0-1: Frame type
 			 * Bits 2-3: Frame rate
-			 *
-			 * Header format: G711
-			 * Bits 2-3: Frame rate
 			 */
-			if (audio->mvs_mode == MVS_MODE_G711A)
-				buf_node->frame.header.frame_type =
-							(*voc_pkt) & 0x03;
+			buf_node->frame.frame_type = (*voc_pkt) & 0x03;
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			/* There are two frames in the buffer. Length of the
@@ -253,9 +243,7 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 				 * Bits 0-1: Frame type
 				 * Bits 2-3: Frame rate
 				 */
-				if (audio->mvs_mode == MVS_MODE_G711A)
-					buf_node->frame.header.frame_type =
-							(*voc_pkt) & 0x03;
+				buf_node->frame.frame_type = (*voc_pkt) & 0x03;
 				voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 				/* There are two frames in the buffer. Length
@@ -278,52 +266,8 @@ static void audio_mvs_process_ul_pkt(uint8_t *voc_pkt,
 			break;
 		}
 
-		case MVS_MODE_IS733:
-		case MVS_MODE_4GV_NB:
-		case MVS_MODE_4GV_WB: {
-			/* Remove the DSP frame info header.
-			 * Header format:
-			 * Bits 0-3: frame rate
-			 */
-			buf_node->frame.header.packet_rate = (*voc_pkt) & 0x0F;
-			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
-			buf_node->frame.len = pkt_len - DSP_FRAME_HDR_LEN;
-
-			memcpy(&buf_node->frame.voc_pkt[0],
-				voc_pkt,
-				buf_node->frame.len);
-
-			list_add_tail(&buf_node->list, &audio->out_queue);
-			break;
-		}
-
-		case MVS_MODE_EFR:
-		case MVS_MODE_FR:
-		case MVS_MODE_HR: {
-			/*
-			 * Remove the DSP frame info header
-			 * Header Format
-			 * Bit 0: bfi unused for uplink
-			 * Bit 1-2: sid applies to both uplink and downlink
-			 * Bit 3: taf unused for uplink
-			 * MVS_MODE_HR
-			 * Bit 4: ufi unused for uplink
-			 */
-			buf_node->frame.header.gsm_frame_type.sid =
-						((*voc_pkt) & 0x06) >> 1;
-			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
-			buf_node->frame.len = pkt_len - DSP_FRAME_HDR_LEN;
-
-			memcpy(&buf_node->frame.voc_pkt[0],
-			voc_pkt,
-			buf_node->frame.len);
-
-			list_add_tail(&buf_node->list, &audio->out_queue);
-			break;
-		}
-
 		default: {
-			buf_node->frame.header.frame_type = 0;
+			buf_node->frame.frame_type = 0;
 
 			buf_node->frame.len = pkt_len;
 
@@ -369,9 +313,8 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 			 * Bits 0-3: Frame rate
 			 * Bits 4-7: Frame type
 			 */
-			*voc_pkt =
-			    ((buf_node->frame.header.frame_type & 0x0F) << 4) |
-			    (rate_type & 0x0F);
+			*voc_pkt = ((buf_node->frame.frame_type & 0x0F) << 4) |
+				   (rate_type & 0x0F);
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			*pkt_len = buf_node->frame.len + DSP_FRAME_HDR_LEN;
@@ -387,8 +330,9 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 		case MVS_MODE_IS127: {
 			/* Add the DSP frame info header. Header format:
 			 * Bits 0-3: Frame rate
+			 * Bits 4-7: Frame type
 			 */
-			*voc_pkt = buf_node->frame.header.packet_rate & 0x0F;
+			*voc_pkt = rate_type & 0x0F;
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			*pkt_len = buf_node->frame.len + DSP_FRAME_HDR_LEN;
@@ -408,7 +352,7 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 			/* Add the first DSP frame info header. Header format:
 			 * Bits 0-1: Frame type
 			 */
-			*voc_pkt = buf_node->frame.header.frame_type & 0x03;
+			*voc_pkt = buf_node->frame.frame_type & 0x03;
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			*pkt_len = buf_node->frame.len + DSP_FRAME_HDR_LEN;
@@ -431,8 +375,7 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 				 * Header format:
 				 * Bits 0-1: Frame type
 				 */
-				*voc_pkt = buf_node->frame.header.frame_type
-						& 0x03;
+				*voc_pkt = buf_node->frame.frame_type & 0x03;
 				voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 				*pkt_len = *pkt_len +
@@ -456,7 +399,6 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 			break;
 		}
 
-		case MVS_MODE_G711:
 		case MVS_MODE_G711A: {
 			/* G711 frames are 10ms each but the DSP expects 20ms
 			 * worth of data, so send two 10ms frames per buffer.
@@ -466,7 +408,7 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 			 * Bits 2-3: Frame rate
 			 */
 			*voc_pkt = ((rate_type & 0x0F) << 2) |
-				   (buf_node->frame.header.frame_type & 0x03);
+				   (buf_node->frame.frame_type & 0x03);
 			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 			*pkt_len = buf_node->frame.len + DSP_FRAME_HDR_LEN;
@@ -491,7 +433,7 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 				 * Bits 2-3: Frame rate
 				 */
 				*voc_pkt = ((rate_type & 0x0F) << 2) |
-				     (buf_node->frame.header.frame_type & 0x03);
+					   (buf_node->frame.frame_type & 0x03);
 				voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
 
 				*pkt_len = *pkt_len +
@@ -515,66 +457,6 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 			break;
 		}
 
-		case MVS_MODE_IS733:
-		case MVS_MODE_4GV_NB:
-		case MVS_MODE_4GV_WB: {
-			/* Add the DSP frame info header. Header format:
-			 * Bits 0-3 : Frame rate
-			*/
-			*voc_pkt = buf_node->frame.header.packet_rate & 0x0F;
-			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
-			*pkt_len = buf_node->frame.len + DSP_FRAME_HDR_LEN;
-
-			memcpy(voc_pkt,
-				&buf_node->frame.voc_pkt[0],
-				buf_node->frame.len);
-
-			list_add_tail(&buf_node->list, &audio->free_in_queue);
-			break;
-		}
-
-		case MVS_MODE_EFR:
-		case MVS_MODE_FR:
-		case MVS_MODE_HR: {
-			/*
-			 * Remove the DSP frame info header
-			 * Header Format
-			 * Bit 0: bfi applies only for downlink
-			 * Bit 1-2: sid applies for downlink and uplink
-			 * Bit 3: taf applies only for downlink
-			 * MVS_MODE_HR
-			 * Bit 4: ufi applies only for downlink
-			 */
-			*voc_pkt =
-				((buf_node->frame.header.gsm_frame_type.bfi
-					& 0x01) |
-				((buf_node->frame.header.gsm_frame_type.sid
-					& 0x03) << 1) |
-				((buf_node->frame.header.gsm_frame_type.taf
-					& 0x01) << 3));
-
-			if (audio->mvs_mode == MVS_MODE_HR) {
-				*voc_pkt = (*voc_pkt |
-				((buf_node->frame.header.gsm_frame_type.ufi
-				& 0x01) << 4) |
-				((0 & 0x07) << 5));
-			} else {
-				*voc_pkt = (*voc_pkt |
-				((0 & 0x0F) << 4));
-			}
-
-			voc_pkt = voc_pkt + DSP_FRAME_HDR_LEN;
-			*pkt_len = buf_node->frame.len + DSP_FRAME_HDR_LEN;
-
-			memcpy(voc_pkt,
-				&buf_node->frame.voc_pkt[0],
-				buf_node->frame.len);
-
-			list_add_tail(&buf_node->list, &audio->free_in_queue);
-
-			break;
-		}
-
 		default: {
 			*pkt_len = buf_node->frame.len;
 
@@ -592,7 +474,6 @@ static void audio_mvs_process_dl_pkt(uint8_t *voc_pkt,
 	}
 
 	spin_unlock_irqrestore(&audio->dsp_lock, dsp_flags);
-	wake_up(&audio->in_wait);
 }
 
 static uint32_t audio_mvs_get_media_type(uint32_t mvs_mode, uint32_t rate_type)
@@ -600,36 +481,12 @@ static uint32_t audio_mvs_get_media_type(uint32_t mvs_mode, uint32_t rate_type)
 	uint32_t media_type;
 
 	switch (mvs_mode) {
-	case MVS_MODE_IS733:
-		media_type = VSS_MEDIA_ID_13K_MODEM;
-		break;
-
 	case MVS_MODE_IS127:
 		media_type = VSS_MEDIA_ID_EVRC_MODEM;
 		break;
 
-	case MVS_MODE_4GV_NB:
-		media_type = VSS_MEDIA_ID_4GV_NB_MODEM;
-		break;
-
-	case MVS_MODE_4GV_WB:
-		media_type = VSS_MEDIA_ID_4GV_WB_MODEM;
-		break;
-
 	case MVS_MODE_AMR:
 		media_type = VSS_MEDIA_ID_AMR_NB_MODEM;
-		break;
-
-	case MVS_MODE_EFR:
-		media_type = VSS_MEDIA_ID_EFR_MODEM;
-		break;
-
-	case MVS_MODE_FR:
-		media_type = VSS_MEDIA_ID_FR_MODEM;
-		break;
-
-	case MVS_MODE_HR:
-		media_type = VSS_MEDIA_ID_HR_MODEM;
 		break;
 
 	case MVS_MODE_LINEAR_PCM:
@@ -648,16 +505,11 @@ static uint32_t audio_mvs_get_media_type(uint32_t mvs_mode, uint32_t rate_type)
 		media_type = VSS_MEDIA_ID_G729;
 		break;
 
-	case MVS_MODE_G711:
 	case MVS_MODE_G711A:
 		if (rate_type == MVS_G711A_MODE_MULAW)
 			media_type = VSS_MEDIA_ID_G711_MULAW;
 		else
 			media_type = VSS_MEDIA_ID_G711_ALAW;
-		break;
-
-	case MVS_MODE_PCM_WB:
-		media_type = VSS_MEDIA_ID_PCM_WB;
 		break;
 
 	default:
@@ -674,24 +526,16 @@ static uint32_t audio_mvs_get_network_type(uint32_t mvs_mode)
 	uint32_t network_type;
 
 	switch (mvs_mode) {
-	case MVS_MODE_IS733:
 	case MVS_MODE_IS127:
-	case MVS_MODE_4GV_NB:
 	case MVS_MODE_AMR:
-	case MVS_MODE_EFR:
-	case MVS_MODE_FR:
-	case MVS_MODE_HR:
 	case MVS_MODE_LINEAR_PCM:
-	case MVS_MODE_G711:
 	case MVS_MODE_PCM:
 	case MVS_MODE_G729A:
 	case MVS_MODE_G711A:
 		network_type = VSS_NETWORK_ID_VOIP_NB;
 		break;
 
-	case MVS_MODE_4GV_WB:
 	case MVS_MODE_AMR_WB:
-	case MVS_MODE_PCM_WB:
 		network_type = VSS_NETWORK_ID_VOIP_WB;
 		break;
 
@@ -725,8 +569,7 @@ static int audio_mvs_start(struct audio_mvs_info_type *audio)
 		    audio_mvs_get_media_type(audio->mvs_mode, audio->rate_type),
 		    audio_mvs_get_rate(audio->mvs_mode, audio->rate_type),
 		    audio_mvs_get_network_type(audio->mvs_mode),
-		    audio->dtx_mode,
-		    audio->min_max_rate);
+		    audio->dtx_mode);
 
 		audio->state = AUDIO_MVS_STARTED;
 	} else {
@@ -879,7 +722,7 @@ static ssize_t audio_mvs_read(struct file *file,
 		if ((audio->state == AUDIO_MVS_STARTED) &&
 		    (!list_empty(&audio->out_queue))) {
 
-			if (count >= sizeof(struct q6_msm_audio_mvs_frame)) {
+			if (count >= sizeof(struct msm_audio_mvs_frame)) {
 				buf_node = list_first_entry(&audio->out_queue,
 						struct audio_mvs_buf_node,
 						list);
@@ -887,11 +730,11 @@ static ssize_t audio_mvs_read(struct file *file,
 
 				rc = copy_to_user(buf,
 					&buf_node->frame,
-					sizeof(struct q6_msm_audio_mvs_frame));
+					sizeof(struct msm_audio_mvs_frame));
 
 				if (rc == 0) {
 					rc = buf_node->frame.len +
-					    sizeof(buf_node->frame.header) +
+					    sizeof(buf_node->frame.frame_type) +
 					    sizeof(buf_node->frame.len);
 				} else {
 					pr_err("%s: Copy to user retuned %d",
@@ -905,7 +748,7 @@ static ssize_t audio_mvs_read(struct file *file,
 			} else {
 				pr_err("%s: Read count %d < sizeof(frame) %d",
 				       __func__, count,
-				       sizeof(struct q6_msm_audio_mvs_frame));
+				       sizeof(struct msm_audio_mvs_frame));
 
 				rc = -ENOMEM;
 			}
@@ -942,53 +785,41 @@ static ssize_t audio_mvs_write(struct file *file,
 
 	pr_debug("%s:\n", __func__);
 
-	rc = wait_event_interruptible_timeout(audio->in_wait,
-		(!list_empty(&audio->free_in_queue) ||
-		audio->state == AUDIO_MVS_STOPPED), 1 * HZ);
-	if (rc > 0) {
-		mutex_lock(&audio->in_lock);
+	mutex_lock(&audio->in_lock);
 
-		if (audio->state == AUDIO_MVS_STARTED) {
-			if (count <= sizeof(struct q6_msm_audio_mvs_frame)) {
-				if (!list_empty(&audio->free_in_queue)) {
-					buf_node =
+	if (audio->state == AUDIO_MVS_STARTED) {
+		if (count <= sizeof(struct msm_audio_mvs_frame)) {
+			if (!list_empty(&audio->free_in_queue)) {
+				buf_node =
 					list_first_entry(&audio->free_in_queue,
-					 struct audio_mvs_buf_node, list);
-					list_del(&buf_node->list);
-					rc = copy_from_user(&buf_node->frame,
-							    buf,
-							    count);
+						 struct audio_mvs_buf_node,
+						 list);
+				list_del(&buf_node->list);
 
-					list_add_tail(&buf_node->list,
-						      &audio->in_queue);
-				} else {
-					pr_err("%s: No free DL buffs\n",
-						__func__);
-				}
+				rc = copy_from_user(&buf_node->frame,
+						    buf,
+						    count);
+
+				list_add_tail(&buf_node->list,
+					      &audio->in_queue);
 			} else {
-				pr_err("%s: Write count %d < sizeof(frame) %d",
-				       __func__, count,
-				       sizeof(struct q6_msm_audio_mvs_frame));
-
-				rc = -ENOMEM;
+				pr_err("%s: No free DL buffs\n", __func__);
 			}
 		} else {
-			pr_err("%s: Write performed in invalid state %d\n",
-			       __func__, audio->state);
+			pr_err("%s: Write count %d < sizeof(frame) %d",
+			       __func__, count,
+			       sizeof(struct msm_audio_mvs_frame));
 
-			rc = -EPERM;
+			rc = -ENOMEM;
 		}
-
-		mutex_unlock(&audio->in_lock);
-	} else if (rc == 0) {
-		pr_err("%s: No free DL buffs\n", __func__);
-
-		rc = -ETIMEDOUT;
 	} else {
-		pr_err("%s: write was interrupted\n", __func__);
+		pr_err("%s: Write performed in invalid state %d\n",
+		       __func__, audio->state);
 
-		rc = -ERESTARTSYS;
+		rc = -EPERM;
 	}
+
+	mutex_unlock(&audio->in_lock);
 
 	return rc;
 }
@@ -1013,8 +844,7 @@ static long audio_mvs_ioctl(struct file *file,
 		config.mvs_mode = audio->mvs_mode;
 		config.rate_type = audio->rate_type;
 		config.dtx_mode = audio->dtx_mode;
-		config.min_max_rate.min_rate = audio->min_max_rate.min_rate;
-		config.min_max_rate.max_rate = audio->min_max_rate.max_rate;
+
 		mutex_unlock(&audio->lock);
 
 		rc = copy_to_user((void *)arg, &config, sizeof(config));
@@ -1039,10 +869,6 @@ static long audio_mvs_ioctl(struct file *file,
 				audio->mvs_mode = config.mvs_mode;
 				audio->rate_type = config.rate_type;
 				audio->dtx_mode = config.dtx_mode;
-				audio->min_max_rate.min_rate =
-						config.min_max_rate.min_rate;
-				audio->min_max_rate.max_rate =
-						config.min_max_rate.max_rate;
 			} else {
 				pr_err("%s: Set confg called in state %d\n",
 				       __func__, audio->state);
@@ -1128,7 +954,6 @@ static int __init audio_mvs_init(void)
 
 	memset(&audio_mvs_info, 0, sizeof(audio_mvs_info));
 
-	init_waitqueue_head(&audio_mvs_info.in_wait);
 	init_waitqueue_head(&audio_mvs_info.out_wait);
 
 	mutex_init(&audio_mvs_info.lock);

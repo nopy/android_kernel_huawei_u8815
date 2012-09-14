@@ -100,7 +100,6 @@
 
 #include <linux/kmemcheck.h>
 #include <linux/kmemleak.h>
-#include <linux/memory_hotplug.h>
 
 /*
  * Kmemleak configuration and common defines.
@@ -266,7 +265,7 @@ static void kmemleak_disable(void);
 } while (0)
 
 /*
- * Macro invoked when a serious kmemleak condition occurred and cannot be
+ * Macro invoked when a serious kmemleak condition occured and cannot be
  * recovered from. Kmemleak will be disabled and further allocation/freeing
  * tracing no longer available.
  */
@@ -1007,7 +1006,7 @@ static bool update_checksum(struct kmemleak_object *object)
 
 /*
  * Memory scanning is a long process and it needs to be interruptable. This
- * function checks whether such interrupt condition occurred.
+ * function checks whether such interrupt condition occured.
  */
 static int scan_should_stop(void)
 {
@@ -1221,9 +1220,9 @@ static void kmemleak_scan(void)
 #endif
 
 	/*
-	 * Struct page scanning for each node.
+	 * Struct page scanning for each node. The code below is not yet safe
+	 * with MEMORY_HOTPLUG.
 	 */
-	lock_memory_hotplug();
 	for_each_online_node(i) {
 		pg_data_t *pgdat = NODE_DATA(i);
 		unsigned long start_pfn = pgdat->node_start_pfn;
@@ -1242,7 +1241,6 @@ static void kmemleak_scan(void)
 			scan_block(page, page + 1, NULL, 1);
 		}
 	}
-	unlock_memory_hotplug();
 
 	/*
 	 * Scanning the task stacks (may introduce false negatives).
@@ -1416,12 +1414,9 @@ static void *kmemleak_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 	++(*pos);
 
 	list_for_each_continue_rcu(n, &object_list) {
-		struct kmemleak_object *obj =
-			list_entry(n, struct kmemleak_object, object_list);
-		if (get_object(obj)) {
-			next_obj = obj;
+		next_obj = list_entry(n, struct kmemleak_object, object_list);
+		if (get_object(next_obj))
 			break;
-		}
 	}
 
 	put_object(prev_obj);
@@ -1738,7 +1733,7 @@ static int __init kmemleak_late_init(void)
 
 	if (atomic_read(&kmemleak_error)) {
 		/*
-		 * Some error occurred and kmemleak was disabled. There is a
+		 * Some error occured and kmemleak was disabled. There is a
 		 * small chance that kmemleak_disable() was called immediately
 		 * after setting kmemleak_initialized and we may end up with
 		 * two clean-up threads but serialized by scan_mutex.

@@ -35,10 +35,10 @@
  * Each cache must be registered so that it can be cleaned regularly.
  * When the cache is unregistered, it is flushed completely.
  *
- * Entries have a ref count and a 'hashed' flag which counts the existence
+ * Entries have a ref count and a 'hashed' flag which counts the existance
  * in the hash table.
  * We only expire entries when refcount is zero.
- * Existence in the cache is counted  the refcount.
+ * Existance in the cache is counted  the refcount.
  */
 
 /* Every cache item has a common header that is used

@@ -80,6 +80,7 @@ enum mt9d113_setting_t
     RES_CAPTURE
 };
 
+static int current_effect  = CAMERA_EFFECT_OFF;
 /*
  * Time in milisecs for waiting for the sensor to reset.
  */
@@ -123,11 +124,11 @@ struct mt9d113_ctrl_t
 const static char mt9d113_supported_effect[] = "none,mono,negative,sepia,aqua";
 static bool CSI_CONFIG;
 #define MODEL_TRULY 0
-#define MODEL_SUNNY 1
+#define MODEL_SUNNY 8
+#define MODEL_BYD 10
+#define MT9D113_MODEL_ID 0x0024
 
-#define U8185_SENSOR_PWD 37
-static unsigned int sensor_pwd = 119;
-
+/*delete some lines*/
 static uint16_t mt9d113_model_id = MODEL_SUNNY;
 
 static struct  mt9d113_work_t *mt9d113sensorw = NULL;
@@ -331,6 +332,50 @@ static int32_t mt9d113_wait(uint16_t reg, uint16_t mode_value)
     CDBG("mt9d113_wait fail,reg=0x%x,mode_value=0x%x,mode_data=0x%x\n",reg,mode_value,mode_data);
     return -EFAULT;
 }
+/*the func is to distinguish lens model of mt9d113*/
+static int32_t mt9d113_model_dis(const struct msm_camera_sensor_info *data)
+{ 
+    int32_t rc = 0;
+
+    /*we read the register to get model id*/
+    if(mt9d113_i2c_read_w(MT9D113_MODEL_ID, &mt9d113_model_id) <0)
+    {
+        CDBG("mt9d113_model_dis,mt9d113_mode_id fail\n");
+        return -ENODEV;
+    }
+    CDBG("mt9d113 model is %d: \n", mt9d113_model_id);
+
+    /*different sensor name for different model*/
+    if(MODEL_SUNNY == mt9d113_model_id)
+    {
+        strncpy((char *)data->sensor_name, "23060077FF-MT-S", strlen("23060077FF-MT-S"));
+    }
+    else    //if(MODEL_BYD == mt9d113_model_id)
+    {
+        strncpy((char *)data->sensor_name, "23060077FF-MT-B", strlen("23060077FF-MT-B"));
+    }
+    
+    return rc;
+}
+/* add the func to check if filp register has worked:
+ * read register 0xA103 every 10ms, if the value is 
+ * 0x0, break the check. 500ms for timeout. */
+static void mt9d113_wait_flip(void)
+{
+    int i = 0 , rc = 0;
+    unsigned short fresh_value = -1;
+    for(i = 0; i < 50; i ++)
+    {
+        rc = mt9d113_i2c_write_w(0x098C, 0xA103);
+        rc = mt9d113_i2c_read_w(0x0990, &fresh_value);
+        CDBG("times i = %d, fresh_value = %x \n", i, fresh_value);
+        if( 0x0 == fresh_value)
+        {
+            break ;
+        }
+        mdelay(10);
+     }
+}
 int32_t mt9d113_setting(enum mt9d113_reg_update_t rupdate,
                         enum mt9d113_setting_t    rt)
 {
@@ -404,13 +449,22 @@ int32_t mt9d113_setting(enum mt9d113_reg_update_t rupdate,
         }
 
         mdelay(100);
-        rc = mt9d113_i2c_write_w_table(mt9d113_regs.mt9d113_init_reg_config_byd_2,
-                                       mt9d113_regs.mt9d113_init_reg_config_byd_2_size);
+        rc = mt9d113_i2c_write_w_table(mt9d113_regs.mt9d113_init_reg_config_common,
+                               mt9d113_regs.mt9d113_init_reg_config_common_size);
         if (rc)
         {
             CDBG("       write mt9d113_init_reg_config_byd_2 error!!!!!!");
         }
-
+        if(MODEL_SUNNY == mt9d113_model_id)
+        {
+            rc = mt9d113_i2c_write_w_table(mt9d113_regs.mt9d113_init_reg_config_sunny, 
+                                     mt9d113_regs.mt9d113_init_reg_config_sunny_size);
+        }
+        else    //if(MODEL_BYD == mt9d113_model_id)
+        {
+           rc = mt9d113_i2c_write_w_table(mt9d113_regs.mt9d113_init_reg_config_byd_2,
+                                      mt9d113_regs.mt9d113_init_reg_config_byd_2_size); 
+        }
         mdelay(100);
         rc = mt9d113_i2c_write_w(0x0018, 0x0028);
         mdelay(100);
@@ -432,12 +486,13 @@ int32_t mt9d113_setting(enum mt9d113_reg_update_t rupdate,
             rc = mt9d113_i2c_write_w(0x098C, 0xA103 );	// MCU_ADDRESS [SEQ_CMD]
             rc = mt9d113_i2c_write_w(0x0990, 0x0006 );
             /*add a delay for sensor to refresh registers*/
-            mdelay(100);
+            mt9d113_wait_flip();
         }
         rc = mt9d113_i2c_write_w(0x098C, 0xA103);
         rc = mt9d113_i2c_write_w(0x0990, 0x0006);
         rc = mt9d113_i2c_write_w(0x3400, 0x7A28);
         CDBG("mt9d113 model is %d: init sensor done!\n", mt9d113_model_id);
+        /*delete some lines*/
         break;
 
     default:
@@ -532,8 +587,8 @@ static int mt9d113_sensor_init_done(const struct msm_camera_sensor_info *data)
     gpio_direction_output(data->sensor_reset, 0);
     gpio_free(data->sensor_reset);
 
-    gpio_direction_output(sensor_pwd, 1);
-    gpio_free(sensor_pwd);
+    gpio_direction_output(data->sensor_pwd, 1);
+    gpio_free(data->sensor_pwd);
 
     /*disable the power*/
     if (data->vreg_disable_func)
@@ -550,12 +605,13 @@ static int mt9d113_probe_init_sensor(const struct msm_camera_sensor_info *data)
     int rc;
     unsigned short chipid;
   
-    CDBG("sensor_pwd is =%d", sensor_pwd);
+    CDBG("data->sensor_pwd is =%d", data->sensor_pwd);
     /* pull down power down */
-    rc = gpio_request(sensor_pwd, "mt9d113");
+    rc = gpio_request(data->sensor_pwd, "mt9d113");
     if (!rc || (rc == -EBUSY))
     {
-        gpio_direction_output(sensor_pwd, 1);
+        /*modify the power on sequence as datasheet*/
+        gpio_direction_output(data->sensor_pwd, 0);
     }
     else
     {
@@ -567,7 +623,7 @@ static int mt9d113_probe_init_sensor(const struct msm_camera_sensor_info *data)
     rc = gpio_request(data->sensor_reset, "mt9d113");
     if (!rc)
     {
-        rc = gpio_direction_output(data->sensor_reset, 0);
+        rc = gpio_direction_output(data->sensor_reset, 1);
     }
     else
     {
@@ -583,7 +639,7 @@ static int mt9d113_probe_init_sensor(const struct msm_camera_sensor_info *data)
     mdelay(20);
 
     {
-        rc = gpio_direction_output(sensor_pwd, 0);
+        rc = gpio_direction_output(data->sensor_reset, 0);
         if (rc < 0)
         {
             goto init_probe_fail;
@@ -636,7 +692,7 @@ init_probe_done:
 int mt9d113_sensor_open_init(const struct msm_camera_sensor_info *data)
 {
     int32_t rc;
-
+    current_effect  = CAMERA_EFFECT_OFF;
     mt9d113_ctrl = kzalloc(sizeof(struct mt9d113_ctrl_t), GFP_KERNEL);
     if (!mt9d113_ctrl)
     {
@@ -720,7 +776,7 @@ static long mt9d113_set_effect(int mode, int effect)
     int num_of_items_in_table = 0;
     long rc = 0;
 
-    printk("mt9d113_set_effect \n ");
+    CDBG("current_effect:%d, effect:%d\n", current_effect, effect);
     switch (effect)
     {
     case CAMERA_EFFECT_OFF:
@@ -761,7 +817,17 @@ static long mt9d113_set_effect(int mode, int effect)
     default:
         return 0;
     }
-    rc = mt9d113_i2c_write_w_table(reg_conf_tbl, num_of_items_in_table);
+    if(current_effect != effect)
+    {
+       rc = mt9d113_i2c_write_w_table(reg_conf_tbl, num_of_items_in_table);
+       /* wait until register work */
+       if(mt9d113_wait(0xA103,0) < 0)
+       {
+            CDBG("mt9d113_wait(0xA103, 0) failed\n");
+            return -EFAULT;
+       }
+       current_effect = effect;
+    }
 
     return rc;
 }
@@ -778,149 +844,299 @@ static long mt9d113_set_wb(int wb)
         return rc;
     }
     CDBG("mt9d113_set_wb,mt9d113_version_id = %d\n", mt9d113_version_id);
-
-    switch (wb) 
+    /* we distinguish the byd and sunny */
+    if(MODEL_SUNNY == mt9d113_model_id)
     {
-    case CAMERA_WB_AUTO:
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB22))){return rc;} // MCU_ADDRESS [HG_LL_APCORR1]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0003))){return rc;} // MCU_DATA_0
-        if(HW_MT9D113_VER_2 == mt9d113_version_id)
+         switch (wb) 
         {
-            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB20))){return rc;} // MCU_ADDRESS [HG_LL_SAT1]
-            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0043))){return rc;} // MCU_DATA_0
-        }
-        else
-        {
-            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB20 ))){return rc;} 	// MCU_ADDRESS [HG_LL_SAT1]
-            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080 ))){return rc;}	// MCU_DATA_0 0~255,normal use 120,150——————这个寄存器多处用到，请杨海民在每一处都判断V2和V3，是V3就修改成0x0080，具体可以咨询吴晓金
-        }
-    
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0x271F))){return rc;}// MCU_ADDRESS [MODE_SENSOR_FRAME_LENGTH_A]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0293))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0001))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
-        msleep(100);
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA355))){return rc;}// MCU_ADDRESS [AWB_MODE]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x000A))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0059))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00C8))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0059))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A6))){return rc;}// MCU_DATA_0
-        break;
-    
-    case CAMERA_WB_INCANDESCENT:
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
-        msleep(100);
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0086))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0092))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0072))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0072))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A0))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A0))){return rc;}// MCU_DATA_0
-        break;
-        
-    case CAMERA_WB_CUSTOM:
-    case CAMERA_WB_FLUORESCENT:
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
-        msleep(100);
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0032))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008C))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008C))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008C))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0	
-        break;
-             
-    case CAMERA_WB_DAYLIGHT:
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
-        msleep(100);
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007F))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x009A))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007A))){return rc;}// MCU_DATA_0 
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007D))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007D))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0078))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0078))){return rc;}// MCU_DATA_0
-        break;
+        case CAMERA_WB_AUTO:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB22))){return rc;} // MCU_ADDRESS [HG_LL_APCORR1]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0003))){return rc;} // MCU_DATA_0
+            if(HW_MT9D113_VER_2 == mt9d113_version_id)
+            {
+                if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB20))){return rc;} // MCU_ADDRESS [HG_LL_SAT1]
+                if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0043))){return rc;} // MCU_DATA_0
+            }
+            else
+            {
+                if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB20 ))){return rc;} 	// MCU_ADDRESS [HG_LL_SAT1]
+                if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080 ))){return rc;}	// MCU_DATA_0 0~255,normal use 120,150——————这个寄存器多处用到，请杨海民在每一处都判断V2和V3，是V3就修改成0x0080，具体可以咨询吴晓金
+            }
+
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0x271F))){return rc;}// MCU_ADDRESS [MODE_SENSOR_FRAME_LENGTH_A]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0293))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0001))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA355))){return rc;}// MCU_ADDRESS [AWB_MODE]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x000A))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0059))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00C8))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0059))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A6))){return rc;}// MCU_DATA_0
+            break;
+
+        case CAMERA_WB_INCANDESCENT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007F))){return rc;}// MCU_DATA_0 0x0080
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008a))){return rc;}// MCU_DATA_0 0x0086
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0072))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0072))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A0))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A0))){return rc;}// MCU_DATA_0
+            break;
+            
+        case CAMERA_WB_CUSTOM:
+        case CAMERA_WB_FLUORESCENT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0032))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0091))){return rc;}// MCU_DATA_0   0x008D
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0070))){return rc;}// MCU_DATA_0  0x0083 0x0073
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008C))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008C))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0	
+            break;
+                 
+        case CAMERA_WB_DAYLIGHT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007F))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x009B))){return rc;}// MCU_DATA_0  0x009D
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0070))){return rc;}// MCU_DATA_0   0x0072
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007D))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007D))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0078))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0078))){return rc;}// MCU_DATA_0
+            break;
+               
+        case CAMERA_WB_CLOUDY_DAYLIGHT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007F))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00B4))){return rc;}// MCU_DATA_0  0x00B8
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0 //0x0081
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0056))){return rc;}// MCU_DATA_0  0x0060
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0  
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x006E))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x006E))){return rc;}// MCU_DATA_0
+            break;
            
-    case CAMERA_WB_CLOUDY_DAYLIGHT:
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
-        msleep(100);
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007F))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00AF))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0081))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0064))){return rc;}// MCU_DATA_0 
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x006E))){return rc;}// MCU_DATA_0
-        if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
-        if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x006E))){return rc;}// MCU_DATA_0
-        break;
-       
-    case CAMERA_WB_TWILIGHT:
-        return 0;
-        break;
-       
-    case CAMERA_WB_SHADE:
-        return 0;
-        break;
+        case CAMERA_WB_TWILIGHT:
+            return 0;
+            break;
+           
+        case CAMERA_WB_SHADE:
+            return 0;
+            break;
+            
+        default:
+            return 0;
+       }
+    }
+    else // BYD
+    {
+        switch (wb) 
+        {
+        case CAMERA_WB_AUTO:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB22))){return rc;} // MCU_ADDRESS [HG_LL_APCORR1]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0003))){return rc;} // MCU_DATA_0
+            if(HW_MT9D113_VER_2 == mt9d113_version_id)
+            {
+                if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB20))){return rc;} // MCU_ADDRESS [HG_LL_SAT1]
+                if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0043))){return rc;} // MCU_DATA_0
+            }
+            else
+            {
+                if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xAB20 ))){return rc;}	// MCU_ADDRESS [HG_LL_SAT1]
+                if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080 ))){return rc;}	// MCU_DATA_0 0~255,normal use 120,150——————这个寄存器多处用到，请杨海民在每一处都判断V2和V3，是V3就修改成0x0080，具体可以咨询吴晓金
+            }
         
-    default:
-        return 0;
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0x271F))){return rc;}// MCU_ADDRESS [MODE_SENSOR_FRAME_LENGTH_A]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0293))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0001))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA355))){return rc;}// MCU_ADDRESS [AWB_MODE]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x000A))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0059))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00C8))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0059))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A6))){return rc;}// MCU_DATA_0
+            break;
+        
+        case CAMERA_WB_INCANDESCENT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0086))){return rc;}// MCU_DATA_0 0x0082
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008E))){return rc;}// MCU_DATA_0    0x0092  0x0090
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0072))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0072))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A0))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A0))){return rc;}// MCU_DATA_0
+            break;
+            
+        case CAMERA_WB_CUSTOM:
+        case CAMERA_WB_FLUORESCENT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0032))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0092))){return rc;}// MCU_DATA_0   0x0092  
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0073))){return rc;}// MCU_DATA_0  0x0073
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008C))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x008C))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0	
+            break;
+         
+        case CAMERA_WB_DAYLIGHT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007F))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00A2))){return rc;}// MCU_DATA_0  0x009A
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x006C))){return rc;}// MCU_DATA_0   0x0070  0x006E
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007D))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007D))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0078))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0078))){return rc;}// MCU_DATA_0
+            break;
+               
+        case CAMERA_WB_CLOUDY_DAYLIGHT:
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA11F))){return rc;}// MCU_ADDRESS [SEQ_PREVIEW_1_AWB]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0000))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA103))){return rc;}// MCU_ADDRESS [SEQ_CMD]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0005))){return rc;}// MCU_DATA_0
+            msleep(100);
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA353))){return rc;}// MCU_ADDRESS
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x007F))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34E))){return rc;}// MCU_ADDRESS [AWB_GAIN_R]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x00B1))){return rc;}// MCU_DATA_0  0x00B1
+             
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34F))){return rc;}// MCU_ADDRESS [AWB_GAIN_G]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0081))){return rc;}// MCU_DATA_0 //0x0081
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA350))){return rc;}// MCU_ADDRESS [AWB_GAIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0058))){return rc;}// MCU_DATA_0  0x005A 0x0058
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34A))){return rc;}// MCU_ADDRESS [AWB_GAIN_MIN]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0  
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34B))){return rc;}// MCU_ADDRESS [AWB_GAIN_MAX]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x0080))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34C))){return rc;}// MCU_ADDRESS [AWB_GAINMIN_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x006E))){return rc;}// MCU_DATA_0
+            if(0 > (rc = mt9d113_i2c_write_w( 0x098C, 0xA34D))){return rc;}// MCU_ADDRESS [AWB_GAINMAX_B]
+            if(0 > (rc = mt9d113_i2c_write_w( 0x0990, 0x006E))){return rc;}// MCU_DATA_0
+            break;
+           
+        case CAMERA_WB_TWILIGHT:
+            return 0;
+            break;
+           
+        case CAMERA_WB_SHADE:
+            return 0;
+            break;
+            
+        default:
+            return 0;
+        }
     }
 
     return rc;
@@ -1114,11 +1330,7 @@ static int mt9d113_sensor_probe(const struct msm_camera_sensor_info *info,
     /* enable mclk first */
     msm_camio_clk_rate_set(MT9D113_DEFAULT_CLOCK_RATE);
     mdelay(20);
-
-    if (machine_is_msm7x27a_U8185())
-    {
-        sensor_pwd = U8185_SENSOR_PWD;
-    }
+    /*delete some lines*/
 	
     rc = mt9d113_probe_init_sensor(info);
     if (rc < 0)
@@ -1129,6 +1341,14 @@ static int mt9d113_sensor_probe(const struct msm_camera_sensor_info *info,
     }
     else
     {
+        rc = mt9d113_setting(REG_INIT, RES_PREVIEW);
+        if (rc < 0)
+        {
+            CDBG("mt9d113 can't init ,probe failed!!!!\n");
+        }
+        /* read model ID after the sensor is initialized*/
+        rc = mt9d113_model_dis(info);
+        CDBG("mt9d113 model is %d: init sensor done!\n", mt9d113_model_id);
         CDBG("mt9d113 probe succeed!!!!\n");
     }
 

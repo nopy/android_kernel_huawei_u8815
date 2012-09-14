@@ -34,7 +34,6 @@
 #include <mach/iommu.h>
 #include <mach/iommu_domains.h>
 #include <mach/msm_subsystem_map.h>
-#include <mach/socinfo.h>
 #include <mach/qdsp5v2/qdsp5audreccmdi.h>
 #include <mach/qdsp5v2/qdsp5audrecmsg.h>
 #include <mach/qdsp5v2/audpreproc.h>
@@ -137,7 +136,6 @@ struct audio_in {
 	int enabled;
 	int running;
 	int stopped; /* set when stopped, cleared on flush */
-	char *build_id;
 };
 
 struct audio_frame {
@@ -560,13 +558,7 @@ static int audevrc_in_enc_config(struct audio_in *audio, int enable)
 	struct audpreproc_audrec_cmd_enc_cfg cmd;
 
 	memset(&cmd, 0, sizeof(cmd));
-	if (audio->build_id[17] == '1') {
-		cmd.cmd_id = AUDPREPROC_AUDREC_CMD_ENC_CFG_2;
-		MM_ERR("sending AUDPREPROC_AUDREC_CMD_ENC_CFG_2 command");
-	} else {
-		cmd.cmd_id = AUDPREPROC_AUDREC_CMD_ENC_CFG;
-		MM_ERR("sending AUDPREPROC_AUDREC_CMD_ENC_CFG command");
-	}
+	cmd.cmd_id = AUDPREPROC_AUDREC_CMD_ENC_CFG_2;
 	cmd.stream_id = audio->enc_id;
 
 	if (enable)
@@ -1469,9 +1461,6 @@ static int audevrc_in_open(struct inode *inode, struct file *file)
 	file->private_data = audio;
 	audio->opened = 1;
 	audio->out_frame_cnt++;
-	audio->build_id = socinfo_get_build_id();
-	MM_DBG("Modem build id = %s\n", audio->build_id);
-
 done:
 	mutex_unlock(&audio->lock);
 	return rc;

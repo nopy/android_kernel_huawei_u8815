@@ -1,6 +1,6 @@
 
-# Makefile for WCNSS triple-play driver
+# Makefile for WCNSS WLAN driver
 
-wcnsscore-objs += wcnss_wlan.o wcnss_riva.o qcomwlan_secif.o
+wcnsswlan-objs += wcnss_wlan.o wcnss_riva.o qcomwlan_secif.o
 
-obj-$(CONFIG_WCNSS_CORE) += wcnsscore.o
+obj-$(CONFIG_WCNSS_WLAN) += wcnsswlan.o

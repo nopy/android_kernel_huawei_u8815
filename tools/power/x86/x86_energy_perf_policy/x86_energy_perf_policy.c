@@ -46,7 +46,7 @@ int cpu = -1;
  *
  *  performance
  *	Performance is paramount.
- *	Unwilling to sacrifice any performance
+ *	Unwilling to sacrafice any performance
  *	for the sake of energy saving. (hardware default)
  *
  *  normal

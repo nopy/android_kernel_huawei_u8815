@@ -10,7 +10,6 @@ obj-$(CONFIG_DEBUG_FS) += mdp_debugfs.o
 
 ifeq ($(CONFIG_FB_MSM_MDP40),y)
 obj-y += mdp4_util.o
-obj-y += mdp4_hsic.o
 else
 obj-y += mdp_hw_init.o
 obj-y += mdp_ppp.o
@@ -55,26 +54,10 @@ obj-$(CONFIG_FB_MSM_EBI2) += ebi2_lcd.o
 
 # LCDC
 obj-$(CONFIG_FB_MSM_LCDC) += lcdc.o
-obj-$(CONFIG_FB_HUAWEI_LCDC_HX8357B) += lcdc_hx8357b_hvga.o
-obj-$(CONFIG_FB_HUAWEI_LCDC_HX8357C) += lcdc_hx8357c_hvga.o	
-obj-$(CONFIG_FB_HUAWEI_LCDC_R61529) += lcdc_truly_r61529_hvga.o
-obj-$(CONFIG_FB_HUAWEI_LCDC_NT35410) += lcdc_nt35410_hvga.o
-obj-$(CONFIG_FB_HUAWEI_LCDC_HX8347D) += lcdc_hx8347d_qvga.o
-obj-$(CONFIG_FB_HUAWEI_LCDC_HX8347G) += lcdc_hx8347g_qvga.o
+
 # MDDI
 msm_mddi-objs := mddi.o mddihost.o mddihosti.o
 obj-$(CONFIG_FB_MSM_MDDI) += msm_mddi.o
-
-obj-$(CONFIG_FB_HUAWEI_MDDI_NT35582) += mddi_nt35582.o
-obj-$(CONFIG_FB_HUAWEI_MDDI_NT35510) += mddi_nt35510.o
-obj-$(CONFIG_FB_HUAWEI_MDDI_NT35510_TYPE2) += mddi_nt35510_type2.o
-obj-$(CONFIG_FB_HUAWEI_MDDI_NT35560) += mddi_nt35560.o
-obj-$(CONFIG_FB_HUAWEI_MDDI_RSP61408) += mddi_rsp61408.o
-obj-$(CONFIG_FB_HUAWEI_MDDI_HX8369A) += mddi_hx8369a.o
-obj-$(CONFIG_FB_HUAWEI_MDDI_HX8357C) += mddi_hx8357c.o
-obj-y += hw_backlight.o
-obj-y += hw_lcd_common.o
-obj-y += lcd_hw_debug.o
 
 # External MDDI
 msm_mddi_ext-objs := mddihost_e.o mddi_ext.o
@@ -83,22 +66,16 @@ obj-$(CONFIG_FB_MSM_EXTMDDI) += msm_mddi_ext.o
 # MIPI gereric
 msm_mipi-objs := mipi_dsi.o mipi_dsi_host.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI) += msm_mipi.o
-
+obj-y += mipi_nt35560_cmd_fwvga.o
+obj-y += mipi_rsp61408_cmd_wvga.o
+obj-y += mipi_hx8357c_cmd_hvga.o
+obj-y += mipi_hx8369a_cmd_wvga.o
 # MIPI manufacture
-
-obj-$(CONFIG_FB_HUAWEI_MIPI_DSI_NT35560) += mipi_nt35560_cmd_fwvga.o
-obj-$(CONFIG_FB_HUAWEI_MIPI_DSI_RSP61408) += mipi_rsp61408_cmd_wvga.o
-obj-$(CONFIG_FB_HUAWEI_MIPI_DSI_HX8357C) += mipi_hx8357c_cmd_hvga.o
-obj-$(CONFIG_FB_HUAWEI_MIPI_DSI_HX8369A) += mipi_hx8369a_cmd_wvga.o
-
 obj-$(CONFIG_FB_MSM_MIPI_DSI_TOSHIBA) += mipi_toshiba.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_NOVATEK) += mipi_novatek.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_RENESAS) += mipi_renesas.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_TRULY) += mipi_truly.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_SIMULATOR) += mipi_simulator.o
-
-# MIPI Bridge
-obj-$(CONFIG_FB_MSM_MIPI_DSI_TC358764_DSI2LVDS) += mipi_tc358764_dsi2lvds.o
 
 # TVEnc
 obj-$(CONFIG_FB_MSM_TVOUT) += tvenc.o
@@ -110,6 +87,7 @@ endif
 obj-y += msm_fb_panel.o
 obj-$(CONFIG_FB_MSM_EBI2_TMD_QVGA_EPSON_QCIF) += ebi2_tmd20.o
 obj-$(CONFIG_FB_MSM_EBI2_TMD_QVGA_EPSON_QCIF) += ebi2_l2f.o
+
 ifeq ($(CONFIG_FB_MSM_MDDI_AUTO_DETECT),y)
 obj-y += mddi_prism.o
 obj-y += mddi_toshiba.o
@@ -131,15 +109,14 @@ obj-$(CONFIG_FB_MSM_MDDI_QUICKVX) += mddi_quickvx.o
 endif
 
 ifeq ($(CONFIG_FB_MSM_MIPI_PANEL_DETECT),y)
-obj-y += mipi_toshiba_video_wvga_pt.o mipi_toshiba_video_wsvga_pt.o mipi_toshiba_video_wuxga.o
-obj-y += mipi_novatek_video_qhd_pt.o mipi_novatek_cmd_qhd_pt.o
+#obj-y += mipi_toshiba_video_wvga_pt.o mipi_toshiba_video_wsvga_pt.o
+#obj-y += mipi_novatek_video_qhd_pt.o mipi_novatek_cmd_qhd_pt.o
 obj-y += mipi_renesas_video_fwvga_pt.o mipi_renesas_cmd_fwvga_pt.o
-obj-y += mipi_chimei_wxga_pt.o
+#obj-y += mipi_chimei_wxga_pt.o
 obj-y += mipi_truly_video_wvga_pt.o
 else
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT) += mipi_toshiba_video_wvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT) += mipi_toshiba_video_wsvga_pt.o
-obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA) += mipi_toshiba_video_wuxga.o
 obj-$(CONFIG_FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT) += mipi_novatek_video_qhd_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_NOVATEK_CMD_QHD_PT) += mipi_novatek_cmd_qhd_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_RENESAS_VIDEO_FWVGA_PT) += mipi_renesas_video_fwvga_pt.o
@@ -153,7 +130,6 @@ obj-$(CONFIG_FB_MSM_LCDC_PANEL) += lcdc_panel.o
 obj-$(CONFIG_FB_MSM_LCDC_PRISM_WVGA) += lcdc_prism.o
 obj-$(CONFIG_FB_MSM_LCDC_SAMSUNG_WSVGA) += lcdc_samsung_wsvga.o
 obj-$(CONFIG_FB_MSM_LCDC_CHIMEI_WXGA) += lcdc_chimei_wxga.o
-obj-$(CONFIG_FB_MSM_LCDC_NT35582_WVGA) += lcdc_nt35582_wvga.o
 obj-$(CONFIG_FB_MSM_LCDC_EXTERNAL_WXGA) += lcdc_external.o
 obj-$(CONFIG_FB_MSM_HDMI_SII_EXTERNAL_720P) += hdmi_sii9022.o
 obj-$(CONFIG_FB_MSM_LCDC_GORDON_VGA) += lcdc_gordon.o
@@ -165,18 +141,25 @@ obj-$(CONFIG_FB_MSM_LCDC_AUO_WVGA) += lcdc_auo_wvga.o
 obj-$(CONFIG_FB_MSM_LCDC_SAMSUNG_OLED_PT) += lcdc_samsung_oled_pt.o
 obj-$(CONFIG_FB_MSM_HDMI_ADV7520_PANEL) += adv7520.o
 obj-$(CONFIG_FB_MSM_LCDC_ST15_WXGA) += lcdc_st15.o
+obj-$(CONFIG_FB_MSM_LCDC_QRDC_WXGA) += lcdc_qrdc.o
 obj-$(CONFIG_FB_MSM_HDMI_MSM_PANEL) += hdmi_msm.o
 obj-$(CONFIG_FB_MSM_EXT_INTERFACE_COMMON) += external_common.o
+obj-y += lcdc_huawei_config.o
+obj-y += huawei_backlight.o
+obj-y += lcdc_hx8357b_hvga.o
+obj-y += lcdc_hx8357c_hvga.o	
+
+obj-y += lcdc_truly_r61529_hvga.o
+obj-y += lcdc_nt35410_hvga.o
+obj-y += lcdc_hx8347d_qvga.o
+obj-y += lcdc_hx8347g_qvga.o
 obj-$(CONFIG_FB_MSM_TVOUT) += tvout_msm.o
 
 obj-$(CONFIG_FB_MSM_EXTMDDI_SVGA) += mddi_ext_lcd.o
 
-obj-$(CONFIG_FB_MSM_WRITEBACK_MSM_PANEL) += mdp4_wfd_writeback_panel.o
-obj-$(CONFIG_FB_MSM_WRITEBACK_MSM_PANEL) += mdp4_wfd_writeback.o
-obj-$(CONFIG_FB_MSM_WRITEBACK_MSM_PANEL) += mdp4_overlay_writeback.o
-
 obj-$(CONFIG_MSM_VIDC_1080P) += vidc/
 obj-$(CONFIG_MSM_VIDC_720P) += vidc/
+obj-$(CONFIG_HUAWEI_KERNEL) += lcd_hw_debug.o
 
 clean:
 	rm *.o .*cmd

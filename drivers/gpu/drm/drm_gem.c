@@ -34,7 +34,6 @@
 #include <linux/module.h>
 #include <linux/mman.h>
 #include <linux/pagemap.h>
-#include <linux/shmem_fs.h>
 #include "drmP.h"
 
 /** @file drm_gem.c
@@ -102,7 +101,7 @@ drm_gem_init(struct drm_device *dev)
 
 	dev->mm_private = mm;
 
-	if (drm_ht_create(&mm->offset_hash, 12)) {
+	if (drm_ht_create(&mm->offset_hash, 19)) {
 		kfree(mm);
 		return -ENOMEM;
 	}
@@ -182,7 +181,7 @@ EXPORT_SYMBOL(drm_gem_object_alloc);
 /**
  * Removes the mapping from handle to filp for this object.
  */
-int
+static int
 drm_gem_handle_delete(struct drm_file *filp, u32 handle)
 {
 	struct drm_device *dev;
@@ -215,7 +214,6 @@ drm_gem_handle_delete(struct drm_file *filp, u32 handle)
 
 	return 0;
 }
-EXPORT_SYMBOL(drm_gem_handle_delete);
 
 /**
  * Create a handle for this object. This adds a handle reference

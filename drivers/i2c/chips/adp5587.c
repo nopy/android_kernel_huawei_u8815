@@ -331,7 +331,7 @@ static int adp5587_setup_irq(struct i2c_client *client)
 	}
 	
 	client->irq = gpio_to_irq(ADP5587_INT_GPIO);
-	irq_set_irq_type(client->irq, IRQF_TRIGGER_FALLING);  
+	set_irq_type(client->irq, IRQF_TRIGGER_FALLING);  
 	rc = request_irq(client->irq, adp5587_irq_handler,IRQF_TRIGGER_FALLING,ADP5587_I2C_NAME,client_data);
 
 	if (rc) {
@@ -452,7 +452,7 @@ static int adp5587_probe(struct i2c_client *client, const struct i2c_device_id *
 
 	rc = adp5587_setup_irq(client);
 	
-    rc = irq_set_irq_wake(client->irq, 1);
+    rc = set_irq_wake(client->irq, 1);
 	
 	if (rc < 0) {		
 		printk(KERN_ERR "adp5587_chip_irq rc=%d \n",rc);
@@ -480,7 +480,7 @@ static int adp5587_remove(struct i2c_client *client)
 {
 	struct adp5587_data *client_data = i2c_get_clientdata(client);
 	
-    irq_set_irq_wake(client->irq, 0);
+    set_irq_wake(client->irq, 0);
 	
 	free_irq(client->irq, client_data);
 	input_unregister_device(client_data->input_dev);

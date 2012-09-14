@@ -47,6 +47,7 @@
 #define RTC_CLIENT_INIT_PROC		0x12
 #define RTC_EVENT_CB_PROC		0x1
 #define RTC_CB_ID			0x1
+
 struct msm_rpc_client * huawei_alarm_client;
 
 /* Client request errors */
@@ -145,7 +146,17 @@ struct rtc_tod_args {
 	int proc;
 	struct rtc_time *tm;
 };
-
+#ifdef CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM
+static int msmrtcalarm_tod_proc_args(struct msm_rpc_client *client, void *buff,
+							void *data)
+{
+	unsigned long temp = *((unsigned long *)data);
+	unsigned long *sec = buff;
+    /*mutiply 1000 to adatpe to modem */
+	*sec = cpu_to_be32(temp * 1000);
+	return sizeof(*sec);
+}
+#endif /*CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM*/
 #ifdef CONFIG_PM
 struct suspend_state_info {
 	atomic_t state;
@@ -177,17 +188,6 @@ void msmrtc_updateatsuspend(struct timespec *ts)
 	}
 
 }
-#ifdef CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM
-static int msmrtcalarm_tod_proc_args(struct msm_rpc_client *client, void *buff,
-							void *data)
-{
-	unsigned long temp = *((unsigned long *)data);
-	unsigned long *sec = buff;
-    /*mutiply 1000 to adatpe to modem */
-	*sec = cpu_to_be32(temp * 1000);
-	return sizeof(*sec);
-}
-#endif /*CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM*/
 #else
 void msmrtc_updateatsuspend(struct timespec *ts) { }
 #endif
@@ -333,12 +333,13 @@ msmrtc_timeremote_set_time(struct device *dev, struct rtc_time *tm)
 
 	return 0;
 }
+
 #ifdef CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM
 /*Use RPC set rtc alarm time to ARM9*/
 int
 msmrtc_remote_rtc_set_alarm(struct timespec *tm)
 {
-	int rc;
+	int rc = 0;
 		
 	printk("Rtc-msm alarm time is %ld\n",tm->tv_sec);
 	
@@ -352,6 +353,7 @@ msmrtc_remote_rtc_set_alarm(struct timespec *tm)
 	return 0;
 }
 #endif /*CONFIG_HUAWEI_FEATURE_POWEROFF_ALARM*/
+
 static int
 msmrtc_timeremote_read_time(struct device *dev, struct rtc_time *tm)
 {

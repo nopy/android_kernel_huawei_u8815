@@ -378,7 +378,7 @@ static void dumpspeed(struct usbnet *dev, __le32 *speeds)
 		   __le32_to_cpu(speeds[1]) / 1000);
 }
 
-void usbnet_cdc_status(struct usbnet *dev, struct urb *urb)
+static void cdc_status(struct usbnet *dev, struct urb *urb)
 {
 	struct usb_cdc_notification	*event;
 
@@ -418,9 +418,8 @@ void usbnet_cdc_status(struct usbnet *dev, struct urb *urb)
 		break;
 	}
 }
-EXPORT_SYMBOL_GPL(usbnet_cdc_status);
 
-int usbnet_cdc_bind(struct usbnet *dev, struct usb_interface *intf)
+static int cdc_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	int				status;
 	struct cdc_state		*info = (void *) &dev->data;
@@ -442,7 +441,6 @@ int usbnet_cdc_bind(struct usbnet *dev, struct usb_interface *intf)
 	 */
 	return 0;
 }
-EXPORT_SYMBOL_GPL(usbnet_cdc_bind);
 
 static int cdc_manage_power(struct usbnet *dev, int on)
 {
@@ -452,20 +450,20 @@ static int cdc_manage_power(struct usbnet *dev, int on)
 
 static const struct driver_info	cdc_info = {
 	.description =	"CDC Ethernet Device",
-	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT,
+	.flags =	FLAG_ETHER,
 	// .check_connect = cdc_check_connect,
-	.bind =		usbnet_cdc_bind,
+	.bind =		cdc_bind,
 	.unbind =	usbnet_cdc_unbind,
-	.status =	usbnet_cdc_status,
+	.status =	cdc_status,
 	.manage_power =	cdc_manage_power,
 };
 
 static const struct driver_info wwan_info = {
 	.description =	"Mobile Broadband Network Device",
 	.flags =	FLAG_WWAN,
-	.bind =		usbnet_cdc_bind,
+	.bind = 	cdc_bind,
 	.unbind =	usbnet_cdc_unbind,
-	.status =	usbnet_cdc_status,
+	.status =	cdc_status,
 	.manage_power =	cdc_manage_power,
 };
 
@@ -561,13 +559,6 @@ static const struct usb_device_id	products [] = {
 	.idProduct              = 0x0F02,	/* R-1000 */
 	ZAURUS_MASTER_INTERFACE,
 	.driver_info		= 0,
-},
-
-/* LG Electronics VL600 wants additional headers on every frame */
-{
-	USB_DEVICE_AND_INTERFACE_INFO(0x1004, 0x61aa, USB_CLASS_COMM,
-			USB_CDC_SUBCLASS_ETHERNET, USB_CDC_PROTO_NONE),
-	.driver_info = (unsigned long)&wwan_info,
 },
 
 /*

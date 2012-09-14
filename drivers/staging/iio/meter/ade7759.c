@@ -23,7 +23,7 @@
 #include "meter.h"
 #include "ade7759.h"
 
-static int ade7759_spi_write_reg_8(struct device *dev,
+int ade7759_spi_write_reg_8(struct device *dev,
 		u8 reg_address,
 		u8 val)
 {
@@ -46,14 +46,25 @@ static int ade7759_spi_write_reg_16(struct device *dev,
 		u16 value)
 {
 	int ret;
+	struct spi_message msg;
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct ade7759_state *st = iio_dev_get_devdata(indio_dev);
+	struct spi_transfer xfers[] = {
+		{
+			.tx_buf = st->tx,
+			.bits_per_word = 8,
+			.len = 3,
+		}
+	};
 
 	mutex_lock(&st->buf_lock);
 	st->tx[0] = ADE7759_WRITE_REG(reg_address);
 	st->tx[1] = (value >> 8) & 0xFF;
 	st->tx[2] = value & 0xFF;
-	ret = spi_write(st->us, st->tx, 3);
+
+	spi_message_init(&msg);
+	spi_message_add_tail(xfers, &msg);
+	ret = spi_sync(st->us, &msg);
 	mutex_unlock(&st->buf_lock);
 
 	return ret;
@@ -63,40 +74,73 @@ static int ade7759_spi_read_reg_8(struct device *dev,
 		u8 reg_address,
 		u8 *val)
 {
+	struct spi_message msg;
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct ade7759_state *st = iio_dev_get_devdata(indio_dev);
 	int ret;
+	struct spi_transfer xfers[] = {
+		{
+			.tx_buf = st->tx,
+			.rx_buf = st->rx,
+			.bits_per_word = 8,
+			.len = 2,
+		},
+	};
 
-	ret = spi_w8r8(st->us, ADE7759_READ_REG(reg_address));
-	if (ret < 0) {
+	mutex_lock(&st->buf_lock);
+	st->tx[0] = ADE7759_READ_REG(reg_address);
+	st->tx[1] = 0;
+
+	spi_message_init(&msg);
+	spi_message_add_tail(xfers, &msg);
+	ret = spi_sync(st->us, &msg);
+	if (ret) {
 		dev_err(&st->us->dev, "problem when reading 8 bit register 0x%02X",
 				reg_address);
-		return ret;
+		goto error_ret;
 	}
-	*val = ret;
+	*val = st->rx[1];
 
-	return 0;
+error_ret:
+	mutex_unlock(&st->buf_lock);
+	return ret;
 }
 
 static int ade7759_spi_read_reg_16(struct device *dev,
 		u8 reg_address,
 		u16 *val)
 {
+	struct spi_message msg;
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct ade7759_state *st = iio_dev_get_devdata(indio_dev);
 	int ret;
+	struct spi_transfer xfers[] = {
+		{
+			.tx_buf = st->tx,
+			.rx_buf = st->rx,
+			.bits_per_word = 8,
+			.len = 3,
+		},
+	};
 
-	ret = spi_w8r16(st->us, ADE7759_READ_REG(reg_address));
-	if (ret < 0) {
+	mutex_lock(&st->buf_lock);
+	st->tx[0] = ADE7759_READ_REG(reg_address);
+	st->tx[1] = 0;
+	st->tx[2] = 0;
+
+	spi_message_init(&msg);
+	spi_message_add_tail(xfers, &msg);
+	ret = spi_sync(st->us, &msg);
+	if (ret) {
 		dev_err(&st->us->dev, "problem when reading 16 bit register 0x%02X",
-			reg_address);
-		return ret;
+				reg_address);
+		goto error_ret;
 	}
+	*val = (st->rx[1] << 8) | st->rx[2];
 
-	*val = ret;
-	*val = be16_to_cpup(val);
-
-	return 0;
+error_ret:
+	mutex_unlock(&st->buf_lock);
+	return ret;
 }
 
 static int ade7759_spi_read_reg_40(struct device *dev,
@@ -310,22 +354,27 @@ static int ade7759_set_irq(struct device *dev, bool enable)
 		irqen &= ~(1 << 3);
 
 	ret = ade7759_spi_write_reg_8(dev, ADE7759_IRQEN, irqen);
+	if (ret)
+		goto error_ret;
 
 error_ret:
 	return ret;
 }
 
 /* Power down the device */
-static int ade7759_stop_device(struct device *dev)
+int ade7759_stop_device(struct device *dev)
 {
+	int ret;
 	u16 val;
-
 	ade7759_spi_read_reg_16(dev,
 			ADE7759_MODE,
 			&val);
 	val |= 1 << 4;  /* AD converters can be turned off */
+	ret = ade7759_spi_write_reg_16(dev,
+			ADE7759_MODE,
+			val);
 
-	return ade7759_spi_write_reg_16(dev, ADE7759_MODE, val);
+	return ret;
 }
 
 static int ade7759_initial_setup(struct ade7759_state *st)
@@ -355,7 +404,7 @@ static ssize_t ade7759_read_frequency(struct device *dev,
 		struct device_attribute *attr,
 		char *buf)
 {
-	int ret;
+	int ret, len = 0;
 	u16 t;
 	int sps;
 	ret = ade7759_spi_read_reg_16(dev,
@@ -367,7 +416,8 @@ static ssize_t ade7759_read_frequency(struct device *dev,
 	t = (t >> 3) & 0x3;
 	sps = 27900 / (1 + t);
 
-	return sprintf(buf, "%d\n", sps);
+	len = sprintf(buf, "%d SPS\n", sps);
+	return len;
 }
 
 static ssize_t ade7759_write_frequency(struct device *dev,
@@ -396,14 +446,18 @@ static ssize_t ade7759_write_frequency(struct device *dev,
 	else
 		st->us->max_speed_hz = ADE7759_SPI_FAST;
 
-	ret = ade7759_spi_read_reg_16(dev, ADE7759_MODE, &reg);
+	ret = ade7759_spi_read_reg_16(dev,
+			ADE7759_MODE,
+			&reg);
 	if (ret)
 		goto out;
 
 	reg &= ~(3 << 13);
 	reg |= t << 13;
 
-	ret = ade7759_spi_write_reg_16(dev, ADE7759_MODE, reg);
+	ret = ade7759_spi_write_reg_16(dev,
+			ADE7759_MODE,
+			reg);
 
 out:
 	mutex_unlock(&indio_dev->mlock);
@@ -422,6 +476,16 @@ static IIO_DEV_ATTR_RESET(ade7759_write_reset);
 
 static IIO_CONST_ATTR_SAMP_FREQ_AVAIL("27900 14000 7000 3500");
 
+static IIO_CONST_ATTR(name, "ade7759");
+
+static struct attribute *ade7759_event_attributes[] = {
+	NULL
+};
+
+static struct attribute_group ade7759_event_attribute_group = {
+	.attrs = ade7759_event_attributes,
+};
+
 static struct attribute *ade7759_attributes[] = {
 	&iio_dev_attr_temp_raw.dev_attr.attr,
 	&iio_const_attr_temp_offset.dev_attr.attr,
@@ -429,6 +493,7 @@ static struct attribute *ade7759_attributes[] = {
 	&iio_dev_attr_sampling_frequency.dev_attr.attr,
 	&iio_const_attr_sampling_frequency_available.dev_attr.attr,
 	&iio_dev_attr_reset.dev_attr.attr,
+	&iio_const_attr_name.dev_attr.attr,
 	&iio_dev_attr_phcal.dev_attr.attr,
 	&iio_dev_attr_cfden.dev_attr.attr,
 	&iio_dev_attr_aenergy.dev_attr.attr,
@@ -450,14 +515,9 @@ static const struct attribute_group ade7759_attribute_group = {
 	.attrs = ade7759_attributes,
 };
 
-static const struct iio_info ade7759_info = {
-	.attrs = &ade7759_attribute_group,
-	.driver_module = THIS_MODULE,
-};
-
 static int __devinit ade7759_probe(struct spi_device *spi)
 {
-	int ret;
+	int ret, regdone = 0;
 	struct ade7759_state *st = kzalloc(sizeof *st, GFP_KERNEL);
 	if (!st) {
 		ret =  -ENOMEM;
@@ -480,34 +540,70 @@ static int __devinit ade7759_probe(struct spi_device *spi)
 	st->us = spi;
 	mutex_init(&st->buf_lock);
 	/* setup the industrialio driver allocated elements */
-	st->indio_dev = iio_allocate_device(0);
+	st->indio_dev = iio_allocate_device();
 	if (st->indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_free_tx;
 	}
 
-	st->indio_dev->name = spi->dev.driver->name;
 	st->indio_dev->dev.parent = &spi->dev;
-
-	st->indio_dev->info = &ade7759_info;
+	st->indio_dev->num_interrupt_lines = 1;
+	st->indio_dev->event_attrs = &ade7759_event_attribute_group;
+	st->indio_dev->attrs = &ade7759_attribute_group;
 	st->indio_dev->dev_data = (void *)(st);
+	st->indio_dev->driver_module = THIS_MODULE;
 	st->indio_dev->modes = INDIO_DIRECT_MODE;
+
+	ret = ade7759_configure_ring(st->indio_dev);
+	if (ret)
+		goto error_free_dev;
 
 	ret = iio_device_register(st->indio_dev);
 	if (ret)
-		goto error_free_dev;
+		goto error_unreg_ring_funcs;
+	regdone = 1;
+
+	ret = ade7759_initialize_ring(st->indio_dev->ring);
+	if (ret) {
+		printk(KERN_ERR "failed to initialize the ring\n");
+		goto error_unreg_ring_funcs;
+	}
+
+	if (spi->irq) {
+		ret = iio_register_interrupt_line(spi->irq,
+				st->indio_dev,
+				0,
+				IRQF_TRIGGER_FALLING,
+				"ade7759");
+		if (ret)
+			goto error_uninitialize_ring;
+
+		ret = ade7759_probe_trigger(st->indio_dev);
+		if (ret)
+			goto error_unregister_line;
+	}
 
 	/* Get the device into a sane initial state */
 	ret = ade7759_initial_setup(st);
 	if (ret)
-		goto error_unreg_dev;
+		goto error_remove_trigger;
 	return 0;
 
-
-error_unreg_dev:
-	iio_device_unregister(st->indio_dev);
+error_remove_trigger:
+	if (st->indio_dev->modes & INDIO_RING_TRIGGERED)
+		ade7759_remove_trigger(st->indio_dev);
+error_unregister_line:
+	if (st->indio_dev->modes & INDIO_RING_TRIGGERED)
+		iio_unregister_interrupt_line(st->indio_dev, 0);
+error_uninitialize_ring:
+	ade7759_uninitialize_ring(st->indio_dev->ring);
+error_unreg_ring_funcs:
+	ade7759_unconfigure_ring(st->indio_dev);
 error_free_dev:
-	iio_free_device(st->indio_dev);
+	if (regdone)
+		iio_device_unregister(st->indio_dev);
+	else
+		iio_free_device(st->indio_dev);
 error_free_tx:
 	kfree(st->tx);
 error_free_rx:
@@ -529,6 +625,14 @@ static int ade7759_remove(struct spi_device *spi)
 	if (ret)
 		goto err_ret;
 
+	flush_scheduled_work();
+
+	ade7759_remove_trigger(indio_dev);
+	if (spi->irq && gpio_is_valid(irq_to_gpio(spi->irq)) > 0)
+		iio_unregister_interrupt_line(indio_dev, 0);
+
+	ade7759_uninitialize_ring(indio_dev->ring);
+	ade7759_unconfigure_ring(indio_dev);
 	iio_device_unregister(indio_dev);
 	kfree(st->tx);
 	kfree(st->rx);

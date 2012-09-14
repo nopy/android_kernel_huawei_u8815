@@ -2,6 +2,7 @@
  * imx-pcm-fiq.c  --  ALSA Soc Audio Layer
  *
  * Copyright 2009 Sascha Hauer <s.hauer@pengutronix.de>
+ * Copyright (c) 2011, Code Aurora Forum. All rights reserved.
  *
  * This code is based on code copyrighted by Freescale,
  * Liam Girdwood, Javier Martin and probably others.

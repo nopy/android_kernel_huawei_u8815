@@ -128,8 +128,7 @@ static uint16_t s5k5ca_model_id = MODEL_SUNNY;
 
 static uint8_t s5k5ca_init_flag = false;
 
-#define M660_SENSOR_PWD 32
-static int s5k5ca_pwd = 119; //pwd for camera
+/*delete some lines*/
 static struct s5k5ca_i2c_reg_conf * p_s5k5ca_init_reg_config;
 static unsigned int reg_num;
 
@@ -139,9 +138,6 @@ static struct  i2c_client *s5k5ca_client = NULL;
 static struct s5k5ca_ctrl_t *s5k5ca_ctrl = NULL;
 static enum s5k5ca_reg_update_t last_rupdate = -1;
 static enum s5k5ca_setting_t last_rt = -1;
-int wb_current = CAMERA_WB_AUTO;
-int effect_current = CAMERA_EFFECT_OFF;
-static long s5k5ca_set_wb(int );
 static DECLARE_WAIT_QUEUE_HEAD(s5k5ca_wait_queue);
 DEFINE_MUTEX(s5k5ca_sem);
 
@@ -491,8 +487,8 @@ static int s5k5ca_sensor_init_done(const struct msm_camera_sensor_info *data)
         gpio_free(data->sensor_reset);
     }
 
-    gpio_direction_output(s5k5ca_pwd, 1);
-    gpio_free(s5k5ca_pwd);
+    gpio_direction_output(data->sensor_pwd, 1);
+    gpio_free(data->sensor_pwd);
 
     if (false == s5k5ca_init_flag)
     {
@@ -514,10 +510,10 @@ static int s5k5ca_probe_init_sensor(const struct msm_camera_sensor_info *data)
     unsigned short chipid;
 
     /* pull down power down */
-    rc = gpio_request(s5k5ca_pwd, "s5k5ca");
+    rc = gpio_request(data->sensor_pwd, "s5k5ca");
     if (!rc || (rc == -EBUSY))
     {
-        gpio_direction_output(s5k5ca_pwd, 1);
+        gpio_direction_output(data->sensor_pwd, 1);
     }
     else
     {
@@ -547,7 +543,7 @@ static int s5k5ca_probe_init_sensor(const struct msm_camera_sensor_info *data)
     mdelay(20);
 
     {
-        rc = gpio_direction_output(s5k5ca_pwd, 0);
+        rc = gpio_direction_output(data->sensor_pwd, 0);
         if (rc < 0)
         {
             goto init_probe_fail;
@@ -670,11 +666,18 @@ static int s5k5ca_probe_init_sensor(const struct msm_camera_sensor_info *data)
             switch (s5k5ca_model_id)
             {
             case MODEL_TRULY:
-
             case MODEL_SUNNY:
-                p_s5k5ca_init_reg_config = (struct s5k5ca_i2c_reg_conf *)(s5k5ca_regs.s5k5ca_init_reg_config_sunny);
-                reg_num = s5k5ca_regs.s5k5ca_init_reg_config_sunny_size;
-
+                /*if  machine is msm7x27a_M660,set s5k5ca_init_reg_config_sunny_M660,else s5k5ca_init_reg_config_sunny */
+                if(machine_is_msm7x27a_M660())
+                {
+                    p_s5k5ca_init_reg_config = (struct s5k5ca_i2c_reg_conf *)(s5k5ca_regs.s5k5ca_init_reg_config_sunny_M660);
+                    reg_num = s5k5ca_regs.s5k5ca_init_reg_config_sunny_M660_size;
+                }
+                else
+                {
+                    p_s5k5ca_init_reg_config = (struct s5k5ca_i2c_reg_conf *)(s5k5ca_regs.s5k5ca_init_reg_config_sunny);
+                    reg_num = s5k5ca_regs.s5k5ca_init_reg_config_sunny_size;
+                }
                 //              strncpy((char *)data->sensor_name, "23060043SF-SAM-S", strlen("23060043SF-SAM-S"));
                 CDBG("s5k5ca probe is  MODEL_SUNNY.");
                 break;
@@ -784,12 +787,6 @@ static long s5k5ca_set_effect(int mode, int effect)
     int num_of_items_in_table = 0;
     long rc = 0;
 
-    CDBG("s5k5ca_set_effect effect= %d,  current = %d \n", effect, effect_current);
-    /*if the current effect is the value to be setted , return directly*/
-    if(effect_current == effect)
-    {
-        return rc ;
-    }
     switch (effect)
     {
     case CAMERA_EFFECT_OFF:
@@ -832,12 +829,6 @@ static long s5k5ca_set_effect(int mode, int effect)
         return 0;
     }
     rc = s5k5ca_i2c_write_w_table(reg_conf_tbl, num_of_items_in_table);
-    /*when effect is to set auto, wb should be setted to menu value*/
-    if((CAMERA_EFFECT_OFF == effect) && (CAMERA_WB_AUTO != wb_current))
-    {
-        s5k5ca_set_wb(wb_current);
-    }
-    effect_current = effect ;
 
     return rc;
 }
@@ -857,8 +848,17 @@ static long s5k5ca_set_wb(int wb)
         break;
 
     case CAMERA_WB_INCANDESCENT:
-        reg_conf_tbl = s5k5ca_regs.s5k5ca_wb_a_reg_config;
-        num_of_items_in_table = s5k5ca_regs.s5k5ca_wb_a_reg_config_size;
+        /*if  machine is msm7x27a_M660,set s5k5ca_wb_a_reg_config_sunny_M660,else s5k5ca_wb_a_reg_config */
+        if(machine_is_msm7x27a_M660())
+        {
+            reg_conf_tbl = s5k5ca_regs.s5k5ca_wb_a_reg_config_sunny_M660;
+            num_of_items_in_table = s5k5ca_regs.s5k5ca_wb_a_reg_config_sunny_M660_size;
+        }
+        else
+        {
+            reg_conf_tbl = s5k5ca_regs.s5k5ca_wb_a_reg_config;
+            num_of_items_in_table = s5k5ca_regs.s5k5ca_wb_a_reg_config_size;
+        }
         break;
 
     case CAMERA_WB_CUSTOM:
@@ -892,7 +892,7 @@ static long s5k5ca_set_wb(int wb)
         return 0;
     }
     rc = s5k5ca_i2c_write_w_table(reg_conf_tbl, num_of_items_in_table);
-    wb_current = wb;
+
     return rc;
 }
 /*delete some lines*/
@@ -1084,11 +1084,7 @@ static int s5k5ca_sensor_probe(const struct msm_camera_sensor_info *info,
     msm_camio_clk_rate_set(S5K5CA_DEFAULT_CLOCK_RATE);
     mdelay(20);
 
-    /*camera shutdown is GPIO32 for M660*/
-    if(machine_is_msm7x27a_M660())
-    {
-        s5k5ca_pwd = M660_SENSOR_PWD;
-    }
+    /*delete some lines*/
     rc = s5k5ca_probe_init_sensor(info);
     if (rc < 0)
     {
@@ -1098,8 +1094,10 @@ static int s5k5ca_sensor_probe(const struct msm_camera_sensor_info *info,
     }
     else
     {
+        /*camera name for project menu to display*/
+        strncpy((char *)info->sensor_name, "23060073FF-SAM-S", strlen("23060073FF-SAM-S"));
         /*s5k5ca probe succeed, use the func to sign power should always on*/
-        info->set_s5k5ca_is_on(S5K5CA_IS_ON);
+        info->s5k5ca_or_mt9t113_on(S5K5CA_IS_ON);
         CDBG("s5k5ca probe succeed!!!!\n");
     }
     /*initialize the registers to save the time of open camera*/

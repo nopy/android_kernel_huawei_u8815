@@ -23,8 +23,6 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/gpio.h>
 #include <linux/input/pmic8xxx-keypad.h>
-#include <asm/mach-types.h>
-#include <linux/hardware_self_adapt.h>
 
 #define PM8XXX_MAX_ROWS		18
 #define PM8XXX_MAX_COLS		8
@@ -97,7 +95,6 @@
  * @stuckstate - present state when key stuck irq
  * @ctrl_reg - control register value
  */
-extern bool mmi_keystate[255];
 struct pmic8xxx_kp {
 	const struct pm8xxx_keypad_platform_data *pdata;
 	struct input_dev *input;
@@ -177,18 +174,14 @@ static int pmic8xxx_chk_sync_read(struct pmic8xxx_kp *kp)
 	u8 scan_val;
 
 	rc = pmic8xxx_kp_read_u8(kp, &scan_val, KEYP_SCAN);
-	if (rc < 0) {
-		dev_err(kp->dev, "Error reading KEYP_SCAN reg, rc=%d\n", rc);
+	if (rc < 0)
 		return rc;
-	}
 
 	scan_val |= 0x1;
 
 	rc = pmic8xxx_kp_write_u8(kp, scan_val, KEYP_SCAN);
-	if (rc < 0) {
-		dev_err(kp->dev, "Error writing KEYP_SCAN reg, rc=%d\n", rc);
+	if (rc < 0)
 		return rc;
-	}
 
 	/* 2 * 32KHz clocks */
 	udelay((2 * DIV_ROUND_UP(USEC_PER_SEC, KEYP_CLOCK_FREQ)) + 1);
@@ -220,9 +213,6 @@ static int pmic8xxx_kp_read_matrix(struct pmic8xxx_kp *kp, u16 *new_state,
 {
 	int rc, read_rows;
 	u8 scan_val;
-#ifdef CONFIG_HUAWEI_KERNEL
-	int i=0;
-#endif
 
 	if (kp->pdata->num_rows < PM8XXX_MIN_ROWS)
 		read_rows = PM8XXX_MIN_ROWS;
@@ -234,60 +224,25 @@ static int pmic8xxx_kp_read_matrix(struct pmic8xxx_kp *kp, u16 *new_state,
 	if (old_state) {
 		rc = pmic8xxx_kp_read_data(kp, old_state, KEYP_OLD_DATA,
 						read_rows);
-		if (rc < 0) {
-			dev_err(kp->dev,
-				"Error reading KEYP_OLD_DATA, rc=%d\n", rc);
+		if (rc < 0)
 			return rc;
-		}
-/*it is reslove the problem of ghost , becuse the six column  just one key */ 
-#ifdef CONFIG_HUAWEI_KERNEL
-		if(machine_is_msm8255_u8730())
-		{
-			if(~old_state[0] &(1<<(kp->pdata->num_cols-1)))
-			{
-				for(i=1;i< kp->pdata->num_rows;i++)
-				{
-					old_state[i]  |= 1<<(kp->pdata->num_cols-1);
-				}
-			}
-		}
-#endif
 	}
 
 	rc = pmic8xxx_kp_read_data(kp, new_state, KEYP_RECENT_DATA,
 					 read_rows);
-	if (rc < 0) {
-		dev_err(kp->dev,
-			"Error reading KEYP_RECENT_DATA, rc=%d\n", rc);
+	if (rc < 0)
 		return rc;
-	}
-/*it is reslove the problem of ghost , becuse the six column  just one key */ 
-#ifdef CONFIG_HUAWEI_KERNEL
-		if(machine_is_msm8255_u8730())
-		{
-			if(~new_state[0] &(1<<(kp->pdata->num_cols-1)))
-			{
-				for(i=1;i< kp->pdata->num_rows-1;i++)
-				{
-					new_state[i] |= 1<<(kp->pdata->num_cols-1);
-				}
-			}
-		}
 
-#endif
 	/* 4 * 32KHz clocks */
 	udelay((4 * DIV_ROUND_UP(USEC_PER_SEC, KEYP_CLOCK_FREQ)) + 1);
 
 	rc = pmic8xxx_kp_read_u8(kp, &scan_val, KEYP_SCAN);
-	if (rc < 0) {
-		dev_err(kp->dev, "Error reading KEYP_SCAN reg, rc=%d\n", rc);
+	if (rc < 0)
 		return rc;
-	}
-
 	scan_val &= 0xFE;
 	rc = pmic8xxx_kp_write_u8(kp, scan_val, KEYP_SCAN);
 	if (rc < 0)
-		dev_err(kp->dev, "Error writing KEYP_SCAN reg, rc=%d\n", rc);
+		return rc;
 
 	return rc;
 }
@@ -313,21 +268,12 @@ static void __pmic8xxx_kp_scan_matrix(struct pmic8xxx_kp *kp, u16 *new_state,
 
 			code = MATRIX_SCAN_CODE(row, col, PM8XXX_ROW_SHIFT);
 
-			/*reduce invalid input event*/
-#ifdef CONFIG_HUAWEI_KERNEL	
-            if (kp->keycodes[code])
-            {
-#endif	
-				input_event(kp->input, EV_MSC, MSC_SCAN, code);
-				input_report_key(kp->input,
-						kp->keycodes[code],
-						!(new_state[row] & (1 << col)));
-				/* use mmi_keystate save the key state */
-	       		mmi_keystate[kp->keycodes[code]] = (!(new_state[row]&(1<<col)))? MMI_KEY_DOWN :MMI_KEY_UP ;
-				input_sync(kp->input);
-#ifdef CONFIG_HUAWEI_KERNEL		
-            }
-#endif	
+			input_event(kp->input, EV_MSC, MSC_SCAN, code);
+			input_report_key(kp->input,
+					kp->keycodes[code],
+					!(new_state[row] & (1 << col)));
+
+			input_sync(kp->input);
 		}
 	}
 }
@@ -337,23 +283,6 @@ static bool pmic8xxx_detect_ghost_keys(struct pmic8xxx_kp *kp, u16 *new_state)
 	int row, found_first = -1;
 	u16 check, row_state;
 
-/*
-	* for u8860, c8860 and u8860lp, add the codes means:
-	* when volumn-up and volumn-down keys are pressed in the sametime,
-	* the state of kp scan matrix read from the register is wrong because of hardwared's wrong,
-	* and it will make system think the state as ghost keys mistakenly , 
-	* so these board ids should not be check for ghost keys
-*/
-#ifdef CONFIG_HUAWEI_KERNEL
-	if (machine_is_msm8255_u8860() 
-	 || machine_is_msm8255_c8860() 
-	 || machine_is_msm8255_u8860lp() 
-     || machine_is_msm8255_u8860_r()
-	 || machine_is_msm8255_u8860_51())
-	{
-		return 0;
-	}
-#endif
 	check = 0;
 	for (row = 0; row < kp->pdata->num_rows; row++) {
 		row_state = (~new_state[row]) &
@@ -465,7 +394,7 @@ static irqreturn_t pmic8xxx_kp_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static int __devinit pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
+static int pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
 {
 	int bits, rc, cycles;
 	u8 scan_val = 0, ctrl_val = 0;
@@ -490,10 +419,8 @@ static int __devinit pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
 	ctrl_val |= (bits << KEYP_CTRL_SCAN_ROWS_SHIFT);
 
 	rc = pmic8xxx_kp_write_u8(kp, ctrl_val, KEYP_CTRL);
-	if (rc < 0) {
-		dev_err(kp->dev, "Error writing KEYP_CTRL reg, rc=%d\n", rc);
+	if (rc < 0)
 		return rc;
-	}
 
 	bits = (kp->pdata->debounce_ms / 5) - 1;
 
@@ -508,8 +435,6 @@ static int __devinit pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
 	scan_val |= (cycles << KEYP_SCAN_ROW_HOLD_SHIFT);
 
 	rc = pmic8xxx_kp_write_u8(kp, scan_val, KEYP_SCAN);
-	if (rc)
-		dev_err(kp->dev, "Error writing KEYP_SCAN reg, rc=%d\n", rc);
 
 	return rc;
 
@@ -544,7 +469,7 @@ static int pmic8xxx_kp_enable(struct pmic8xxx_kp *kp)
 
 	rc = pmic8xxx_kp_write_u8(kp, kp->ctrl_reg, KEYP_CTRL);
 	if (rc < 0)
-		dev_err(kp->dev, "Error writing KEYP_CTRL reg, rc=%d\n", rc);
+		return rc;
 
 	return rc;
 }
@@ -589,7 +514,7 @@ static void pmic8xxx_kp_close(struct input_dev *dev)
 static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 {
 	const struct pm8xxx_keypad_platform_data *pdata =
-					dev_get_platdata(&pdev->dev);
+						pdev->dev.platform_data;
 	const struct matrix_keymap_data *keymap_data;
 	struct pmic8xxx_kp *kp;
 	int rc;
@@ -633,7 +558,7 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 	}
 
 	if (!pdata->row_hold_ns ||
-		pdata->row_hold_ns > MAX_ROW_HOLD_DELAY ||
+	    pdata->row_hold_ns > MAX_ROW_HOLD_DELAY ||
 		pdata->row_hold_ns < MIN_ROW_HOLD_DELAY ||
 		((pdata->row_hold_ns % MIN_ROW_HOLD_DELAY) != 0)) {
 		dev_err(&pdev->dev, "invalid keypad row hold time supplied\n");
@@ -768,9 +693,9 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 	return 0;
 
 err_pmic_reg_read:
-	free_irq(kp->key_stuck_irq, kp);
+	free_irq(kp->key_stuck_irq, NULL);
 err_req_stuck_irq:
-	free_irq(kp->key_sense_irq, kp);
+	free_irq(kp->key_sense_irq, NULL);
 err_gpio_config:
 err_get_irq:
 	input_free_device(kp->input);
@@ -785,8 +710,8 @@ static int __devexit pmic8xxx_kp_remove(struct platform_device *pdev)
 	struct pmic8xxx_kp *kp = platform_get_drvdata(pdev);
 
 	device_init_wakeup(&pdev->dev, 0);
-	free_irq(kp->key_stuck_irq, kp);
-	free_irq(kp->key_sense_irq, kp);
+	free_irq(kp->key_stuck_irq, NULL);
+	free_irq(kp->key_sense_irq, NULL);
 	input_unregister_device(kp->input);
 	kfree(kp);
 
@@ -865,4 +790,3 @@ MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("PMIC8XXX keypad driver");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("platform:pmic8xxx_keypad");
-MODULE_AUTHOR("Trilok Soni <tsoni@codeaurora.org>");

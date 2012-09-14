@@ -244,10 +244,13 @@ void cx25821_stop_upstream_audio(struct cx25821_dev *dev)
 	dev->_audioframe_count = 0;
 	dev->_audiofile_status = END_OF_FILE;
 
-	kfree(dev->_irq_audio_queues);
-	dev->_irq_audio_queues = NULL;
+	if (dev->_irq_audio_queues) {
+		kfree(dev->_irq_audio_queues);
+		dev->_irq_audio_queues = NULL;
+	}
 
-	kfree(dev->_audiofilename);
+	if (dev->_audiofilename != NULL)
+		kfree(dev->_audiofilename);
 }
 
 void cx25821_free_mem_upstream_audio(struct cx25821_dev *dev)

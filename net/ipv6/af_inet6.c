@@ -289,10 +289,6 @@ int inet6_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 
 	if (addr_len < SIN6_LEN_RFC2133)
 		return -EINVAL;
-
-	if (addr->sin6_family != AF_INET6)
-		return -EAFNOSUPPORT;
-
 	addr_type = ipv6_addr_type(&addr->sin6_addr);
 	if ((addr_type & IPV6_ADDR_MULTICAST) && sock->type == SOCK_STREAM)
 		return -EINVAL;
@@ -494,21 +490,6 @@ int inet6_getname(struct socket *sock, struct sockaddr *uaddr,
 
 EXPORT_SYMBOL(inet6_getname);
 
-int inet6_killaddr_ioctl(struct net *net, void __user *arg) {
-	struct in6_ifreq ireq;
-	struct sockaddr_in6 sin6;
-
-	if (!capable(CAP_NET_ADMIN))
-		return -EACCES;
-
-	if (copy_from_user(&ireq, arg, sizeof(struct in6_ifreq)))
-		return -EFAULT;
-
-	sin6.sin6_family = AF_INET6;
-	ipv6_addr_copy(&sin6.sin6_addr, &ireq.ifr6_addr);
-	return tcp_nuke_addr(net, (struct sockaddr *) &sin6);
-}
-
 int inet6_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
 	struct sock *sk = sock->sk;
@@ -533,8 +514,6 @@ int inet6_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 		return addrconf_del_ifaddr(net, (void __user *) arg);
 	case SIOCSIFDSTADDR:
 		return addrconf_set_dstaddr(net, (void __user *) arg);
-	case SIOCKILLADDR:
-		return inet6_killaddr_ioctl(net, (void __user *) arg);
 	default:
 		if (!sk->sk_prot->ioctl)
 			return -ENOIOCTLCMD;
@@ -682,34 +661,41 @@ EXPORT_SYMBOL(inet6_unregister_protosw);
 
 int inet6_sk_rebuild_header(struct sock *sk)
 {
-	struct ipv6_pinfo *np = inet6_sk(sk);
+	int err;
 	struct dst_entry *dst;
+	struct ipv6_pinfo *np = inet6_sk(sk);
 
 	dst = __sk_dst_check(sk, np->dst_cookie);
 
 	if (dst == NULL) {
 		struct inet_sock *inet = inet_sk(sk);
 		struct in6_addr *final_p, final;
-		struct flowi6 fl6;
+		struct flowi fl;
 
-		memset(&fl6, 0, sizeof(fl6));
-		fl6.flowi6_proto = sk->sk_protocol;
-		ipv6_addr_copy(&fl6.daddr, &np->daddr);
-		ipv6_addr_copy(&fl6.saddr, &np->saddr);
-		fl6.flowlabel = np->flow_label;
-		fl6.flowi6_oif = sk->sk_bound_dev_if;
-		fl6.flowi6_mark = sk->sk_mark;
-		fl6.fl6_dport = inet->inet_dport;
-		fl6.fl6_sport = inet->inet_sport;
-		security_sk_classify_flow(sk, flowi6_to_flowi(&fl6));
+		memset(&fl, 0, sizeof(fl));
+		fl.proto = sk->sk_protocol;
+		ipv6_addr_copy(&fl.fl6_dst, &np->daddr);
+		ipv6_addr_copy(&fl.fl6_src, &np->saddr);
+		fl.fl6_flowlabel = np->flow_label;
+		fl.oif = sk->sk_bound_dev_if;
+		fl.mark = sk->sk_mark;
+		fl.fl_ip_dport = inet->inet_dport;
+		fl.fl_ip_sport = inet->inet_sport;
+		security_sk_classify_flow(sk, &fl);
 
-		final_p = fl6_update_dst(&fl6, np->opt, &final);
+		final_p = fl6_update_dst(&fl, np->opt, &final);
 
-		dst = ip6_dst_lookup_flow(sk, &fl6, final_p, false);
-		if (IS_ERR(dst)) {
+		err = ip6_dst_lookup(sk, &dst, &fl);
+		if (err) {
 			sk->sk_route_caps = 0;
-			sk->sk_err_soft = -PTR_ERR(dst);
-			return PTR_ERR(dst);
+			return err;
+		}
+		if (final_p)
+			ipv6_addr_copy(&fl.fl6_dst, final_p);
+
+		if ((err = xfrm_lookup(sock_net(sk), &dst, &fl, sk, 0)) < 0) {
+			sk->sk_err_soft = -err;
+			return err;
 		}
 
 		__ip6_dst_store(sk, dst, NULL, NULL);
@@ -778,7 +764,7 @@ static int ipv6_gso_pull_exthdrs(struct sk_buff *skb, int proto)
 
 static int ipv6_gso_send_check(struct sk_buff *skb)
 {
-	const struct ipv6hdr *ipv6h;
+	struct ipv6hdr *ipv6h;
 	const struct inet6_protocol *ops;
 	int err = -EINVAL;
 
@@ -803,7 +789,7 @@ out:
 	return err;
 }
 
-static struct sk_buff *ipv6_gso_segment(struct sk_buff *skb, u32 features)
+static struct sk_buff *ipv6_gso_segment(struct sk_buff *skb, int features)
 {
 	struct sk_buff *segs = ERR_PTR(-EINVAL);
 	struct ipv6hdr *ipv6h;
@@ -1112,8 +1098,6 @@ static int __init inet6_init(void)
 		goto out;
 	}
 
-	initialize_hashidentrnd();
-
 	err = proto_register(&tcpv6_prot, 1);
 	if (err)
 		goto out;
@@ -1153,7 +1137,7 @@ static int __init inet6_init(void)
 	/*
 	 *	ipngwg API draft makes clear that the correct semantics
 	 *	for TCP and UDP is to consider one TCP and UDP instance
-	 *	in a host available by both INET and INET6 APIs and
+	 *	in a host availiable by both INET and INET6 APIs and
 	 *	able to communicate via both network protocols.
 	 */
 

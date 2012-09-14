@@ -31,6 +31,7 @@
 #include <linux/timer.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/smp_lock.h>
 #include <linux/in.h>
 #include <net/sock.h>
 #include <net/tcp.h>

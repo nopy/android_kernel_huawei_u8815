@@ -63,11 +63,7 @@ enum regulator_status {
  *                    when running with the specified parameters.
  *
  * @enable_time: Time taken for the regulator voltage output voltage to
- *               stabilise after being enabled, in microseconds.
- * @set_voltage_time_sel: Time taken for the regulator voltage output voltage
- *               to stabilise after being set to a new value, in microseconds.
- *               The function provides the from and to voltage selector, the
- *               function should return the worst case.
+ *               stabalise after being enabled, in microseconds.
  *
  * @set_suspend_voltage: Set the voltage for the regulator when the system
  *                       is suspended.
@@ -107,11 +103,8 @@ struct regulator_ops {
 	int (*set_mode) (struct regulator_dev *, unsigned int mode);
 	unsigned int (*get_mode) (struct regulator_dev *);
 
-	/* Time taken to enable or set voltage on the regulator */
+	/* Time taken to enable the regulator */
 	int (*enable_time) (struct regulator_dev *);
-	int (*set_voltage_time_sel) (struct regulator_dev *,
-				     unsigned int old_selector,
-				     unsigned int new_selector);
 
 	/* report regulator status ... most other accessors report
 	 * control inputs, this reports results of combining inputs

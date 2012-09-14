@@ -115,7 +115,7 @@ struct pppoe_net {
  * 2) Session stage (MAC and SID are known)
  *
  * Ethernet frames have a special tag for this but
- * we use simpler approach based on session id
+ * we use simplier approach based on session id
  */
 static inline bool stage_session(__be16 sid)
 {
@@ -348,9 +348,8 @@ static int pppoe_device_event(struct notifier_block *this,
 
 	/* Only look at sockets that are using this specific device. */
 	switch (event) {
-	case NETDEV_CHANGEADDR:
 	case NETDEV_CHANGEMTU:
-		/* A change in mtu or address is a bad thing, requiring
+		/* A change in mtu is a bad thing, requiring
 		 * LCP re-negotiation.
 		 */
 

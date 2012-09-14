@@ -13,8 +13,9 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 
-#include <sound/soc.h>
+#include <sound/pcm.h>
 #include <sound/pcm_params.h>
+#include <sound/soc.h>
 
 #include <plat/audio.h>
 #include <mach/dma.h>

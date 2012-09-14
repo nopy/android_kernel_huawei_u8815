@@ -28,9 +28,11 @@
 	dev_warn (ehci_to_hcd(ehci)->self.controller , fmt , ## args )
 
 #ifdef VERBOSE_DEBUG
+#	define vdbg dbg
 #	define ehci_vdbg ehci_dbg
 #else
-	static inline void ehci_vdbg(struct ehci_hcd *ehci, ...) {}
+#	define vdbg(fmt,args...) do { } while (0)
+#	define ehci_vdbg(ehci, fmt, args...) do { } while (0)
 #endif
 
 #ifdef	DEBUG
@@ -726,7 +728,7 @@ static ssize_t fill_registers_buffer(struct debug_buffer *buf)
 	}
 
 	/* Capability Registers */
-	i = HC_VERSION(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
+	i = HC_VERSION(ehci_readl(ehci, &ehci->caps->hc_capbase));
 	temp = scnprintf (next, size,
 		"bus %s, device %s\n"
 		"%s\n"

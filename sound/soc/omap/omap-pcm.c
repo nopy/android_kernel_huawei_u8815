@@ -4,7 +4,7 @@
  * Copyright (C) 2008 Nokia Corporation
  *
  * Contact: Jarkko Nikula <jhnikula@gmail.com>
- *          Peter Ujfalusi <peter.ujfalusi@ti.com>
+ *          Peter Ujfalusi <peter.ujfalusi@nokia.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,8 +37,7 @@ static const struct snd_pcm_hardware omap_pcm_hardware = {
 				  SNDRV_PCM_INFO_MMAP_VALID |
 				  SNDRV_PCM_INFO_INTERLEAVED |
 				  SNDRV_PCM_INFO_PAUSE |
-				  SNDRV_PCM_INFO_RESUME |
-				  SNDRV_PCM_INFO_NO_PERIOD_WAKEUP,
+				  SNDRV_PCM_INFO_RESUME,
 	.formats		= SNDRV_PCM_FMTBIT_S16_LE |
 				  SNDRV_PCM_FMTBIT_S32_LE,
 	.period_bytes_min	= 32,
@@ -196,7 +195,7 @@ static int omap_pcm_prepare(struct snd_pcm_substream *substream)
 	if ((cpu_is_omap1510()))
 		omap_enable_dma_irq(prtd->dma_ch, OMAP_DMA_FRAME_IRQ |
 			      OMAP_DMA_LAST_IRQ | OMAP_DMA_BLOCK_IRQ);
-	else if (!substream->runtime->no_period_wakeup)
+	else
 		omap_enable_dma_irq(prtd->dma_ch, OMAP_DMA_FRAME_IRQ);
 
 	if (!(cpu_class_is_omap1())) {
@@ -235,11 +234,6 @@ static int omap_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		prtd->period_index = -1;
 		omap_stop_dma(prtd->dma_ch);
-		/* Since we are using self linking, there is a
-		   chance that the DMA as re-enabled the channel
-		   just after disabling it */
-		while (omap_get_dma_active_status(prtd->dma_ch))
-			omap_stop_dma(prtd->dma_ch);
 		break;
 	default:
 		ret = -EINVAL;
@@ -285,15 +279,6 @@ static int omap_pcm_open(struct snd_pcm_substream *substream)
 					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
 		goto out;
-	if (cpu_is_omap44xx()) {
-		/* ABE needs a step of 24 * 4 data bits, and HDMI 32 * 4
-		 * Ensure buffer size satisfies both constraints.
-		 */
-		ret = snd_pcm_hw_constraint_step(runtime, 0,
-					 SNDRV_PCM_HW_PARAM_BUFFER_BYTES, 384);
-		if (ret < 0)
-			goto out;
-	}
 
 	prtd = kzalloc(sizeof(*prtd), GFP_KERNEL);
 	if (prtd == NULL) {

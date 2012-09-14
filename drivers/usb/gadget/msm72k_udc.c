@@ -45,11 +45,19 @@
 #include <mach/clk.h>
 #include <linux/uaccess.h>
 #include <linux/wakelock.h>
-
-#ifdef CONFIG_HUAWEI_KERNEL
+#ifdef CONFIG_USB_AUTO_INSTALL
+#include <linux/syscalls.h>
+#include <linux/debugfs.h>
+/* usb rpc to replace pcom mechanism for fix reset issue */
 #include <mach/oem_rapi_client.h>
-#include <asm-arm/huawei/usb_switch_huawei.h>
-#endif  /* CONFIG_HUAWEI_KERNEL */
+#include "usb_switch_huawei.h"
+#include "../../../arch/arm/mach-msm/proc_comm.h"
+
+usb_switch_stru usb_switch_para;
+void ms_delay_work_init(int add_flag);
+void android_delay_work_init(int add_flag);
+static u8 is_mmc_exist = false;
+#endif  /* CONFIG_USB_AUTO_INSTALL */
 
 static const char driver_name[] = "msm72k_udc";
 
@@ -121,9 +129,6 @@ struct msm_endpoint {
 	*/
 	unsigned char bit;
 	unsigned char num;
-	unsigned long dTD_update_fail_count;
-	unsigned long false_prime_fail_count;
-	unsigned actual_prime_fail_count;
 
 	unsigned wedged:1;
 	/* pointers to DMA transfer list area */
@@ -150,6 +155,11 @@ static void usb_do_remote_wakeup(struct work_struct *w);
 #define USB_FLAG_RESET          0x0008
 #define USB_FLAG_SUSPEND        0x0010
 #define USB_FLAG_CONFIGURED     0x0020
+
+#ifdef CONFIG_USB_AUTO_INSTALL
+#define USB_INTERRUPT_NORMAL          0x0000
+#define USB_INTERRUPT_ABNORMAL        0x0001
+#endif
 
 #define USB_CHG_DET_DELAY	msecs_to_jiffies(1000)
 #define REMOTE_WAKEUP_DELAY	msecs_to_jiffies(1000)
@@ -203,7 +213,6 @@ struct usb_info {
 	unsigned phy_status;
 	unsigned phy_fail_count;
 	unsigned prime_fail_count;
-	unsigned long dTD_update_fail_count;
 
 	struct usb_gadget		gadget;
 	struct usb_gadget_driver	*driver;
@@ -235,6 +244,7 @@ static struct usb_info *the_usb_info;
 #ifdef CONFIG_HUAWEI_KERNEL
 static struct wake_lock charger_wlock;
 #endif
+
 static int msm72k_wakeup(struct usb_gadget *_gadget);
 static int msm72k_pullup_internal(struct usb_gadget *_gadget, int is_active);
 static int msm72k_set_halt(struct usb_ep *_ep, int value);
@@ -264,6 +274,69 @@ static void msm_hsusb_set_speed(struct usb_info *ui)
 	spin_unlock_irqrestore(&ui->lock, flags);
 }
 
+#ifdef CONFIG_USB_AUTO_INSTALL
+void initiate_switch_to_cdrom(unsigned long delay_t)
+{
+    USB_PR("%s\n", __func__);
+
+    /* when unplug the usb line, if the usb mode is wlan, 
+     * switch to the before mode. 
+     */
+    if (android_get_product_id() == curr_usb_pid_ptr->wlan_pid
+        || PID_WLAN_ADB == android_get_product_id())
+    {
+      usb_switch_composition(usb_para_info.usb_pid, delay_t);
+      return;
+    }
+    
+    /* add new pid config for google */
+    if((usb_para_info.usb_pid == curr_usb_pid_ptr->norm_pid)
+       || (usb_para_info.usb_pid == curr_usb_pid_ptr->auth_pid)
+       || (usb_para_info.usb_pid == curr_usb_pid_ptr->google_pid))
+    {
+        /* support switch to udisk in norm pid mode
+         * when the usb_switch_para pid is udisk pid and the usb mode is
+         * normal mode, we set the serial number to null and switch to
+         * normal mode.
+         */
+        if((usb_switch_para.dest_pid == curr_usb_pid_ptr->udisk_pid)
+           && (usb_para_info.usb_pid == curr_usb_pid_ptr->norm_pid))
+        {
+            set_usb_sn(NULL);
+            USB_PR("support switch to udisk in norm pid mode\n");
+            usb_switch_composition(curr_usb_pid_ptr->norm_pid, delay_t);
+            return;
+        }
+
+        USB_PR("switch to cdrom blocked, usb_para_info.usb_pid=0x%x\n", usb_para_info.usb_pid);
+        /* prevent usb switching */
+        return;
+    }
+
+    if(GOOGLE_INDEX == usb_para_info.usb_pid_index)
+    {
+        USB_PR("switch to cdrom blocked, usb_para_info.usb_pid_index=%d\n", usb_para_info.usb_pid_index);
+        /* prevent usb switching */
+        return;
+    }
+
+    usb_switch_composition(curr_usb_pid_ptr->cdrom_pid, delay_t);
+    
+}
+
+void usb_get_state(unsigned *state_para, unsigned *usb_state_para)
+{
+	struct usb_info *ui = the_usb_info;
+    *state_para = ui->state;
+    *usb_state_para = (unsigned)ui->usb_state;
+}
+
+u8 get_mmc_exist(void)
+{
+	return is_mmc_exist;
+}
+#endif  /* CONFIG_USB_AUTO_INSTALL */
+
 static void msm_hsusb_set_state(enum usb_device_state state)
 {
 	unsigned long flags;
@@ -287,13 +360,12 @@ static enum usb_device_state msm_hsusb_get_state(void)
 
 static ssize_t print_switch_name(struct switch_dev *sdev, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s\n", DRIVER_NAME);
+	return sprintf(buf, "%s\n", DRIVER_NAME);
 }
 
 static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s\n",
-		sdev->state ? "online" : "offline");
+	return sprintf(buf, "%s\n", sdev->state ? "online" : "offline");
 }
 
 static inline enum chg_type usb_get_chg_type(struct usb_info *ui)
@@ -451,6 +523,7 @@ static void usb_chg_detect(struct work_struct *w)
 	if (temp == USB_CHG_TYPE__WALLCHARGER) {
 		pm_runtime_put_sync(&ui->pdev->dev);
 		wake_unlock(&ui->wlock);
+
 #ifdef CONFIG_HUAWEI_KERNEL
 		wake_lock(&charger_wlock);		
 		printk(KERN_ERR "%s:lock charger_wlock\n",__func__);
@@ -601,7 +674,6 @@ static void ept_prime_timer_func(unsigned long data)
 
 	spin_lock_irqsave(&ui->lock, flags);
 
-	ept->false_prime_fail_count++;
 	if ((readl_relaxed(USB_ENDPTPRIME) & n)) {
 		/*
 		 * ---- UNLIKELY ---
@@ -619,7 +691,6 @@ static void ept_prime_timer_func(unsigned long data)
 	rmb();
 	if (ept->req && (ept->req->item->info & INFO_ACTIVE)) {
 		ui->prime_fail_count++;
-		ept->actual_prime_fail_count++;
 		pr_err("%s(): ept%d%s prime failed. ept: config: %x"
 				"active: %x next: %x info: %x\n",
 				__func__, ept->num,
@@ -925,7 +996,8 @@ static void handle_setup(struct usb_info *ui)
 	u8 hnp;
 	unsigned long flags;
 #endif
-	/* USB hardware sometimes generate interrupt before
+	/* merge QC patch CRS-317926.
+	 * USB hardware sometimes generate interrupt before
 	 * 8 bytes of SETUP packet are written to system memory.
 	 * This results in fetching wrong setup_data sometimes.
 	 * TODO: Remove below workaround of adding 1us delay once
@@ -1121,6 +1193,7 @@ static void handle_endpoint(struct usb_info *ui, unsigned bit)
 	struct msm_endpoint *ept = ui->ept + bit;
 	struct msm_request *req;
 	unsigned long flags;
+	/* merge QC patch CRS-317926 */
 	int req_dequeue = 1;
 	unsigned info;
 
@@ -1130,6 +1203,7 @@ static void handle_endpoint(struct usb_info *ui, unsigned bit)
 		ept->req, ept->req ? ept->req->item_dma : 0);
 	*/
 
+	/* merge QC patch CRS-322196 and CRS-317926 to move del_timer */
 	/* expire all requests that are no longer active */
 	spin_lock_irqsave(&ui->lock, flags);
 	while ((req = ept->req)) {
@@ -1141,6 +1215,7 @@ static void handle_endpoint(struct usb_info *ui, unsigned bit)
 			break;
 		}
 
+/* merge QC patch CRS-317926 */
 dequeue:
 		/* clean speculative fetches on req->item->info */
 		dma_coherent_post_ops();
@@ -1149,8 +1224,6 @@ dequeue:
 		if (info & INFO_ACTIVE) {
 			if (req_dequeue) {
 				req_dequeue = 0;
-				ui->dTD_update_fail_count++;
-				ept->dTD_update_fail_count++;
 				udelay(10);
 				goto dequeue;
 			} else {
@@ -1168,6 +1241,7 @@ dequeue:
 		req_dequeue = 0;
 #endif
 
+		/* merge QC patch CRS-322196 and CRS-317926 */
 		del_timer(&ept->prime_timer);
 		/* advance ept queue to the next request */
 		ept->req = req->next;
@@ -1266,6 +1340,10 @@ static void flush_endpoint(struct msm_endpoint *ept)
 	flush_endpoint_sw(ept);
 }
 
+#ifdef CONFIG_USB_AUTO_INSTALL
+static int usb_redo_offline_flag = USB_INTERRUPT_NORMAL;
+#endif
+
 static irqreturn_t usb_interrupt(int irq, void *data)
 {
 	struct usb_info *ui = data;
@@ -1339,15 +1417,11 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 			/* XXX: we can't seem to detect going offline,
 			 * XXX:  so deconfigure on reset for the time being
 			 */
-			dev_dbg(&ui->pdev->dev,
+			if (ui->driver) {
+				dev_dbg(&ui->pdev->dev,
 					"usb: notify offline\n");
-
-#ifdef CONFIG_HUAWEI_KERNEL 			
-            /* to disable sending of the disconnected uevent */
-			android_disable_send_uevent(1);
-#endif
-            
-			ui->driver->disconnect(&ui->gadget);
+				ui->driver->disconnect(&ui->gadget);
+			}
 			/* cancel pending ep0 transactions */
 			flush_endpoint(&ui->ep0out);
 			flush_endpoint(&ui->ep0in);
@@ -1363,7 +1437,12 @@ static irqreturn_t usb_interrupt(int irq, void *data)
 
 		spin_lock_irqsave(&ui->lock, flags);
 		ui->usb_state = USB_STATE_SUSPENDED;
+#ifdef CONFIG_USB_AUTO_INSTALL
+		if( ui->flags == USB_FLAG_VBUS_OFFLINE ){
+		    usb_redo_offline_flag = USB_INTERRUPT_ABNORMAL;
+		}
 		ui->flags = USB_FLAG_SUSPEND;
+#endif
 		spin_unlock_irqrestore(&ui->lock, flags);
 
 		ui->driver->suspend(&ui->gadget);
@@ -1420,6 +1499,10 @@ static void usb_prepare(struct usb_info *ui)
 	INIT_DELAYED_WORK(&ui->rw_work, usb_do_remote_wakeup);
 	if (ui->pdata && ui->pdata->is_phy_status_timer_on)
 		INIT_WORK(&ui->phy_status_check, usb_phy_stuck_recover);
+#ifdef CONFIG_USB_AUTO_INSTALL
+	android_delay_work_init(1);
+	ms_delay_work_init(1);
+#endif  /* CONFIG_USB_AUTO_INSTALL */
 }
 
 static void usb_reset(struct usb_info *ui)
@@ -1626,10 +1709,18 @@ static void usb_do_work(struct work_struct *w)
 				switch_set_state(&ui->sdev, 0);
 
 				ui->state = USB_STATE_OFFLINE;
+#ifdef CONFIG_USB_AUTO_INSTALL
+               initiate_switch_to_cdrom(0);
+#endif
 				usb_do_work_check_vbus(ui);
 				pm_runtime_put_noidle(&ui->pdev->dev);
 				pm_runtime_suspend(&ui->pdev->dev);
 				wake_unlock(&ui->wlock);
+				/*wake up after 1s*/
+#ifdef CONFIG_USB_AUTO_INSTALL
+				wake_lock_timeout(&ui->wlock, 1*HZ);
+#endif
+
 #ifdef CONFIG_HUAWEI_KERNEL
 				wake_unlock(&charger_wlock);				
 				printk(KERN_ERR "%s:unlock charger_wlock\n",__func__);
@@ -1650,6 +1741,18 @@ static void usb_do_work(struct work_struct *w)
 				if (release_wlocks)
 					wake_unlock(&ui->wlock);
 
+#ifdef CONFIG_USB_AUTO_INSTALL
+                if( USB_INTERRUPT_ABNORMAL == usb_redo_offline_flag ){
+                  spin_lock_irqsave(&ui->lock, iflags);
+                  usb_redo_offline_flag = USB_INTERRUPT_NORMAL;
+
+                  ui->flags = USB_FLAG_VBUS_OFFLINE;
+                  ui->usb_state = USB_STATE_NOTATTACHED;
+                  spin_unlock_irqrestore(&ui->lock, iflags);
+              
+                  USB_PR("USB_FLAG_SUSPEND: %s: ui->state=%d, flags=0x%x usb_state=%d \n", __func__, ui->state, (unsigned int)ui->flags, ui->usb_state);
+                }
+#endif 
 				/* TBD: Initiate LPM at usb bus suspend */
 				break;
 			}
@@ -1925,91 +2028,21 @@ const struct file_operations debug_wlocks_ops = {
 	.write = debug_write_release_wlocks,
 };
 
-static ssize_t debug_reprime_ep(struct file *file, const char __user *ubuf,
-				 size_t count, loff_t *ppos)
-{
-	struct usb_info *ui = file->private_data;
-	struct msm_endpoint *ept;
-	char kbuf[10];
-	unsigned int ep_num, dir;
-	unsigned long flags;
-	unsigned n, i;
-
-	memset(kbuf, 0, 10);
-
-	if (copy_from_user(kbuf, ubuf, count > 10 ? 10 : count))
-		return -EFAULT;
-
-	if (sscanf(kbuf, "%u %u", &ep_num, &dir) != 2)
-		return -EINVAL;
-
-	if (dir)
-		i = ep_num + 16;
-	else
-		i = ep_num;
-
-	spin_lock_irqsave(&ui->lock, flags);
-	ept = ui->ept + i;
-	n = 1 << ept->bit;
-
-	if ((readl_relaxed(USB_ENDPTPRIME) & n))
-		goto out;
-
-	if (readl_relaxed(USB_ENDPTSTAT) & n)
-		goto out;
-
-	/* clear speculative loads on item->info */
-	rmb();
-	if (ept->req && (ept->req->item->info & INFO_ACTIVE)) {
-		pr_err("%s(): ept%d%s prime failed. ept: config: %x"
-				"active: %x next: %x info: %x\n",
-				__func__, ept->num,
-				ept->flags & EPT_FLAG_IN ? "in" : "out",
-				ept->head->config, ept->head->active,
-				ept->head->next, ept->head->info);
-		writel_relaxed(n, USB_ENDPTPRIME);
-	}
-out:
-	spin_unlock_irqrestore(&ui->lock, flags);
-
-	return count;
-}
-
-static char buffer[512];
 static ssize_t debug_prime_fail_read(struct file *file, char __user *ubuf,
 				 size_t count, loff_t *ppos)
 {
 	struct usb_info *ui = file->private_data;
-	char *buf = buffer;
-	unsigned long flags;
-	struct msm_endpoint *ept;
-	int n;
-	int i = 0;
+	char kbuf[10];
+	size_t c = 0;
 
-	spin_lock_irqsave(&ui->lock, flags);
-	for (n = 0; n < 32; n++) {
-		ept = ui->ept + n;
-		if (ept->ep.maxpacket == 0)
-			continue;
+	memset(kbuf, 0, 10);
 
-		i += scnprintf(buf + i, PAGE_SIZE - i,
-			"ept%d %s false_prime_count=%lu prime_fail_count=%d dtd_fail_count=%lu\n",
-			ept->num, (ept->flags & EPT_FLAG_IN) ? "in " : "out",
-			ept->false_prime_fail_count,
-			ept->actual_prime_fail_count,
-			ept->dTD_update_fail_count);
-	}
+	c = scnprintf(kbuf, 10, "%d", ui->prime_fail_count);
 
-	i += scnprintf(buf + i, PAGE_SIZE - i,
-			   "dTD_update_fail count: %lu\n",
-			    ui->dTD_update_fail_count);
+	if (copy_to_user(ubuf, kbuf, c))
+		return -EFAULT;
 
-	i += scnprintf(buf + i, PAGE_SIZE - i,
-			   "prime_fail count: %d\n", ui->prime_fail_count);
-
-	spin_unlock_irqrestore(&ui->lock, flags);
-
-	return simple_read_from_buffer(ubuf, count, ppos, buf, i);
+	return c;
 }
 
 static int debug_prime_fail_open(struct inode *inode, struct file *file)
@@ -2021,7 +2054,6 @@ static int debug_prime_fail_open(struct inode *inode, struct file *file)
 const struct file_operations prime_fail_ops = {
 	.open = debug_prime_fail_open,
 	.read = debug_prime_fail_read,
-	.write = debug_reprime_ep,
 };
 
 static void usb_debugfs_init(struct usb_info *ui)
@@ -2036,7 +2068,7 @@ static void usb_debugfs_init(struct usb_info *ui)
 	debugfs_create_file("cycle", 0222, dent, ui, &debug_cycle_ops);
 	debugfs_create_file("release_wlocks", 0666, dent, ui,
 						&debug_wlocks_ops);
-	debugfs_create_file("prime_fail_countt", 0666, dent, ui,
+	debugfs_create_file("prime_fail_countt", 0222, dent, ui,
 						&prime_fail_ops);
 }
 #else
@@ -2493,7 +2525,7 @@ static ssize_t show_usb_chg_current(struct device *dev,
 	struct usb_info *ui = the_usb_info;
 	size_t count;
 
-	count = snprintf(buf, PAGE_SIZE, "%d", ui->chg_current);
+	count = sprintf(buf, "%d", ui->chg_current);
 
 	return count;
 }
@@ -2509,22 +2541,12 @@ static ssize_t show_usb_chg_type(struct device *dev,
 			"DEDICATED CHARGER",
 			"INVALID"};
 
-	count = snprintf(buf, PAGE_SIZE, "%s",
+	count = sprintf(buf, "%s",
 			chg_type[atomic_read(&otg->chg_type)]);
 
 	return count;
 }
-
-#ifdef CONFIG_HUAWEI_KERNEL
-/*
- * the function for stitching usb mode
- * @dev: usb gadget device
- * @attr: the atrribute of device
- * @buf: the buf is to be written
- * @size: the size of buf
- * Return value: @size success, -1 fail
- * Side effect : none
- */
+#ifdef CONFIG_USB_AUTO_INSTALL
 static ssize_t msm_hsusb_store_fixusb(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t size)
@@ -2532,59 +2554,67 @@ static ssize_t msm_hsusb_store_fixusb(struct device *dev,
 	unsigned long pid_index = 0;
     unsigned nv_item = 4526;
     int  rval = -1;
+    u16  pid;
     
     USB_PR("%s, buf=%s\n", __func__, buf);
 	if (!strict_strtoul(buf, 10, &pid_index))
     {
-    	if (pid_index != ORI_INDEX && pid_index != CDROM_INDEX && pid_index != GOOGLE_INDEX)
-    	{
-    		USB_PR("pid_index %ld is not supported. So fail to switch to this mode.\n", pid_index);
-    		return -1;
-    	}
-        
+        /*
+         * fix the issue that switch to google mode when usb serial number is null
+         * -1 presents fail to switch , @size presents success to switch
+         */
     	if (0 == usb_para_data.usb_para.usb_serial[0] && GOOGLE_INDEX == pid_index)
     	{
     		USB_PR("Usb serial number is null in google mode. So fail to switch to google mode.\n");
     		return -1;
     	}
-    	
-        /* update nv_item when user set a pid_index that is differnt from the present nv_item */
-        if(usb_para_data.usb_para.usb_pid_index != pid_index)
-        {
-            /* usb rpc to replace pcom mechanism for fix reset issue */
-            rval = (int)oem_rapi_write_nv(nv_item, (char *)&pid_index, (u8)sizeof(pid_index)); 
-            if(0 == rval)
-            {
-                USB_PR("Fixusb write OK! nv(%d)=%d, rval=%d\n", nv_item, (int)pid_index, rval);
-            }
-            else
-            {
-                USB_PR("Fixusb write failed! nv(%d)=%d, rval=%d\n", nv_item, (int)pid_index, rval);
-            }
 
-            /* update usb_para_data.usb_para.usb_pid_index */
-            usb_para_data.usb_para.usb_pid_index = pid_index;
-            USB_PR("usb_pid_index updates to : %d \n", usb_para_data.usb_para.usb_pid_index);
+        /* usb rpc to replace pcom mechanism for fix reset issue */
+        rval = (int)oem_rapi_write_nv(nv_item, (char *)&pid_index, (u8)sizeof(pid_index)); 
+        if(0 == rval)
+        {
+            USB_PR("Fixusb write OK! nv(%d)=%d, rval=%d\n", nv_item, (int)pid_index, rval);
         }
-       
-		usb_port_switch_request(pid_index);
+        else
+        {
+            USB_PR("Fixusb write failed! nv(%d)=%d, rval=%d\n", nv_item, (int)pid_index, rval);
+        }
+
+        /* add new pid config for google */
+        if(pid_index == GOOGLE_INDEX)
+        {
+            set_usb_sn(usb_para_data.usb_para.usb_serial);
+        }
+        else if(pid_index == NORM_INDEX)
+        {
+            /* set sn if pid is norm_pid */
+            set_usb_sn(USB_SN_STRING);
+        }
+        else
+        {
+            set_usb_sn(NULL);
+        }
+
+        pid = pid_index_to_pid(pid_index);
+
+        /* update usb_para_info.usb_pid when the user set USB pid */
+        usb_para_info.usb_pid = pid;
+        usb_para_info.usb_pid_index = pid_index;
+        USB_PR("usb_para_info update: %d - 0x%x\n", 
+            usb_para_info.usb_pid_index, usb_para_info.usb_pid);
+
+		usb_switch_composition((unsigned short)pid, 0);
+        
 	}
     else
 	{
 		USB_PR("%s: Fixusb conversion failed\n", __func__);
+        /* -1 presents fail to switch */
+    	return -1;
 	}
 
 	return size;
 }
-
-/*
- * the function for stitching usb mode
- * @dev: usb gadget device
- * @attr: the atrribute of device
- * @buf: the buf is to be read
- * Return value: >0 success, 0 fail
- * Side effect : none
- */
 static ssize_t msm_hsusb_show_fixusb(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
@@ -2592,12 +2622,161 @@ static ssize_t msm_hsusb_show_fixusb(struct device *dev,
 	int i;
     unsigned nv_item = 4526;
 
-	i = scnprintf(buf, PAGE_SIZE, "Fixusb read nv(%d)=%d, rval=%d\n", nv_item, usb_para_data.usb_para.usb_pid_index, 0);
+	i = scnprintf(buf, PAGE_SIZE, "Fixusb read nv(%d)=%d, rval=%d\n", nv_item, usb_para_info.usb_pid_index, 0);
 	return i;
 }
 
-static DEVICE_ATTR(fixusb, 0664, msm_hsusb_show_fixusb, msm_hsusb_store_fixusb);
-#endif  /* CONFIG_HUAWEI_KERNEL */
+static ssize_t msm_hsusb_show_switchusb(struct device *dev,
+					 struct device_attribute *attr,
+					 char *buf)
+{
+	int i;
+
+    if(usb_switch_para.dest_pid == curr_usb_pid_ptr->udisk_pid)
+    {
+    	i = scnprintf(buf, PAGE_SIZE, "usb_switch_para.dest_pid is udisk\n");
+    }
+    else if(usb_switch_para.dest_pid == curr_usb_pid_ptr->norm_pid)
+    {
+    	i = scnprintf(buf, PAGE_SIZE, "usb_switch_para.dest_pid is norm\n");
+    }
+    else if(usb_switch_para.dest_pid == curr_usb_pid_ptr->cdrom_pid)
+    {
+    	i = scnprintf(buf, PAGE_SIZE, "usb_switch_para.dest_pid is cdrom\n");
+    }
+    /* new requirement: usb tethering */
+    else if(usb_switch_para.dest_pid == curr_usb_pid_ptr->wlan_pid)
+    {
+    	i = scnprintf(buf, PAGE_SIZE, "usb_switch_para.dest_pid is wlan\n");
+    }
+    else
+    {
+    	i = scnprintf(buf, PAGE_SIZE, "usb_switch_para.dest_pid is not set\n");
+    }
+
+	return i;
+}
+
+static ssize_t msm_hsusb_store_switchusb(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t size)
+{
+    char *udisk = "udisk";
+    char *norm="norm";
+    char *cdrom="cdrom";
+    char *auth="auth";
+    char *wlanther="ther_unet";
+    char *wlanunther="unther_unet";
+    USB_PR("%s, size = %d, buf = %s\n", __func__, size, buf);
+
+    if(1 == usb_switch_para.inprogress)
+    {
+        USB_PR("%s, switch blocked, buf=%s\n", __func__, buf);
+        return size;
+    }
+
+	usb_switch_para.inprogress =1;
+    /* new requirement: usb tethering */
+    if(!memcmp(buf, wlanunther, strlen(wlanunther)))
+    {
+        usb_switch_composition((unsigned short)usb_para_info.usb_pid, 0);
+        return size;
+    }
+    else if(!memcmp(buf, wlanther, strlen(wlanther)))
+    {
+        usb_switch_composition((unsigned short)curr_usb_pid_ptr->wlan_pid, 0);
+        return size;
+    }
+
+    /* add new pid config for google */
+    if(GOOGLE_INDEX == usb_para_info.usb_pid_index)
+    {
+        USB_PR("switch blocked, usb_para_info.usb_pid_index=%d\n", usb_para_info.usb_pid_index);
+		usb_switch_para.inprogress = 0;
+        return size;
+    }
+
+    if(!memcmp(buf, udisk, strlen(udisk)))
+    {
+        usb_switch_para.dest_pid = curr_usb_pid_ptr->udisk_pid;
+        /* set serial number to support multiple disk in normal mode */
+        if(0 != usb_para_data.usb_para.usb_serial[0]) 
+            set_usb_sn(usb_para_data.usb_para.usb_serial);
+        else
+            set_usb_sn(USB_SN_STRING);		
+    }
+    else if(!memcmp(buf, norm, strlen(norm)))
+    {
+        usb_switch_para.dest_pid = curr_usb_pid_ptr->norm_pid;
+    }
+    else if(!memcmp(buf, cdrom, strlen(cdrom)))
+    {
+        usb_switch_para.dest_pid = curr_usb_pid_ptr->cdrom_pid;
+    }
+    else if(!memcmp(buf, auth, strlen(auth)))
+    {
+        usb_switch_para.dest_pid = curr_usb_pid_ptr->auth_pid;
+    }
+    else
+    {
+        USB_PR("invalid input parameter\n");
+		usb_switch_para.inprogress = 0;
+        return size;
+    }
+
+    /* support switch udisk interface from pc */
+    /* if the new pid is same as current pid, do nothing */
+    if (android_get_product_id() != usb_switch_para.dest_pid)
+    {
+      usb_switch_composition((unsigned short)usb_switch_para.dest_pid, 0);
+    }
+    else
+    {
+      USB_PR("switch block for already in pid state.\n");
+      usb_switch_para.inprogress = 0;
+    }
+    
+	return size;
+}
+
+static ssize_t msm_hsusb_show_sd_status(struct device *dev,
+					 struct device_attribute *attr,
+					 char *buf)
+{
+	int i;
+
+    i = scnprintf(buf, PAGE_SIZE, "is_mmc_exist = %d\n", is_mmc_exist);
+    
+	return i;
+}
+
+/* support switch udisk interface from pc */
+/* set the sd exist state by vold */
+static ssize_t msm_hsusb_store_sd_status(struct device *dev,
+            struct device_attribute *attr,
+            const char *buf, size_t size)
+{
+  if (1 != size){
+    return size;
+  }
+  
+  is_mmc_exist = *buf;
+  USB_PR("msm_hsusb_store_sd_status: is_mmc_exist=%d\n", is_mmc_exist);
+    
+  return size;
+}
+
+/* we changed the permissions of these files and directories 
+ * the meet the requirements of Android Gingerbread CTS tests
+ */  
+static DEVICE_ATTR(fixusb, 0664, 
+        msm_hsusb_show_fixusb, msm_hsusb_store_fixusb);
+static DEVICE_ATTR(switchusb, 0664, 
+        msm_hsusb_show_switchusb, msm_hsusb_store_switchusb);
+static DEVICE_ATTR(sdstatus, 0664, 
+        msm_hsusb_show_sd_status, msm_hsusb_store_sd_status);
+#endif  /* CONFIG_USB_AUTO_INSTALL */
+
 static DEVICE_ATTR(wakeup, S_IWUSR, 0, usb_remote_wakeup);
 static DEVICE_ATTR(usb_state, S_IRUSR, show_usb_state, 0);
 static DEVICE_ATTR(usb_speed, S_IRUSR, show_usb_speed, 0);
@@ -2641,7 +2820,7 @@ static ssize_t show_host_avail(struct device *dev,
 	unsigned long flags;
 
 	spin_lock_irqsave(&ui->lock, flags);
-	count = snprintf(buf, PAGE_SIZE, "%d\n", ui->hnp_avail);
+	count = sprintf(buf, "%d\n", ui->hnp_avail);
 	spin_unlock_irqrestore(&ui->lock, flags);
 
 	return count;
@@ -2718,6 +2897,7 @@ static int msm72k_probe(struct platform_device *pdev)
 	wake_lock_init(&charger_wlock, WAKE_LOCK_SUSPEND,"charger_active");
 	printk(KERN_ERR "%s:wakelock init \n",__func__);
 #endif
+
 	usb_debugfs_init(ui);
 
 	usb_prepare(ui);
@@ -2738,10 +2918,12 @@ static int msm72k_probe(struct platform_device *pdev)
 			__func__, retval);
 		switch_dev_unregister(&ui->sdev);
 		wake_lock_destroy(&ui->wlock);
+
 #ifdef CONFIG_HUAWEI_KERNEL
 		wake_lock_destroy(&charger_wlock);
 		printk(KERN_ERR "%s:wakelock distroy \n",__func__);
 #endif
+		
 		return usb_free(ui, retval);
 	}
 
@@ -2827,16 +3009,26 @@ int usb_gadget_probe_driver(struct usb_gadget_driver *driver,
 		dev_err(&ui->pdev->dev,
 			"failed to create sysfs entry(chg_current):"
 			"err:(%d)\n", retval);
-#ifdef CONFIG_HUAWEI_KERNEL
+
+	dev_dbg(&ui->pdev->dev, "registered gadget driver '%s'\n",
+			driver->driver.name);
+#ifdef CONFIG_USB_AUTO_INSTALL
 	retval = device_create_file(&ui->gadget.dev, &dev_attr_fixusb);
 	if (retval != 0)
 		dev_err(&ui->pdev->dev,
 			"failed to create sysfs entry(fixusb):"
 			"err:(%d)\n", retval);
-#endif  /* CONFIG_HUAWEI_KERNEL */
-
-	dev_dbg(&ui->pdev->dev, "registered gadget driver '%s'\n",
-			driver->driver.name);
+	retval = device_create_file(&ui->gadget.dev, &dev_attr_switchusb);
+	if (retval != 0)
+		dev_err(&ui->pdev->dev,
+			"failed to create sysfs entry(switchusb):"
+			"err:(%d)\n", retval);
+	retval = device_create_file(&ui->gadget.dev, &dev_attr_sdstatus);
+	if (retval != 0)
+		dev_err(&ui->pdev->dev,
+			"failed to create sysfs entry(sdstatus):"
+			"err:(%d)\n", retval);
+#endif  /* CONFIG_USB_AUTO_INSTALL */
 	usb_start(ui);
 
 	return 0;
@@ -2874,9 +3066,12 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 	device_remove_file(&dev->gadget.dev, &dev_attr_usb_speed);
 	device_remove_file(&dev->gadget.dev, &dev_attr_chg_type);
 	device_remove_file(&dev->gadget.dev, &dev_attr_chg_current);
-#ifdef CONFIG_HUAWEI_KERNEL
+#ifdef CONFIG_USB_AUTO_INSTALL
 	device_remove_file(&dev->gadget.dev, &dev_attr_fixusb);
-#endif  /* CONFIG_HUAWEI_KERNEL */
+	device_remove_file(&dev->gadget.dev, &dev_attr_switchusb);
+	device_remove_file(&dev->gadget.dev, &dev_attr_sdstatus);
+#endif  /* CONFIG_USB_AUTO_INSTALL */
+
 	driver->disconnect(&dev->gadget);
 	driver->unbind(&dev->gadget);
 	dev->gadget.dev.driver = NULL;

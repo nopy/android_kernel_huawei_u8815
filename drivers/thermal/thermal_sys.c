@@ -60,6 +60,8 @@ static LIST_HEAD(thermal_tz_list);
 static LIST_HEAD(thermal_cdev_list);
 static DEFINE_MUTEX(thermal_list_lock);
 
+static unsigned int thermal_event_seqnum;
+
 static int get_idr(struct idr *idr, struct mutex *lock, int *id)
 {
 	int err;
@@ -579,7 +581,7 @@ thermal_add_hwmon_sysfs(struct thermal_zone_device *tz)
 	dev_set_drvdata(hwmon->device, hwmon);
 	result = device_create_file(hwmon->device, &dev_attr_name);
 	if (result)
-		goto free_mem;
+		goto unregister_hwmon_device;
 
  register_sys_interface:
 	tz->hwmon = hwmon;
@@ -593,7 +595,7 @@ thermal_add_hwmon_sysfs(struct thermal_zone_device *tz)
 	sysfs_attr_init(&tz->temp_input.attr.attr);
 	result = device_create_file(hwmon->device, &tz->temp_input.attr);
 	if (result)
-		goto unregister_name;
+		goto unregister_hwmon_device;
 
 	if (tz->ops->get_crit_temp) {
 		unsigned long temperature;
@@ -607,7 +609,7 @@ thermal_add_hwmon_sysfs(struct thermal_zone_device *tz)
 			result = device_create_file(hwmon->device,
 						    &tz->temp_crit.attr);
 			if (result)
-				goto unregister_input;
+				goto unregister_hwmon_device;
 		}
 	}
 
@@ -619,9 +621,9 @@ thermal_add_hwmon_sysfs(struct thermal_zone_device *tz)
 
 	return 0;
 
- unregister_input:
+ unregister_hwmon_device:
+	device_remove_file(hwmon->device, &tz->temp_crit.attr);
 	device_remove_file(hwmon->device, &tz->temp_input.attr);
- unregister_name:
 	if (new_hwmon_device) {
 		device_remove_file(hwmon->device, &dev_attr_name);
 		hwmon_device_unregister(hwmon->device);
@@ -640,8 +642,7 @@ thermal_remove_hwmon_sysfs(struct thermal_zone_device *tz)
 
 	tz->hwmon = NULL;
 	device_remove_file(hwmon->device, &tz->temp_input.attr);
-	if (tz->ops->get_crit_temp)
-		device_remove_file(hwmon->device, &tz->temp_crit.attr);
+	device_remove_file(hwmon->device, &tz->temp_crit.attr);
 
 	mutex_lock(&thermal_list_lock);
 	list_del(&tz->hwmon_node);
@@ -1316,8 +1317,6 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 EXPORT_SYMBOL(thermal_zone_device_unregister);
 
 #ifdef CONFIG_NET
-static unsigned int thermal_event_seqnum;
-
 static struct genl_family thermal_event_genl_family = {
 	.id = GENL_ID_GENERATE,
 	.name = THERMAL_GENL_FAMILY_NAME,

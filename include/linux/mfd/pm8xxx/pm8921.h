@@ -29,13 +29,11 @@
 #include <linux/mfd/pm8xxx/batt-alarm.h>
 #include <linux/input/pmic8xxx-pwrkey.h>
 #include <linux/input/pmic8xxx-keypad.h>
-#include <linux/regulator/pm8xxx-regulator.h>
+#include <linux/regulator/pm8921-regulator.h>
 #include <linux/mfd/pm8xxx/pm8921-charger.h>
-#include <linux/mfd/pm8xxx/pm8xxx-adc.h>
+#include <linux/mfd/pm8921-adc.h>
 #include <linux/mfd/pm8xxx/pm8921-bms.h>
-#include <linux/leds-pm8xxx.h>
-#include <linux/mfd/pm8xxx/vibrator.h>
-#include <linux/mfd/pm8xxx/ccadc.h>
+#include <linux/leds.h>
 
 #define PM8921_NR_IRQS		256
 
@@ -108,17 +106,6 @@
 
 #define PM8921_OVERTEMP_IRQ		PM8921_IRQ_BLOCK_BIT(4, 2)
 #define PM8921_TEMPSTAT_IRQ		PM8921_IRQ_BLOCK_BIT(6, 7)
-#define PM8921_RESOUT_IRQ		PM8921_IRQ_BLOCK_BIT(6, 4)
-
-#define PM8921_USB_OTG_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(6, 0)
-#define PM8921_LVS7_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 7)
-#define PM8921_LVS6_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 6)
-#define PM8921_LVS5_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 5)
-#define PM8921_LVS4_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 4)
-#define PM8921_LVS3_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 3)
-#define PM8921_LVS2_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 2)
-#define PM8921_LVS1_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 1)
-#define PM8921_HDMI_MVS_OCP_IRQ		PM8921_IRQ_BLOCK_BIT(13, 0)
 
 /* PMIC I/O Resources */
 #define PM8921_RTC_BASE 0x11D
@@ -134,12 +121,10 @@ struct pm8921_platform_data {
 	struct pm8921_charger_platform_data	*charger_pdata;
 	struct pm8921_bms_platform_data		*bms_pdata;
 	struct pm8xxx_misc_platform_data	*misc_pdata;
-	struct pm8xxx_regulator_platform_data	*regulator_pdatas;
+	struct pm8921_regulator_platform_data	*regulator_pdatas;
 	int					num_regulators;
-	struct pm8xxx_adc_platform_data		*adc_pdata;
-	struct pm8xxx_led_platform_data		*leds_pdata;
-	struct pm8xxx_vibrator_platform_data	*vibrator_pdata;
-	struct pm8xxx_ccadc_platform_data	*ccadc_pdata;
+	struct pm8921_adc_platform_data		*adc_pdata;
+	struct led_platform_data		*leds_pdata;
 };
 
 #endif

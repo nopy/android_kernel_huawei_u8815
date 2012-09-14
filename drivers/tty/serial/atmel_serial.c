@@ -1,4 +1,6 @@
 /*
+ *  linux/drivers/char/atmel_serial.c
+ *
  *  Driver for Atmel AT91 / AT32 Serial ports
  *  Copyright (C) 2003 Rick Bronson
  *
@@ -1238,21 +1240,6 @@ static void atmel_set_termios(struct uart_port *port, struct ktermios *termios,
 	spin_unlock_irqrestore(&port->lock, flags);
 }
 
-static void atmel_set_ldisc(struct uart_port *port, int new)
-{
-	int line = port->line;
-
-	if (line >= port->state->port.tty->driver->num)
-		return;
-
-	if (port->state->port.tty->ldisc->ops->num == N_PPS) {
-		port->flags |= UPF_HARDPPS_CD;
-		atmel_enable_ms(port);
-	} else {
-		port->flags &= ~UPF_HARDPPS_CD;
-	}
-}
-
 /*
  * Return string describing the specified port
  */
@@ -1393,7 +1380,6 @@ static struct uart_ops atmel_pops = {
 	.shutdown	= atmel_shutdown,
 	.flush_buffer	= atmel_flush_buffer,
 	.set_termios	= atmel_set_termios,
-	.set_ldisc	= atmel_set_ldisc,
 	.type		= atmel_type,
 	.release_port	= atmel_release_port,
 	.request_port	= atmel_request_port,
@@ -1420,7 +1406,7 @@ static void __devinit atmel_init_port(struct atmel_uart_port *atmel_port,
 	port->flags		= UPF_BOOT_AUTOCONF;
 	port->ops		= &atmel_pops;
 	port->fifosize		= 1;
-	port->line		= data->num;
+	port->line		= pdev->id;
 	port->dev		= &pdev->dev;
 	port->mapbase	= pdev->resource[0].start;
 	port->irq	= pdev->resource[1].start;
@@ -1709,13 +1695,12 @@ static int atmel_serial_resume(struct platform_device *pdev)
 static int __devinit atmel_serial_probe(struct platform_device *pdev)
 {
 	struct atmel_uart_port *port;
-	struct atmel_uart_data *pdata = pdev->dev.platform_data;
 	void *data;
 	int ret;
 
 	BUILD_BUG_ON(ATMEL_SERIAL_RINGSIZE & (ATMEL_SERIAL_RINGSIZE - 1));
 
-	port = &atmel_ports[pdata->num];
+	port = &atmel_ports[pdev->id];
 	port->backup_imr = 0;
 
 	atmel_init_port(port, pdev);

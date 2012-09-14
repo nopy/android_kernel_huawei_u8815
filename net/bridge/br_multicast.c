@@ -413,7 +413,7 @@ out:
 
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 static struct sk_buff *br_ip6_multicast_alloc_query(struct net_bridge *br,
-						    const struct in6_addr *group)
+						    struct in6_addr *group)
 {
 	struct sk_buff *skb;
 	struct ipv6hdr *ip6h;
@@ -1115,7 +1115,7 @@ static int br_ip4_multicast_query(struct net_bridge *br,
 				  struct net_bridge_port *port,
 				  struct sk_buff *skb)
 {
-	const struct iphdr *iph = ip_hdr(skb);
+	struct iphdr *iph = ip_hdr(skb);
 	struct igmphdr *ih = igmp_hdr(skb);
 	struct net_bridge_mdb_entry *mp;
 	struct igmpv3_query *ih3;
@@ -1190,7 +1190,7 @@ static int br_ip6_multicast_query(struct net_bridge *br,
 				  struct net_bridge_port *port,
 				  struct sk_buff *skb)
 {
-	const struct ipv6hdr *ip6h = ipv6_hdr(skb);
+	struct ipv6hdr *ip6h = ipv6_hdr(skb);
 	struct mld_msg *mld = (struct mld_msg *) icmp6_hdr(skb);
 	struct net_bridge_mdb_entry *mp;
 	struct mld2_query *mld2q;
@@ -1198,7 +1198,7 @@ static int br_ip6_multicast_query(struct net_bridge *br,
 	struct net_bridge_port_group __rcu **pp;
 	unsigned long max_delay;
 	unsigned long now = jiffies;
-	const struct in6_addr *group = NULL;
+	struct in6_addr *group = NULL;
 	int err = 0;
 
 	spin_lock(&br->multicast_lock);
@@ -1356,7 +1356,7 @@ static int br_multicast_ipv4_rcv(struct net_bridge *br,
 				 struct sk_buff *skb)
 {
 	struct sk_buff *skb2 = skb;
-	const struct iphdr *iph;
+	struct iphdr *iph;
 	struct igmphdr *ih;
 	unsigned len;
 	unsigned offset;
@@ -1379,11 +1379,8 @@ static int br_multicast_ipv4_rcv(struct net_bridge *br,
 	if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
 		return -EINVAL;
 
-	if (iph->protocol != IPPROTO_IGMP) {
-		if ((iph->daddr & IGMP_LOCAL_GROUP_MASK) != IGMP_LOCAL_GROUP)
-			BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
+	if (iph->protocol != IPPROTO_IGMP)
 		return 0;
-	}
 
 	len = ntohs(iph->tot_len);
 	if (skb->len < len || len < ip_hdrlen(skb))
@@ -1427,7 +1424,7 @@ static int br_multicast_ipv4_rcv(struct net_bridge *br,
 	switch (ih->type) {
 	case IGMP_HOST_MEMBERSHIP_REPORT:
 	case IGMPV2_HOST_MEMBERSHIP_REPORT:
-		BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
+		BR_INPUT_SKB_CB(skb2)->mrouters_only = 1;
 		err = br_ip4_multicast_add_group(br, port, ih->group);
 		break;
 	case IGMPV3_HOST_MEMBERSHIP_REPORT:
@@ -1455,8 +1452,8 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 				 struct sk_buff *skb)
 {
 	struct sk_buff *skb2;
-	const struct ipv6hdr *ip6h;
-	u8 icmp6_type;
+	struct ipv6hdr *ip6h;
+	struct icmp6hdr *icmp6h;
 	u8 nexthdr;
 	unsigned len;
 	int offset;
@@ -1478,7 +1475,7 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 	    ip6h->payload_len == 0)
 		return 0;
 
-	len = ntohs(ip6h->payload_len) + sizeof(*ip6h);
+	len = ntohs(ip6h->payload_len);
 	if (skb->len < len)
 		return -EINVAL;
 
@@ -1502,9 +1499,9 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 	__skb_pull(skb2, offset);
 	skb_reset_transport_header(skb2);
 
-	icmp6_type = icmp6_hdr(skb2)->icmp6_type;
+	icmp6h = icmp6_hdr(skb2);
 
-	switch (icmp6_type) {
+	switch (icmp6h->icmp6_type) {
 	case ICMPV6_MGM_QUERY:
 	case ICMPV6_MGM_REPORT:
 	case ICMPV6_MGM_REDUCTION:
@@ -1520,23 +1517,16 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 		err = pskb_trim_rcsum(skb2, len);
 		if (err)
 			goto out;
-		err = -EINVAL;
 	}
-
-	ip6h = ipv6_hdr(skb2);
 
 	switch (skb2->ip_summed) {
 	case CHECKSUM_COMPLETE:
-		if (!csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr, skb2->len,
-					IPPROTO_ICMPV6, skb2->csum))
+		if (!csum_fold(skb2->csum))
 			break;
 		/*FALLTHROUGH*/
 	case CHECKSUM_NONE:
-		skb2->csum = ~csum_unfold(csum_ipv6_magic(&ip6h->saddr,
-							&ip6h->daddr,
-							skb2->len,
-							IPPROTO_ICMPV6, 0));
-		if (__skb_checksum_complete(skb2))
+		skb2->csum = 0;
+		if (skb_checksum_complete(skb2))
 			goto out;
 	}
 
@@ -1544,7 +1534,7 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 
 	BR_INPUT_SKB_CB(skb)->igmp = 1;
 
-	switch (icmp6_type) {
+	switch (icmp6h->icmp6_type) {
 	case ICMPV6_MGM_REPORT:
 	    {
 		struct mld_msg *mld;
@@ -1553,7 +1543,7 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 			goto out;
 		}
 		mld = (struct mld_msg *)skb_transport_header(skb2);
-		BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
+		BR_INPUT_SKB_CB(skb2)->mrouters_only = 1;
 		err = br_ip6_multicast_add_group(br, port, &mld->mld_mca);
 		break;
 	    }

@@ -34,6 +34,7 @@
 #include <linux/blk_types.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/smp_lock.h>
 #include <linux/genhd.h>
 #include <linux/cdrom.h>
 #include <linux/file.h>
@@ -41,7 +42,7 @@
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_host.h>
-#include <scsi/scsi_tcq.h>
+#include <scsi/libsas.h> /* For TASK_ATTR_* */
 
 #include <target/target_core_base.h>
 #include <target/target_core_device.h>
@@ -441,7 +442,6 @@ static struct se_device *pscsi_create_type_disk(
 	struct pscsi_dev_virt *pdv,
 	struct se_subsystem_dev *se_dev,
 	struct se_hba *hba)
-	__releases(sh->host_lock)
 {
 	struct se_device *dev;
 	struct pscsi_hba_virt *phv = (struct pscsi_hba_virt *)pdv->pdv_se_hba->hba_ptr;
@@ -489,7 +489,6 @@ static struct se_device *pscsi_create_type_rom(
 	struct pscsi_dev_virt *pdv,
 	struct se_subsystem_dev *se_dev,
 	struct se_hba *hba)
-	__releases(sh->host_lock)
 {
 	struct se_device *dev;
 	struct pscsi_hba_virt *phv = (struct pscsi_hba_virt *)pdv->pdv_se_hba->hba_ptr;
@@ -524,7 +523,6 @@ static struct se_device *pscsi_create_type_other(
 	struct pscsi_dev_virt *pdv,
 	struct se_subsystem_dev *se_dev,
 	struct se_hba *hba)
-	__releases(sh->host_lock)
 {
 	struct se_device *dev;
 	struct pscsi_hba_virt *phv = (struct pscsi_hba_virt *)pdv->pdv_se_hba->hba_ptr;
@@ -558,7 +556,7 @@ static struct se_device *pscsi_create_virtdevice(
 	if (!(pdv)) {
 		printk(KERN_ERR "Unable to locate struct pscsi_dev_virt"
 				" parameter\n");
-		return ERR_PTR(-EINVAL);
+		return NULL;
 	}
 	/*
 	 * If not running in PHV_LLD_SCSI_HOST_NO mode, locate the
@@ -568,7 +566,7 @@ static struct se_device *pscsi_create_virtdevice(
 		if (phv->phv_mode == PHV_LLD_SCSI_HOST_NO) {
 			printk(KERN_ERR "pSCSI: Unable to locate struct"
 				" Scsi_Host for PHV_LLD_SCSI_HOST_NO\n");
-			return ERR_PTR(-ENODEV);
+			return NULL;
 		}
 		/*
 		 * For the newer PHV_VIRUTAL_HOST_ID struct scsi_device
@@ -577,7 +575,7 @@ static struct se_device *pscsi_create_virtdevice(
 		if (!(se_dev->su_dev_flags & SDF_USING_UDEV_PATH)) {
 			printk(KERN_ERR "pSCSI: udev_path attribute has not"
 				" been set before ENABLE=1\n");
-			return ERR_PTR(-EINVAL);
+			return NULL;
 		}
 		/*
 		 * If no scsi_host_id= was passed for PHV_VIRUTAL_HOST_ID,
@@ -590,12 +588,12 @@ static struct se_device *pscsi_create_virtdevice(
 				printk(KERN_ERR "pSCSI: Unable to set hba_mode"
 					" with active devices\n");
 				spin_unlock(&hba->device_lock);
-				return ERR_PTR(-EEXIST);
+				return NULL;
 			}
 			spin_unlock(&hba->device_lock);
 
 			if (pscsi_pmode_enable_hba(hba, 1) != 1)
-				return ERR_PTR(-ENODEV);
+				return NULL;
 
 			legacy_mode_enable = 1;
 			hba->hba_flags |= HBA_FLAGS_PSCSI_MODE;
@@ -605,14 +603,14 @@ static struct se_device *pscsi_create_virtdevice(
 			if (!(sh)) {
 				printk(KERN_ERR "pSCSI: Unable to locate"
 					" pdv_host_id: %d\n", pdv->pdv_host_id);
-				return ERR_PTR(-ENODEV);
+				return NULL;
 			}
 		}
 	} else {
 		if (phv->phv_mode == PHV_VIRUTAL_HOST_ID) {
 			printk(KERN_ERR "pSCSI: PHV_VIRUTAL_HOST_ID set while"
 				" struct Scsi_Host exists\n");
-			return ERR_PTR(-EEXIST);
+			return NULL;
 		}
 	}
 
@@ -647,7 +645,7 @@ static struct se_device *pscsi_create_virtdevice(
 				hba->hba_flags &= ~HBA_FLAGS_PSCSI_MODE;
 			}
 			pdv->pdv_sd = NULL;
-			return ERR_PTR(-ENODEV);
+			return NULL;
 		}
 		return dev;
 	}
@@ -663,7 +661,7 @@ static struct se_device *pscsi_create_virtdevice(
 		hba->hba_flags &= ~HBA_FLAGS_PSCSI_MODE;
 	}
 
-	return ERR_PTR(-ENODEV);
+	return NULL;
 }
 
 /*	pscsi_free_device(): (Part of se_subsystem_api_t template)
@@ -819,7 +817,6 @@ pscsi_alloc_task(struct se_cmd *cmd)
 		if (!(pt->pscsi_cdb)) {
 			printk(KERN_ERR "pSCSI: Unable to allocate extended"
 					" pt->pscsi_cdb\n");
-			kfree(pt);
 			return NULL;
 		}
 	} else
@@ -911,7 +908,7 @@ static int pscsi_do_task(struct se_task *task)
 	 * descriptor
 	 */
 	blk_execute_rq_nowait(pdv->pdv_sd->request_queue, NULL, pt->pscsi_req,
-			(task->task_se_cmd->sam_task_attr == MSG_HEAD_TAG),
+			(task->task_se_cmd->sam_task_attr == TASK_ATTR_HOQ),
 			pscsi_req_done);
 
 	return PYX_TRANSPORT_SENT_TO_TRANSPORT;

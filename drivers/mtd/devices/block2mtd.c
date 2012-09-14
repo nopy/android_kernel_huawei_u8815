@@ -205,7 +205,7 @@ static int block2mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 }
 
 /* for support the unification of emmc and nand */ 
-#ifdef CONFIG_HUAWEI_APANIC
+#ifdef CONFIG_HUAWEI_KERNEL
 static int block2mtd_isbad(struct mtd_info *mtd, loff_t ofs)
 {
     return 0;
@@ -282,9 +282,8 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size)
 
 	/* Setup the MTD structure */
 	/* make the name contain the block device in */
-
 	/* for support the unification of emmc and nand */ 
-    #ifndef CONFIG_HUAWEI_APANIC
+    #ifndef CONFIG_HUAWEI_KERNEL
 	name = kasprintf(GFP_KERNEL, "block2mtd: %s", devname);
     #else
 	name = kasprintf(GFP_KERNEL, "MTD-Crash");
@@ -296,7 +295,7 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size)
 
 	dev->mtd.size = dev->blkdev->bd_inode->i_size & PAGE_MASK;
 	dev->mtd.erasesize = erase_size;
-    #ifndef CONFIG_HUAWEI_APANIC
+    #ifndef CONFIG_HUAWEI_KERNEL
 	dev->mtd.writesize = 1;
     #else
 	dev->mtd.writesize = PAGE_SIZE/2 ;
@@ -305,7 +304,7 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size)
 	dev->mtd.flags = MTD_CAP_RAM;
 	dev->mtd.erase = block2mtd_erase;
 	dev->mtd.write = block2mtd_write;
-    #ifdef CONFIG_HUAWEI_APANIC
+    #ifdef CONFIG_HUAWEI_KERNEL
 	dev->mtd.panic_write = block2mtd_write;
     dev->mtd.block_isbad = block2mtd_isbad;
     #endif	
@@ -315,8 +314,8 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size)
 	dev->mtd.priv = dev;
 	dev->mtd.owner = THIS_MODULE;
 
-	if (mtd_device_register(&dev->mtd, NULL, 0)) {
-		/* Device didn't get added, so free the entry */
+	if (add_mtd_device(&dev->mtd)) {
+		/* Device didnt get added, so free the entry */
 		goto devinit_err;
 	}
 	list_add(&dev->list, &blkmtd_device_list);
@@ -486,7 +485,7 @@ static void __devexit block2mtd_exit(void)
 	list_for_each_safe(pos, next, &blkmtd_device_list) {
 		struct block2mtd_dev *dev = list_entry(pos, typeof(*dev), list);
 		block2mtd_sync(&dev->mtd);
-		mtd_device_unregister(&dev->mtd);
+		del_mtd_device(&dev->mtd);
 		INFO("mtd%d: [%s] removed", dev->mtd.index,
 				dev->mtd.name + strlen("block2mtd: "));
 		list_del(&dev->list);

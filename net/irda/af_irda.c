@@ -1297,7 +1297,8 @@ static int irda_sendmsg(struct kiocb *iocb, struct socket *sock,
 	/* Note : socket.c set MSG_EOR on SEQPACKET sockets */
 	if (msg->msg_flags & ~(MSG_DONTWAIT | MSG_EOR | MSG_CMSG_COMPAT |
 			       MSG_NOSIGNAL)) {
-		return -EINVAL;
+		err = -EINVAL;
+		goto out;
 	}
 
 	lock_sock(sk);

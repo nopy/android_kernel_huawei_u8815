@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/include/mach/board.h
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -23,9 +23,20 @@
 #include <linux/usb.h>
 #include <linux/leds-pmic8058.h>
 #include <linux/clkdev.h>
-#include <linux/of_platform.h>
 #include <linux/msm_ssbi.h>
+#ifdef CONFIG_MSM_BUS_SCALING
 #include <mach/msm_bus.h>
+#endif
+
+/* platform device data structures */
+struct msm_acpu_clock_platform_data {
+	uint32_t acpu_switch_time_us;
+	uint32_t max_speed_delta_khz;
+	uint32_t vdd_switch_time_us;
+	unsigned int max_axi_khz;
+	unsigned int max_vdd;
+	int (*acpu_set_vdd) (int mvolts);
+};
 
 struct msm_camera_io_ext {
 	uint32_t mdcphy;
@@ -50,23 +61,15 @@ struct msm_camera_io_clk {
 	uint32_t vfe_clk_rate;
 };
 
-struct msm_cam_expander_info {
-	struct i2c_board_info const *board_info;
-	int bus_id;
-};
-
 struct msm_camera_device_platform_data {
 	int (*camera_gpio_on) (void);
 	void (*camera_gpio_off)(void);
 	struct msm_camera_io_ext ioext;
 	struct msm_camera_io_clk ioclk;
 	uint8_t csid_core;
-	uint8_t is_csiphy;
-	uint8_t is_csic;
-	uint8_t is_csid;
-	uint8_t is_ispif;
-	uint8_t is_vpe;
+#ifdef CONFIG_MSM_BUS_SCALING
 	struct msm_bus_scale_pdata *cam_bus_scale_table;
+#endif
 #ifdef CONFIG_HUAWEI_CAMERA  
 	bool (*get_board_support_flash) (void);
 #endif
@@ -125,12 +128,14 @@ struct msm_camera_sensor_flash_current_driver {
 	uint32_t low_current;
 	uint32_t high_current;
 	const struct pmic8058_leds_platform_data *driver_channel;
+	uint32_t led1;
+	uint32_t led2;
 };
 
 struct msm_camera_sensor_flash_external {
-	uint32_t led_en;
-	uint32_t led_flash_en;
-	struct msm_cam_expander_info *expander_info;
+       uint32_t led_en;
+       uint32_t led_flash_en;
+       struct msm_cam_expander_info *expander_info;
 };
 
 struct msm_camera_sensor_flash_led {
@@ -168,66 +173,9 @@ struct msm_camera_sensor_strobe_flash_data {
 	int state;
 };
 
-enum msm_camera_type {
-	BACK_CAMERA_2D,
-	FRONT_CAMERA_2D,
-	BACK_CAMERA_3D,
-	BACK_CAMERA_INT_3D,
-};
-
-enum camera_vreg_type {
-	REG_LDO,
-	REG_VS,
-};
-
-struct camera_vreg_t {
-	char *reg_name;
-	enum camera_vreg_type type;
-	int min_voltage;
-	int max_voltage;
-	int op_mode;
-};
-
-struct msm_gpio_set_tbl {
-	unsigned gpio;
-	unsigned long flags;
-	uint32_t delay;
-};
-
-struct msm_camera_gpio_conf {
-	void *cam_gpiomux_conf_tbl;
-	uint8_t cam_gpiomux_conf_tbl_size;
-	struct gpio *cam_gpio_common_tbl;
-	uint8_t cam_gpio_common_tbl_size;
-	struct gpio *cam_gpio_req_tbl;
-	uint8_t cam_gpio_req_tbl_size;
-	struct msm_gpio_set_tbl *cam_gpio_set_tbl;
-	uint8_t cam_gpio_set_tbl_size;
-};
-
 struct msm_camera_sensor_platform_info {
 	int mount_angle;
-	int sensor_reset;
-	struct camera_vreg_t *cam_vreg;
-	int num_vreg;
-	int32_t (*ext_power_ctrl) (int enable);
-	struct msm_camera_gpio_conf *gpio_conf;
 };
-
-struct msm_actuator_info {
-	struct i2c_board_info const *board_info;
-	int bus_id;
-	int vcm_pwd;
-	int vcm_enable;
-};
-
-#ifdef CONFIG_HUAWEI_CAMERA
-struct msm_camera_sensor_vreg {
-	const char *vreg_name;
-	unsigned int mv;
-    uint8_t always_on;
-};
-#endif 
 
 struct msm_camera_sensor_info {
 	const char *sensor_name;
@@ -247,30 +195,20 @@ struct msm_camera_sensor_info {
 	struct msm_camera_csi_params csi_params;
 	struct msm_camera_sensor_strobe_flash_data *strobe_flash_data;
 	char *eeprom_data;
-	enum msm_camera_type camera_type;
-	struct msm_actuator_info *actuator_info;
-	#ifdef CONFIG_HUAWEI_CAMERA
+#ifdef CONFIG_HUAWEI_CAMERA
 	/*we can stop camera probe after one probe succeed via the variable*/
 	int slave_sensor;
 	/*funcs for camera sensor to enable and disable power*/
 	void (*vreg_enable_func) (int);
 	void (*vreg_disable_func) (int);
-	/* set_s5k5ca_is_on used to set whether s5k5ca is on or not 
-	 * get_s5k5ca_is_on used to get whether s5k5ca is on or not
-	 */
-	void (*set_s5k5ca_is_on)(int);
-	int  (*get_s5k5ca_is_on)(void);
-	#endif
+	/*add the func to sign s5k5ca or mt9t113 is on or not*/
+	void (*s5k5ca_or_mt9t113_on) (int);
+#endif
 };
 
-struct msm_camera_board_info {
-	struct i2c_board_info *board_info;
-	uint8_t num_i2c_board_info;
-};
+int __init msm_get_cam_resources(struct msm_camera_sensor_info *);
 
-int msm_get_cam_resources(struct msm_camera_sensor_info *);
-
-struct clk_lookup;
+struct clk;
 
 struct snd_endpoint {
 	int id;
@@ -360,12 +298,7 @@ struct msm_panel_common_pdata {
 	struct msm_bus_scale_pdata *mdp_bus_scale_table;
 #endif
 	int mdp_rev;
-	u32 ov0_wb_size;  /* overlay0 writeback size */
-	u32 ov1_wb_size;  /* overlay1 writeback size */
-	u32 mem_hid;
 };
-
-
 
 struct lcdc_platform_data {
 	int (*lcdc_gpio_config)(int on);
@@ -398,25 +331,8 @@ struct mipi_dsi_platform_data {
 	int target_type;
 };
 
-enum mipi_dsi_3d_ctrl {
-	FPGA_EBI2_INTF,
-	FPGA_SPI_INTF,
-};
-
-/* DSI PHY configuration */
-struct mipi_dsi_phy_ctrl {
-	uint32_t regulator[5];
-	uint32_t timing[12];
-	uint32_t ctrl[4];
-	uint32_t strength[4];
-	uint32_t pll[21];
-};
-
-struct mipi_dsi_panel_platform_data {
-	int fpga_ctrl_mode;
+struct mipi_dsi_novatek_platform_data {
 	int fpga_3d_config_addr;
-	int *gpio;
-	struct mipi_dsi_phy_ctrl *phy_ctrl_settings;
 };
 
 struct msm_fb_platform_data {
@@ -445,6 +361,8 @@ struct msm_i2c_platform_data {
 	int pri_dat;
 	int aux_clk;
 	int aux_dat;
+	const char *clk;
+	const char *pclk;
 	int src_clk_rate;
 	int use_gsbi_shared_mode;
 	void (*msm_i2c_config_gpio)(int iface, int config_type);
@@ -457,9 +375,6 @@ struct msm_i2c_ssbi_platform_data {
 
 struct msm_vidc_platform_data {
 	int memtype;
-	u32 enable_ion;
-	int disable_dmx;
-	int disable_fullhd;
 #ifdef CONFIG_MSM_BUS_SCALING
 	struct msm_bus_scale_pdata *vidc_bus_client_pdata;
 #endif
@@ -473,28 +388,19 @@ struct isp1763_platform_data {
 #endif
 /* common init routines for use by arch/arm/mach-msm/board-*.c */
 
-#ifdef CONFIG_OF_DEVICE
-void msm_copper_init(struct of_dev_auxdata **);
-#endif
-void msm_add_devices(void);
-void msm_copper_add_devices(void);
-void msm_map_common_io(void);
-void msm_map_qsd8x50_io(void);
-void msm_map_msm8x60_io(void);
-void msm_map_msm8960_io(void);
-void msm_map_msm8930_io(void);
-void msm_map_apq8064_io(void);
-void msm_map_msm7x30_io(void);
-void msm_map_fsm9xxx_io(void);
-void msm_map_copper_io(void);
-void msm_init_irq(void);
-void msm_copper_init_irq(void);
-void vic_handle_irq(struct pt_regs *regs);
-void msm_copper_reserve(void);
-void msm_copper_very_early(void);
+void __init msm_add_devices(void);
+void __init msm_map_common_io(void);
+void __init msm_map_qsd8x50_io(void);
+void __init msm_map_msm8x60_io(void);
+void __init msm_map_msm8960_io(void);
+void __init msm_map_apq8064_io(void);
+void __init msm_map_msm7x30_io(void);
+void __init msm_map_fsm9xxx_io(void);
+void __init msm_init_irq(void);
+void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *);
 
 struct mmc_platform_data;
-int msm_add_sdcc(unsigned int controller,
+int __init msm_add_sdcc(unsigned int controller,
 		struct mmc_platform_data *plat);
 #ifdef CONFIG_HUAWEI_FEATURE_OEMINFO
 int __init rmt_oeminfo_add_device(void);
@@ -505,7 +411,7 @@ int __init hw_extern_sdcard_add_device(void);
 #endif
 
 struct msm_usb_host_platform_data;
-int msm_add_host(unsigned int host,
+int __init msm_add_host(unsigned int host,
 		struct msm_usb_host_platform_data *plat);
 #if defined(CONFIG_USB_FUNCTION_MSM_HSUSB) \
 	|| defined(CONFIG_USB_MSM_72K) || defined(CONFIG_USB_MSM_72K_MODULE)
@@ -514,20 +420,14 @@ void msm_hsusb_set_vbus_state(int online);
 static inline void msm_hsusb_set_vbus_state(int online) {}
 #endif
 
-void msm_snddev_init(void);
-void msm_snddev_init_timpani(void);
+void __init msm_snddev_init(void);
+void __init msm_snddev_init_timpani(void);
 void msm_snddev_poweramp_on(void);
 void msm_snddev_poweramp_off(void);
 void msm_snddev_hsed_voltage_on(void);
 void msm_snddev_hsed_voltage_off(void);
 void msm_snddev_tx_route_config(void);
 void msm_snddev_tx_route_deconfig(void);
-#ifdef CONFIG_HUAWEI_KERNEL
-void msm_snddev_poweramp_4music_on(void);
-/* u8860 add hac gpio ctl */
-void msm_snddev_hac_on(void);
-void msm_snddev_hac_off(void);
-#endif
 
 extern unsigned int msm_shared_ram_phys; /* defined in arch/arm/mach-msm/io.c */
 

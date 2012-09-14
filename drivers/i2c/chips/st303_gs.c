@@ -13,7 +13,7 @@
  *
  */
 
-
+#include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/earlysuspend.h>
 #include <linux/hrtimer.h>
@@ -29,10 +29,8 @@
 #include "linux/st303.h"
 #include <mach/gpio.h>
 #include <mach/vreg.h>
-#include <linux/hardware_self_adapt.h>
-/* modify for 4125 baseline */
-#include <linux/slab.h>
-#include <asm/mach-types.h>
+#include "linux/hardware_self_adapt.h"
+
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 #include <linux/hw_dev_dec.h>
 #endif
@@ -130,31 +128,6 @@ static void gs_early_suspend(struct early_suspend *h);
 static void gs_late_resume(struct early_suspend *h);
 #endif
 
-static inline int reg_read(struct gs_data *gs , int reg);
-static int st303_debug_mask;
-module_param_named(st303_debug, st303_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
-
-#define st303_DBG(x...) do {\
-    if (st303_debug_mask) \
-        printk(KERN_DEBUG x);\
-    } while (0)
-#define st303_PRINT_PER_TIMES 100
-unsigned int st303_times = 0;
-
-void st303_print_debug(int start_reg,int end_reg)
-{
-	int reg, ret;
-
-	for(reg = start_reg ; reg <= end_reg ; reg ++)
-	{
-		/* read reg value */
-		ret = reg_read(this_gs_data,reg);
-		/* print reg info */
-		st303_DBG("st303 reg 0x%x values 0x%x\n",reg,ret);
-	}
-	
-}
-
 /**************************************************************************************/
 static inline int reg_read(struct gs_data *gs , int reg)
 {
@@ -223,6 +196,7 @@ static int gs_st_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 gs_st_ioctl(struct file *file, unsigned int cmd,
 	   unsigned long arg)
@@ -312,6 +286,7 @@ gs_st_ioctl(struct file *file, unsigned int cmd,
 	return 0;
 }
 
+/* modify iotcl interface */
 static struct file_operations gs_st_fops = {
 	.owner = THIS_MODULE,
 	.open = gs_st_open,
@@ -331,7 +306,6 @@ static void gs_work_func(struct work_struct *work)
 	signed short x = 0;
 	signed short y = 0;
 	signed short z = 0;
-	signed short tmp = 0;
 	u8 udata[2]={0};
 
 	
@@ -365,8 +339,7 @@ static void gs_work_func(struct work_struct *work)
 		GS303_DEBUG(KERN_ERR "A_z h 0x%x \n", udata[1]);
 		z = ((udata[1])<<4)|udata[0]>>4;
 		
-
-		st303_DBG("Gs_st303:A  x : %d y : %d z : %d \n", x,y,z);
+		GS303_DEBUG(KERN_ERR "A  x :0x%x y :0x%x z :0x%x \n", x,y,z);
 	 
 		if(x&0x800)/*负值*/
 		{
@@ -383,41 +356,29 @@ static void gs_work_func(struct work_struct *work)
 			z -= 4096; 		/*负数按照补码计算 */   
 		}
 
-		tmp = -x;
-		x = -y;
-		y = tmp;
-
 		memset((void*)st_sensor_data, 0, sizeof(st_sensor_data));
+					
+		/*Compass data depends on layout of chip on board,so modified data for layout. */
 		st_sensor_data[0]= -x;
 		st_sensor_data[1]= -y;	
-		st_sensor_data[2]= z;
+		st_sensor_data[2]= -z;
 		
 		/*(Decimal value/ 4096) * 4.0 g,For (0g ~+2.0g)*/	
 		x = (MG_PER_SAMPLE*40*(s16)x)/FILTER_SAMPLE_NUMBER/10;           
 		y = (MG_PER_SAMPLE*40*(s16)y)/FILTER_SAMPLE_NUMBER/10;
 		z = (MG_PER_SAMPLE*40*(s16)z)/FILTER_SAMPLE_NUMBER/10;
 
-		z *=(-1);
+		
+		/*changge the report value*/
 		
 		GS303_DEBUG(KERN_INFO "%s :%d   st303_gs probe  A  x :0x%x y :0x%x z :0x%x \n",__func__,__LINE__,x,y,z);
 		input_report_abs(gs->input_dev, ABS_X, x);//cross x,y adapter hal sensors_akm8973.c			
-		input_report_abs(gs->input_dev, ABS_Y, y);	
+		input_report_abs(gs->input_dev, ABS_Y, y);		
+		
 		input_report_abs(gs->input_dev, ABS_Z, z);
 		input_sync(gs->input_dev);
 	}
 	
-	st303_DBG("Gs_st303:A  x : %d y : %d z : %d \n", x,y,z);
-	if(st303_debug_mask)
-	{
-		/* print reg info in such times */
-		if(!(++st303_times%st303_PRINT_PER_TIMES))
-		{
-			/* count return to 0 */
-			st303_times = 0;
-			st303_print_debug(GS_ST_REG_CTRL1,GS_ST_OUT_Z_H_A);
-			st303_print_debug(GS_ST_REG_FF_WU_CFG_1,GS_ST_REG_CLICK_WINDOW);
-		}
-	}
 	if (gs->use_irq)
 		enable_irq(gs->client->irq);
 	else
@@ -479,15 +440,8 @@ static int gs_probe(
 {	
 	int ret;
 	struct gs_data *gs;
-	/* delete 3 lines*/
-
-
+	
 	struct gs_platform_data *pdata = NULL;
-	
-	GS303_DEBUG(KERN_INFO "%s :%d   st303_gs probe \n",__func__,__LINE__);
-
-	/*delete 30 lines*/	
-	
 	
 	printk(KERN_ERR "st303_gs probe \n");
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
@@ -496,16 +450,8 @@ static int gs_probe(
 		goto err_check_functionality_failed;
 	}
 	
-	/*turn on the power*/
 	pdata = client->dev.platform_data;
 	if (pdata){
-		if(pdata->gs_power != NULL){
-			ret = pdata->gs_power(IC_PM_ON);
-			if(ret < 0 ){
-				goto err_check_functionality_failed;
-			}
-		}
-		
 		if(pdata->adapt_fn != NULL){
 			ret = pdata->adapt_fn();
 			if(ret > 0 ){
@@ -514,7 +460,7 @@ static int gs_probe(
 				if(client->addr == 0){
 					printk(KERN_ERR "%s: bad i2c address = %d\n", __FUNCTION__, client->addr);
 					ret = -EFAULT;
-					goto err_power_failed;
+					goto err_check_functionality_failed;
 				}
 			}
 		}
@@ -523,16 +469,17 @@ static int gs_probe(
 			if(*(pdata->init_flag)){
 				printk(KERN_ERR "st303_gs probe failed, because the othe gsensor has been probed.\n");
 				ret = -ENODEV;
-				goto err_power_failed;
+				goto err_check_functionality_failed;
 			}
 		}
 	}
+
 	
 #ifndef   GS_POLLING 	
 	ret = gs_config_int_pin();
 	if(ret <0)
 	{
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 #endif
 
@@ -570,6 +517,10 @@ static int gs_probe(
 		goto err_detect_failed;
 	}
 	
+    #ifdef CONFIG_HUAWEI_HW_DEV_DCT
+    /* detect current device successful, set the flag as present */
+    set_hw_dev_flag(DEV_I2C_G_SENSOR);
+    #endif
 
 	if (sensor_dev == NULL)
 	{
@@ -590,7 +541,7 @@ static int gs_probe(
 	
 	gs->input_dev->id.vendor = GS_ST303DLH;//for st303_compass detect.
 	set_bit(EV_ABS,gs->input_dev->evbit);
-	/* modify for ES-version*/
+	/* modify the func of init */
 	input_set_abs_params(gs->input_dev, ABS_X, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Y, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Z, -11520, 11520, 0, 0);
@@ -639,10 +590,6 @@ static int gs_probe(
 	this_gs_data =gs;
 	if(pdata && pdata->init_flag)
 		*(pdata->init_flag) = 1;
-    #ifdef CONFIG_HUAWEI_HW_DEV_DCT
-    /* detect current device successful, set the flag as present */
-    set_hw_dev_flag(DEV_I2C_G_SENSOR);
-    #endif
 	GS303_DEBUG(KERN_INFO "gs_probe: Start LSM303DLH  in %s mode\n", gs->use_irq ? "interrupt" : "polling");
 #ifdef GS303_DEBUG_ST303_GS
 	hrtimer_start(&this_gs_data->timer, ktime_set(0, 500000000), HRTIMER_MODE_REL);
@@ -662,11 +609,6 @@ err_alloc_data_failed:
 #ifndef   GS_POLLING 
 	gs_free_int();
 #endif
-/*turn down the power*/
-err_power_failed:
-	if(pdata->gs_power != NULL){
-		pdata->gs_power(IC_PM_OFF);
-	}
 err_check_functionality_failed:
 	return ret;
 }

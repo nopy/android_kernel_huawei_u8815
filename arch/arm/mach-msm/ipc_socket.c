@@ -276,6 +276,8 @@ int msm_ipc_router_bind(struct socket *sock, struct sockaddr *uaddr,
 	lock_sock(sk);
 
 	ret = msm_ipc_router_register_server(port_ptr, &addr->address);
+	if (!ret)
+		sk->sk_rcvtimeo = DEFAULT_RCV_TIMEO;
 
 	release_sock(sk);
 	return ret;
@@ -429,8 +431,7 @@ static int msm_ipc_router_ioctl(struct socket *sock,
 			}
 		}
 		ret = msm_ipc_router_lookup_server_name(&server_arg.port_name,
-				port_addr, server_arg.num_entries_in_array,
-				server_arg.lookup_mask);
+				port_addr, server_arg.num_entries_in_array);
 		if (ret < 0) {
 			pr_err("%s: Server not found\n", __func__);
 			ret = -ENODEV;

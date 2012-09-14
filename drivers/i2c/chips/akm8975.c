@@ -32,10 +32,9 @@
 #include <linux/freezer.h>
 #include <linux/akm8975.h>
 #include <linux/earlysuspend.h>
-#include <mach/vreg.h>
 
 #include "linux/hardware_self_adapt.h"
-#include <linux/gpio_event.h>
+
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 #include <linux/hw_dev_dec.h>
 #endif
@@ -47,7 +46,8 @@
 #define MAX_FAILURE_COUNT	3
 #define AKM8975_RETRY_COUNT	10
 #define AKM8975_DEFAULT_DELAY	100
-/*move it to hardware_self_adapt.h*/
+
+#define GPIO_COMPASS_INT  18
 
 #if AKM8975_DEBUG_MSG
 #define AKMDBG(fmt, args...) printk(KERN_INFO "AKM8975 " fmt "\n", ##args)
@@ -107,7 +107,7 @@ static short akmd_delay = AKM8975_DEFAULT_DELAY;
 
 static atomic_t suspend_flag = ATOMIC_INIT(0);
 
-/*delete one line*/
+static struct akm8975_platform_data *pdata;
 
 static int AKI2C_RxData(char *rxData, int length)
 {
@@ -422,21 +422,6 @@ static void AKECS_CloseDone(void)
 static int akm_aot_open(struct inode *inode, struct file *file)
 {
 	int ret = -1;
-	/*
-	*int atomic_cmpxchg(atomic_t *v, int old, int new)
-	*{
-	*	int ret;
-	*	unsigned long flags;
-	*	spin_lock_irqsave(ATOMIC_HASH(v), flags);
-	*
-	*	ret = v->counter;
-	*	if (likely(ret == old))
-	*		v->counter = new;
-	*
-	*	spin_unlock_irqrestore(ATOMIC_HASH(v), flags);
-	*	return ret;
-	*}
-	*/
 
 	AKMFUNC("akm_aot_open");
 	if (atomic_cmpxchg(&open_count, 0, 1) == 0) {
@@ -459,6 +444,7 @@ static int akm_aot_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 akm_aot_ioctl(struct file *file,
 			  unsigned int cmd, unsigned long arg)
@@ -568,6 +554,7 @@ static int akmd_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 akmd_ioctl(struct file *file, unsigned int cmd,
 		   unsigned long arg)
@@ -582,7 +569,6 @@ akmd_ioctl(struct file *file, unsigned int cmd,
 	short delay;		/* for GET_DELAY */
 	int status;			/* for OPEN/CLOSE_STATUS */
 	int ret = -1;		/* Return value. */
-	int slide = 0;
 	/*AKMDBG("%s (0x%08X).", __func__, cmd);*/
 
 	/*set the value of auto-calibration*/
@@ -629,13 +615,7 @@ akmd_ioctl(struct file *file, unsigned int cmd,
 		}
 		printk(KERN_INFO "ECS_IOCTL_SET_CAL   calibration_value=%d\n",calibration_value);
 		break;
-	/*add ioctl cmd*/
-	case ECS_IOCTL_APP_GET_SLIDE:
-		if (argp == NULL) {
-			AKMDBG("invalid argument.");
-			return -EINVAL;
-		}
-		break;
+		
 	default:
 		break;
 	}
@@ -694,11 +674,6 @@ akmd_ioctl(struct file *file, unsigned int cmd,
 		AKMFUNC("IOCTL_GET_DELAY");
 		delay = akmd_delay;
 		break;
-	/*add ioctl cmd*/
-	case ECS_IOCTL_APP_GET_SLIDE:  
-		slide = get_slide_pressed();
-		AKMFUNC("GET_SLIDE \n");
-		break;
 	case ECS_IOCTL_SET_CAL:
 		break;
 	default:
@@ -727,13 +702,6 @@ akmd_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case ECS_IOCTL_GET_DELAY:
 		if (copy_to_user(argp, &delay, sizeof(delay))) {
-			AKMDBG("copy_to_user failed.");
-			return -EFAULT;
-		}
-		break;
-	/*add ioctl cmd*/
-	case ECS_IOCTL_APP_GET_SLIDE:  
-		if (copy_to_user(argp, &slide,sizeof(slide))) {
 			AKMDBG("copy_to_user failed.");
 			return -EFAULT;
 		}
@@ -808,6 +776,7 @@ static void akm8975_early_resume(struct early_suspend *handler)
 }
 
 /*********************************************/
+/* modify iotcl interface */
 static struct file_operations akmd_fops = {
 	.owner = THIS_MODULE,
 	.open = akmd_open,
@@ -840,7 +809,6 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	struct akm8975_data *akm;
 	int err = 0;
 	int gpio_config;
-	struct compass_platform_data *pdata = NULL;
 
 	AKMFUNC("akm8975_probe");
 
@@ -849,8 +817,6 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		err = -ENODEV;
 		goto exit_check_functionality_failed;
 	}
-/*27A doesn't to mate power*/
-#ifdef CONFIG_ARCH_MSM7X27
     /*
      *hardware has change the board on T2,and qualcomm's bluetooth IC is using.
      *so we used the fack IIC'address to adjust the old one and new one 
@@ -865,19 +831,6 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
         client->addr = 0x0C ;
 		printk("akm8975 old address!\n");
     }
-	pdata = client->dev.platform_data;
-#else
-	/*turn on the power*/	
-	pdata = client->dev.platform_data;
-	if (pdata){
-		if(pdata->compass_power != NULL){
-			err = pdata->compass_power(IC_PM_ON);
-			if(err < 0 ){
-				goto exit_check_functionality_failed;
-			}
-		}
-	}
-#endif
 	/* Allocate memory for driver data */
 	akm = kzalloc(sizeof(struct akm8975_data), GFP_KERNEL);
 	if (!akm) {
@@ -896,7 +849,7 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	//	goto exit_check_platform_data;
 	//}
 	/* Copy to global variable */
-	/* delete one line */
+	pdata = client->dev.platform_data;
 	this_client = client;
 
 	/* Check connection */
@@ -1029,22 +982,13 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 exit_akm_aot_device_register_failed:
 	misc_deregister(&akmd_device);
 exit_akmd_device_register_failed:
-	//input_unregister_device(akm->input_dev);
 exit_input_register_fail:
-	//input_free_device(akm->input_dev);
 exit_input_dev_alloc_failed:
 	free_irq(client->irq, akm);
 exit_request_irq:
 exit_check_dev_id:
-//exit_check_platform_data:
 	kfree(akm);
 exit_alloc_data_failed:
-	/* turn down the power */
-#ifdef CONFIG_ARCH_MSM7X30
-	if(pdata->compass_power != NULL){
-		pdata->compass_power(IC_PM_OFF);
-	}
-#endif
 exit_check_functionality_failed:
 	return err;
 }

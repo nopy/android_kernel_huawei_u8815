@@ -193,3 +193,4 @@ MODULE_DESCRIPTION("I2C Device Detect Driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:i2c_dev_dct");
 
+

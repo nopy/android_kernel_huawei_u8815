@@ -1,13 +1,29 @@
 /* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above
+ *       copyright notice, this list of conditions and the following
+ *       disclaimer in the documentation and/or other materials provided
+ *       with the distribution.
+ *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
+ *       contributors may be used to endorse or promote products derived
+ *       from this software without specific prior written permission.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
 
@@ -107,15 +123,6 @@ enum ledtype {
 	LED_LCD,
 	LED_KEYPAD,
 };
-#ifdef CONFIG_HUAWEI_KERNEL
-typedef enum
-{
-   PM_LOW_CURRENT_LED_DRV0,
-   PM_LOW_CURRENT_LED_DRV1,
-   PM_LOW_CURRENT_LED_DRV2,
-   PM_LOW_CURRENT_LED_DRV_INVALID
-} pm_low_current_led_type;
-#endif
 
 enum flash_led_mode {
 	FLASH_LED_MODE__MANUAL,
@@ -685,24 +692,6 @@ int pmic_mic_is_en(uint *enabled);
 int pmic_mic_set_volt(enum mic_volt vol);
 int pmic_mic_get_volt(enum mic_volt *voltage);
 int pmic_set_led_intensity(enum ledtype type, int level);
-/*add rpc interface for key light*/
-#ifdef CONFIG_HUAWEI_KERNEL
-int pmic_set_keyled_intensity(enum ledtype type, int level);
-#endif
-#ifdef CONFIG_HUAWEI_KERNEL
-int pmic_set_low_current_led_intensity(pm_low_current_led_type type, int level);
-#endif
-/* < DTS2010092701499  zhangtao 20100927 begin */
-#ifdef CONFIG_HUAWEI_KERNEL
-int pmic_set_mpp6_led_intensity(int level);
-/* < DTS2010111603970 zhangtao 20101116 begin */
-/*add rpc interface for PTT light*/
-#ifdef CONFIG_HUAWEI_FEATURE_PTT_KEY_LIGHT
-int pmic_set_ptt_current_led_intensity(int level);
-#endif
-#endif
-/* DTS2010111603970 zhangtao 20101116 end > */
-/* DTS2010092701499  zhangtao 20100927 end > */
 int pmic_flash_led_set_current(uint16_t milliamps);
 int pmic_flash_led_set_mode(enum flash_led_mode mode);
 int pmic_flash_led_set_polarity(enum flash_led_pol pol);

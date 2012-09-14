@@ -32,9 +32,10 @@ static DEFINE_MUTEX(clocks_mutex);
  * Then we take the most specific entry - with the following
  * order of precedence: dev+con > dev only > con only.
  */
-static struct clk_lookup *clk_find(const char *dev_id, const char *con_id)
+static struct clk *clk_find(const char *dev_id, const char *con_id)
 {
-	struct clk_lookup *p, *cl = NULL;
+	struct clk_lookup *p;
+	struct clk *clk = NULL;
 	int match, best = 0;
 
 	list_for_each_entry(p, &clocks, node) {
@@ -51,27 +52,27 @@ static struct clk_lookup *clk_find(const char *dev_id, const char *con_id)
 		}
 
 		if (match > best) {
-			cl = p;
+			clk = p->clk;
 			if (match != 3)
 				best = match;
 			else
 				break;
 		}
 	}
-	return cl;
+	return clk;
 }
 
 struct clk *clk_get_sys(const char *dev_id, const char *con_id)
 {
-	struct clk_lookup *cl;
+	struct clk *clk;
 
 	mutex_lock(&clocks_mutex);
-	cl = clk_find(dev_id, con_id);
-	if (cl && !__clk_get(cl->clk))
-		cl = NULL;
+	clk = clk_find(dev_id, con_id);
+	if (clk && !__clk_get(clk))
+		clk = NULL;
 	mutex_unlock(&clocks_mutex);
 
-	return cl ? cl->clk : ERR_PTR(-ENOENT);
+	return clk ? clk : ERR_PTR(-ENOENT);
 }
 EXPORT_SYMBOL(clk_get_sys);
 

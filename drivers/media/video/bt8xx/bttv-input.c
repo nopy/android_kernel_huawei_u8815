@@ -193,10 +193,12 @@ static void bttv_rc5_timer_end(unsigned long data)
 {
 	struct bttv_ir *ir = (struct bttv_ir *)data;
 	struct timeval tv;
+	unsigned long current_jiffies;
 	u32 gap;
 	u32 rc5 = 0;
 
 	/* get time */
+	current_jiffies = jiffies;
 	do_gettimeofday(&tv);
 
 	/* avoid overflow with gap >1s */

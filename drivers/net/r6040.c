@@ -535,7 +535,7 @@ static int r6040_rx(struct net_device *dev, int limit)
 			/* RX dribble */
 			if (err & DSC_RX_ERR_DRI)
 				dev->stats.rx_frame_errors++;
-			/* Buffer length exceeded */
+			/* Buffer lenght exceeded */
 			if (err & DSC_RX_ERR_BUF)
 				dev->stats.rx_length_errors++;
 			/* Packet too long */
@@ -677,11 +677,9 @@ static irqreturn_t r6040_interrupt(int irq, void *dev_id)
 		if (status & RX_FIFO_FULL)
 			dev->stats.rx_fifo_errors++;
 
-		if (likely(napi_schedule_prep(&lp->napi))) {
-			/* Mask off RX interrupt */
-			misr &= ~RX_INTS;
-			__napi_schedule(&lp->napi);
-		}
+		/* Mask off RX interrupt */
+		misr &= ~RX_INTS;
+		napi_schedule(&lp->napi);
 	}
 
 	/* TX interrupt request */

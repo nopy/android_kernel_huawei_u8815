@@ -54,9 +54,9 @@ struct s5k4e1_work_t {
 };
 
 static struct s5k4e1_work_t *s5k4e1_sensorw;
-static struct i2c_client *s5k4e1_client;
 static struct s5k4e1_work_t *s5k4e1_af_sensorw;
 static struct i2c_client *s5k4e1_af_client;
+static struct i2c_client *s5k4e1_client;
 
 struct s5k4e1_ctrl_t {
 	const struct  msm_camera_sensor_info *sensordata;
@@ -190,21 +190,35 @@ static int32_t s5k4e1_i2c_write_b_table(struct s5k4e1_i2c_reg_conf const
 	return rc;
 }
 
+static int32_t s5k4e1_af_i2c_txdata(unsigned short saddr,
+		unsigned char *txdata, int length)
+{
+	struct i2c_msg msg[] = {
+		{
+			.addr = saddr,
+			.flags = 0,
+			.len = length,
+			.buf = txdata,
+		},
+	};
+	if (i2c_transfer(s5k4e1_af_client->adapter, msg, 1) < 0) {
+		pr_err("s5k4e1_af_i2c_txdata faild 0x%x\n", saddr);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static int32_t s5k4e1_af_i2c_write_b_sensor(uint8_t waddr, uint8_t bdata)
 {
 	int32_t rc = -EFAULT;
 	unsigned char buf[2];
-	unsigned short saddr = 0;
 
 	memset(buf, 0, sizeof(buf));
 	buf[0] = waddr;
 	buf[1] = bdata;
-#ifdef CONFIG_ARCH_MSM7X27A
-	saddr = s5k4e1_af_client->addr;
-#else
-	saddr = (s5k4e1_af_client->addr) << 1;
-#endif
-	rc = s5k4e1_i2c_txdata(saddr, buf, 2);
+	//CDBG("i2c_write_b addr = 0x%x, val = 0x%x\n", waddr, bdata);
+	rc = s5k4e1_af_i2c_txdata(s5k4e1_af_client->addr, buf, 2);
 	if (rc < 0) {
 		pr_err("i2c_write_b failed, addr = 0x%x, val = 0x%x!\n",
 				waddr, bdata);
@@ -683,9 +697,7 @@ static int32_t s5k4e1_power_down(void)
 static int s5k4e1_probe_init_done(const struct msm_camera_sensor_info *data)
 {
 	CDBG("probe done\n");
-	gpio_direction_output(data->sensor_reset, 0);
-    gpio_free(data->sensor_reset);
-    gpio_free(data->sensor_pwd);
+	gpio_free(data->sensor_reset);
 	/*disable the power*/
 	if (data->vreg_disable_func)
 	{
@@ -722,7 +734,7 @@ static int s5k4e1_probe_init_sensor(const struct msm_camera_sensor_info *data)
 	} else
 		goto gpio_req_fail;
 
-    msleep(20);
+	msleep(20);
 
 	s5k4e1_i2c_read(regaddress1, &chipid1, 1);
 	if (chipid1 != 0x4E) {
@@ -745,6 +757,7 @@ static int s5k4e1_probe_init_sensor(const struct msm_camera_sensor_info *data)
 
 init_probe_fail:
 	CDBG(" s5k4e1_probe_init_sensor fails\n");
+	gpio_set_value_cansleep(data->sensor_reset, 0);
 	s5k4e1_probe_init_done(data);
 	if (data->vcm_enable) {
 		int ret = gpio_request(data->vcm_pwd, "s5k4e1_af");
@@ -754,7 +767,6 @@ init_probe_fail:
 			gpio_free(data->vcm_pwd);
 		}
 	}
-
 gpio_req_fail:
 	return rc;
 }
@@ -812,6 +824,8 @@ int s5k4e1_sensor_open_init(const struct msm_camera_sensor_info *data)
 
 	/* enable AF actuator */
 	if (s5k4e1_ctrl->sensordata->vcm_enable) {
+		CDBG("enable AF actuator, gpio = %d\n",
+			 s5k4e1_ctrl->sensordata->vcm_pwd);
 		rc = gpio_request(s5k4e1_ctrl->sensordata->vcm_pwd,
 						"s5k4e1_af");
 		if (!rc)
@@ -822,8 +836,6 @@ int s5k4e1_sensor_open_init(const struct msm_camera_sensor_info *data)
 			pr_err("s5k4e1_ctrl gpio request failed!\n");
 			goto init_fail;
 		}
-
-		CDBG("af vcm_pwd has been set to high!");
 		msleep(20);
 		rc = s5k4e1_set_default_focus(0);
 		if (rc < 0) {
@@ -850,12 +862,14 @@ static int s5k4e1_init_client(struct i2c_client *client)
 	init_waitqueue_head(&s5k4e1_wait_queue);
 	return 0;
 }
+
 static int s5k4e1_af_init_client(struct i2c_client *client)
 {
 	/* Initialize the MSM_CAMI2C Chip */
 	init_waitqueue_head(&s5k4e1_af_wait_queue);
 	return 0;
 }
+
 static const struct i2c_device_id s5k4e1_af_i2c_id[] = {
 	{"s5k4e1_af", 0},
 	{ }
@@ -939,6 +953,15 @@ static int __devexit s5k4e1_remove(struct i2c_client *client)
 	return 0;
 }
 
+static int __devexit s5k4e1_af_remove(struct i2c_client *client)
+{
+	struct s5k4e1_work_t *s5k4e1_af = i2c_get_clientdata(client);
+	free_irq(client->irq, s5k4e1_af);
+	s5k4e1_af_client = NULL;
+	kfree(s5k4e1_af);
+	return 0;
+}
+
 static struct i2c_driver s5k4e1_i2c_driver = {
 	.id_table = s5k4e1_i2c_id,
 	.probe  = s5k4e1_i2c_probe,
@@ -947,6 +970,7 @@ static struct i2c_driver s5k4e1_i2c_driver = {
 		.name = "s5k4e1",
 	},
 };
+
 static struct i2c_driver s5k4e1_af_i2c_driver = {
 	.id_table = s5k4e1_af_i2c_id,
 	.probe  = s5k4e1_af_i2c_probe,
@@ -1102,7 +1126,7 @@ static int s5k4e1_sensor_probe(const struct msm_camera_sensor_info *info,
 	if (rc < 0 || s5k4e1_client == NULL) {
 		rc = -ENOTSUPP;
 		CDBG("I2C add driver failed");
-		goto probe_fail;
+		goto probe_fail_1;
 	}
 
 	rc = i2c_add_driver(&s5k4e1_af_i2c_driver);
@@ -1118,31 +1142,24 @@ static int s5k4e1_sensor_probe(const struct msm_camera_sensor_info *info,
 	if (rc < 0)
 		goto probe_fail_3;
 
+	/*camera name for project menu to display*/
+	strncpy((char *)info->sensor_name, "23060069FA-SAM-L", strlen("23060069FA-SAM-L"));
 	s->s_init = s5k4e1_sensor_open_init;
 	s->s_release = s5k4e1_sensor_release;
 	s->s_config  = s5k4e1_sensor_config;
-#ifdef CONFIG_ARCH_MSM7X27A
 	s->s_mount_angle = info->sensor_platform_info->mount_angle;
-#else
-	s->s_mount_angle = 0 ;
-#endif
 	gpio_set_value_cansleep(info->sensor_reset, 0);
 	s5k4e1_probe_init_done(info);
-
 	/* Keep vcm_pwd to OUT Low */
-	if (info->vcm_enable) { // info->vcm_enable) {
+	if (info->vcm_enable) {
 		rc = gpio_request(info->vcm_pwd, "s5k4e1_af");
 		if (!rc) {
-			CDBG("probe af gpio ");
 			gpio_direction_output(info->vcm_pwd, 0);
 			msleep(20);
 			gpio_free(info->vcm_pwd);
 		} else
-		{
-			CDBG("af gpio request failed !!!!");
-		}
+			return rc;
 	}
-
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
     /* detect current device successful, set the flag as present */
     set_hw_dev_flag(DEV_I2C_CAMERA_MAIN);
@@ -1154,7 +1171,7 @@ probe_fail_3:
 	i2c_del_driver(&s5k4e1_af_i2c_driver);
 probe_fail_2:
 	i2c_del_driver(&s5k4e1_i2c_driver);
-probe_fail:
+probe_fail_1:
 	CDBG("s5k4e1_sensor_probe: SENSOR PROBE FAILS!\n");
 	return rc;
 }

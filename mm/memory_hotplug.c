@@ -379,16 +379,16 @@ void online_page(struct page *page)
 	unsigned long pfn = page_to_pfn(page);
 
 	totalram_pages++;
-#ifdef CONFIG_FIX_MOVABLE_ZONE
-	if (zone_idx(page_zone(page)) != ZONE_MOVABLE)
-		total_unmovable_pages++;
-#endif
 	if (pfn >= num_physpages)
 		num_physpages = pfn + 1;
 
 #ifdef CONFIG_HIGHMEM
 	if (PageHighMem(page))
 		totalhigh_pages++;
+#endif
+
+#ifdef CONFIG_FLATMEM
+	max_mapnr = max(page_to_pfn(page), max_mapnr);
 #endif
 
 	ClearPageReserved(page);
@@ -413,7 +413,7 @@ static int online_pages_range(unsigned long start_pfn, unsigned long nr_pages,
 }
 
 
-int __ref online_pages(unsigned long pfn, unsigned long nr_pages)
+int online_pages(unsigned long pfn, unsigned long nr_pages)
 {
 	unsigned long onlined_pages = 0;
 	struct zone *zone;
@@ -466,16 +466,14 @@ int __ref online_pages(unsigned long pfn, unsigned long nr_pages)
 
 	zone->present_pages += onlined_pages;
 	zone->zone_pgdat->node_present_pages += onlined_pages;
-	drain_all_pages();
 	if (need_zonelists_rebuild)
 		build_all_zonelists(zone);
 	else
 		zone_pcp_update(zone);
 
 	mutex_unlock(&zonelists_mutex);
-
-	init_per_zone_wmark_min();
-
+	setup_per_zone_wmarks();
+	calculate_zone_inactive_ratio(zone);
 	if (onlined_pages) {
 		kswapd_run(zone_to_nid(zone));
 		node_set_state(zone_to_nid(zone), N_HIGH_MEMORY);
@@ -512,14 +510,6 @@ static pg_data_t __ref *hotadd_new_pgdat(int nid, u64 start)
 	/* init node's zones as empty zones, we don't have any present pages.*/
 	free_area_init_node(nid, zones_size, start_pfn, zholes_size);
 
-	/*
-	 * The node we allocated has no zone fallback lists. For avoiding
-	 * to access not-initialized zonelist, build here.
-	 */
-	mutex_lock(&zonelists_mutex);
-	build_all_zonelists(NULL);
-	mutex_unlock(&zonelists_mutex);
-
 	return pgdat;
 }
 
@@ -541,7 +531,7 @@ int mem_online_node(int nid)
 
 	lock_memory_hotplug();
 	pgdat = hotadd_new_pgdat(nid, 0);
-	if (!pgdat) {
+	if (pgdat) {
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -622,9 +612,9 @@ int __ref physical_remove_memory(u64 start, u64 size)
 	BUG_ON(!res);
 
 	ret = arch_physical_remove_memory(start, size);
-	if (!ret) {
+	if (ret) {
 		kfree(res);
-		return 0;
+		return ret;
 	}
 
 	res->name = "System RAM";
@@ -633,11 +623,8 @@ int __ref physical_remove_memory(u64 start, u64 size)
 	res->flags = IORESOURCE_MEM | IORESOURCE_BUSY;
 
 	res_old = locate_resource(&iomem_resource, res);
-	if (res_old) {
-		release_resource(res_old);
-		if (PageSlab(virt_to_head_page(res_old)))
-			kfree(res_old);
-	}
+	if (res_old)
+		release_memory_resource(res_old);
 	kfree(res);
 
 	return ret;
@@ -758,8 +745,7 @@ static struct page *
 hotremove_migrate_alloc(struct page *page, unsigned long private, int **x)
 {
 	/* This should be improooooved!! */
-	return alloc_page(GFP_HIGHUSER_MOVABLE | __GFP_NORETRY | __GFP_NOWARN |
-				__GFP_NOMEMALLOC);
+	return alloc_page(GFP_HIGHUSER_MOVABLE);
 }
 
 #define NR_OFFLINE_AT_ONCE_PAGES	(256)
@@ -777,7 +763,7 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 		if (!pfn_valid(pfn))
 			continue;
 		page = pfn_to_page(pfn);
-		if (!get_page_unless_zero(page))
+		if (!page_count(page))
 			continue;
 		/*
 		 * We can skip free pages. And we can only deal with pages on
@@ -785,7 +771,6 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 		 */
 		ret = isolate_lru_page(page);
 		if (!ret) { /* Success */
-			put_page(page);
 			list_add_tail(&page->lru, &source);
 			move_pages--;
 			inc_zone_page_state(page, NR_ISOLATED_ANON +
@@ -797,8 +782,7 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 			       pfn);
 			dump_page(page);
 #endif
-			put_page(page);
-			/* Because we don't have big zone->lock. we should
+			/* Becasue we don't have big zone->lock. we should
 			   check this again here. */
 			if (page_count(page)) {
 				not_managed++;
@@ -869,7 +853,7 @@ check_pages_isolated(unsigned long start_pfn, unsigned long end_pfn)
 	return offlined;
 }
 
-static int __ref offline_pages(unsigned long start_pfn,
+static int offline_pages(unsigned long start_pfn,
 		  unsigned long end_pfn, unsigned long timeout)
 {
 	unsigned long pfn, nr_pages, expire;
@@ -963,19 +947,12 @@ repeat:
 	/* reset pagetype flags and makes migrate type to be MOVABLE */
 	undo_isolate_page_range(start_pfn, end_pfn);
 	/* removal success */
-	if (offlined_pages > zone->present_pages)
-		zone->present_pages = 0;
-	else
-		zone->present_pages -= offlined_pages;
+	zone->present_pages -= offlined_pages;
 	zone->zone_pgdat->node_present_pages -= offlined_pages;
 	totalram_pages -= offlined_pages;
 
-#ifdef CONFIG_FIX_MOVABLE_ZONE
-	if (zone_idx(zone) != ZONE_MOVABLE)
-		total_unmovable_pages -= offlined_pages;
-#endif
-	init_per_zone_wmark_min();
-
+	setup_per_zone_wmarks();
+	calculate_zone_inactive_ratio(zone);
 	if (!node_present_pages(node)) {
 		node_clear_state(node, N_HIGH_MEMORY);
 		kswapd_stop(node);

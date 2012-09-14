@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -140,7 +140,7 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 	prtd->instance--;
 	if (!prtd->playback_start && !prtd->capture_start) {
 		pr_debug("end voice call\n");
-		voc_end_voice_call(voc_get_session_id(VOICE_SESSION_NAME));
+		voc_end_voice_call();
 	}
 	mutex_unlock(&prtd->lock);
 
@@ -160,7 +160,7 @@ static int msm_pcm_prepare(struct snd_pcm_substream *substream)
 		ret = msm_pcm_capture_prepare(substream);
 
 	if (prtd->playback_start && prtd->capture_start)
-		voc_start_voice_call(voc_get_session_id(VOICE_SESSION_NAME));
+		voc_start_voice_call();
 
 	mutex_unlock(&prtd->lock);
 
@@ -171,7 +171,7 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params)
 {
 
-	pr_debug("%s: Voice\n", __func__);
+	pr_debug("%s, Voice\n", __func__);
 
 	snd_pcm_set_runtime_buffer(substream, &substream->dma_buffer);
 
@@ -192,9 +192,7 @@ static int msm_voice_volume_put(struct snd_kcontrol *kcontrol,
 
 	pr_debug("%s: volume: %d\n", __func__, volume);
 
-	voc_set_rx_vol_index(voc_get_session_id(VOICE_SESSION_NAME),
-			     RX_PATH,
-			     volume);
+	voc_set_rx_vol_index(RX_PATH, volume);
 	return 0;
 }
 
@@ -212,7 +210,7 @@ static int msm_voice_mute_put(struct snd_kcontrol *kcontrol,
 
 	pr_debug("%s: mute=%d\n", __func__, mute);
 
-	voc_set_tx_mute(voc_get_session_id(VOICE_SESSION_NAME), TX_PATH, mute);
+	voc_set_tx_mute(TX_PATH, mute);
 
 	return 0;
 }
@@ -225,8 +223,7 @@ static const struct soc_enum msm_tty_mode_enum[] = {
 static int msm_voice_tty_mode_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] =
-		voc_get_tty_mode(voc_get_session_id(VOICE_SESSION_NAME));
+	ucontrol->value.integer.value[0] = voc_get_tty_mode();
 	return 0;
 }
 
@@ -237,76 +234,10 @@ static int msm_voice_tty_mode_put(struct snd_kcontrol *kcontrol,
 
 	pr_debug("%s: tty_mode=%d\n", __func__, tty_mode);
 
-	voc_set_tty_mode(voc_get_session_id(VOICE_SESSION_NAME), tty_mode);
+	voc_set_tty_mode(tty_mode);
 
 	return 0;
 }
-static int msm_voice_widevoice_put(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	int wv_enable = ucontrol->value.integer.value[0];
-
-	pr_debug("%s: wv enable=%d\n", __func__, wv_enable);
-
-	voc_set_widevoice_enable(voc_get_session_id(VOICE_SESSION_NAME),
-				 wv_enable);
-
-	return 0;
-}
-
-static int msm_voice_widevoice_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-	       voc_get_widevoice_enable(voc_get_session_id(VOICE_SESSION_NAME));
-	return 0;
-}
-
-
-static int msm_voice_slowtalk_put(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	int st_enable = ucontrol->value.integer.value[0];
-
-	pr_debug("%s: st enable=%d\n", __func__, st_enable);
-
-	voc_set_pp_enable(voc_get_session_id(VOICE_SESSION_NAME),
-			MODULE_ID_VOICE_MODULE_ST, st_enable);
-
-	return 0;
-}
-
-static int msm_voice_slowtalk_get(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-		voc_get_pp_enable(voc_get_session_id(VOICE_SESSION_NAME),
-				MODULE_ID_VOICE_MODULE_ST);
-	return 0;
-}
-
-static int msm_voice_fens_put(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	int fens_enable = ucontrol->value.integer.value[0];
-
-	pr_debug("%s: fens enable=%d\n", __func__, fens_enable);
-
-	voc_set_pp_enable(voc_get_session_id(VOICE_SESSION_NAME),
-			MODULE_ID_VOICE_MODULE_FENS, fens_enable);
-
-	return 0;
-}
-
-static int msm_voice_fens_get(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-		voc_get_pp_enable(voc_get_session_id(VOICE_SESSION_NAME),
-				MODULE_ID_VOICE_MODULE_FENS);
-	return 0;
-}
-
 static struct snd_kcontrol_new msm_voice_controls[] = {
 	SOC_SINGLE_EXT("Voice Tx Mute", SND_SOC_NOPM, 0, 1, 0,
 				msm_voice_mute_get, msm_voice_mute_put),
@@ -314,12 +245,6 @@ static struct snd_kcontrol_new msm_voice_controls[] = {
 				msm_voice_volume_get, msm_voice_volume_put),
 	SOC_ENUM_EXT("TTY Mode", msm_tty_mode_enum[0], msm_voice_tty_mode_get,
 				msm_voice_tty_mode_put),
-	SOC_SINGLE_EXT("Widevoice Enable", SND_SOC_NOPM, 0, 1, 0,
-			msm_voice_widevoice_get, msm_voice_widevoice_put),
-	SOC_SINGLE_EXT("Slowtalk Enable", SND_SOC_NOPM, 0, 1, 0,
-				msm_voice_slowtalk_get, msm_voice_slowtalk_put),
-	SOC_SINGLE_EXT("FENS Enable", SND_SOC_NOPM, 0, 1, 0,
-				msm_voice_fens_get, msm_voice_fens_put),
 };
 
 static struct snd_pcm_ops msm_pcm_ops = {

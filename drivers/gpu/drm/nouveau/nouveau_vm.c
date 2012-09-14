@@ -28,7 +28,7 @@
 #include "nouveau_vm.h"
 
 void
-nouveau_vm_map_at(struct nouveau_vma *vma, u64 delta, struct nouveau_mem *node)
+nouveau_vm_map_at(struct nouveau_vma *vma, u64 delta, struct nouveau_vram *vram)
 {
 	struct nouveau_vm *vm = vma->vm;
 	struct nouveau_mm_node *r;
@@ -40,8 +40,7 @@ nouveau_vm_map_at(struct nouveau_vma *vma, u64 delta, struct nouveau_mem *node)
 	u32 max  = 1 << (vm->pgt_bits - bits);
 	u32 end, len;
 
-	delta = 0;
-	list_for_each_entry(r, &node->regions, rl_entry) {
+	list_for_each_entry(r, &vram->regions, rl_entry) {
 		u64 phys = (u64)r->offset << 12;
 		u32 num  = r->length >> bits;
 
@@ -53,17 +52,14 @@ nouveau_vm_map_at(struct nouveau_vma *vma, u64 delta, struct nouveau_mem *node)
 				end = max;
 			len = end - pte;
 
-			vm->map(vma, pgt, node, pte, len, phys, delta);
+			vm->map(vma, pgt, vram, pte, len, phys);
 
 			num -= len;
 			pte += len;
 			if (unlikely(end >= max)) {
-				phys += len << (bits + 12);
 				pde++;
 				pte = 0;
 			}
-
-			delta += (u64)len << vma->node->type;
 		}
 	}
 
@@ -71,14 +67,14 @@ nouveau_vm_map_at(struct nouveau_vma *vma, u64 delta, struct nouveau_mem *node)
 }
 
 void
-nouveau_vm_map(struct nouveau_vma *vma, struct nouveau_mem *node)
+nouveau_vm_map(struct nouveau_vma *vma, struct nouveau_vram *vram)
 {
-	nouveau_vm_map_at(vma, 0, node);
+	nouveau_vm_map_at(vma, 0, vram);
 }
 
 void
 nouveau_vm_map_sg(struct nouveau_vma *vma, u64 delta, u64 length,
-		  struct nouveau_mem *mem, dma_addr_t *list)
+		  dma_addr_t *list)
 {
 	struct nouveau_vm *vm = vma->vm;
 	int big = vma->node->type != vm->spg_shift;
@@ -98,7 +94,7 @@ nouveau_vm_map_sg(struct nouveau_vma *vma, u64 delta, u64 length,
 			end = max;
 		len = end - pte;
 
-		vm->map_sg(vma, pgt, mem, pte, len, list);
+		vm->map_sg(vma, pgt, pte, list, len);
 
 		num  -= len;
 		pte  += len;
@@ -315,7 +311,18 @@ nouveau_vm_new(struct drm_device *dev, u64 offset, u64 length, u64 mm_offset,
 		vm->spg_shift = 12;
 		vm->lpg_shift = 17;
 		pgt_bits = 27;
-		block = 4096;
+
+		/* Should be 4096 everywhere, this is a hack that's
+		 * currently necessary to avoid an elusive bug that
+		 * causes corruption when mixing small/large pages
+		 */
+		if (length < (1ULL << 40))
+			block = 4096;
+		else {
+			block = (1 << pgt_bits);
+			if (length < block)
+				block = length;
+		}
 	} else {
 		kfree(vm);
 		return -ENOSYS;

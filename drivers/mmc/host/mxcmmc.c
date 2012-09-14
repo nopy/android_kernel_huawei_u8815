@@ -32,14 +32,16 @@
 #include <linux/io.h>
 #include <linux/gpio.h>
 #include <linux/regulator/consumer.h>
-#include <linux/dmaengine.h>
 
 #include <asm/dma.h>
 #include <asm/irq.h>
 #include <asm/sizes.h>
 #include <mach/mmc.h>
 
-#include <mach/dma.h>
+#ifdef CONFIG_ARCH_MX2
+#include <mach/dma-mx1-mx2.h>
+#define HAS_DMA
+#endif
 
 #define DRIVER_NAME "mxc-mmc"
 
@@ -116,8 +118,7 @@ struct mxcmci_host {
 	void __iomem		*base;
 	int			irq;
 	int			detect_irq;
-	struct dma_chan		*dma;
-	struct dma_async_tx_descriptor *desc;
+	int			dma;
 	int			do_dma;
 	int			default_irq_mask;
 	int			use_sdio;
@@ -128,6 +129,7 @@ struct mxcmci_host {
 	struct mmc_command	*cmd;
 	struct mmc_data		*data;
 
+	unsigned int		dma_nents;
 	unsigned int		datasize;
 	unsigned int		dma_dir;
 
@@ -142,11 +144,6 @@ struct mxcmci_host {
 	spinlock_t		lock;
 
 	struct regulator	*vcc;
-
-	int			burstlen;
-	int			dmareq;
-	struct dma_slave_config dma_slave_config;
-	struct imx_dma_data	dma_data;
 };
 
 static void mxcmci_set_clk_rate(struct mxcmci_host *host, unsigned int clk_ios);
@@ -209,16 +206,17 @@ static void mxcmci_softreset(struct mxcmci_host *host)
 
 	writew(0xff, host->base + MMC_REG_RES_TO);
 }
-static int mxcmci_setup_dma(struct mmc_host *mmc);
 
 static int mxcmci_setup_data(struct mxcmci_host *host, struct mmc_data *data)
 {
 	unsigned int nob = data->blocks;
 	unsigned int blksz = data->blksz;
 	unsigned int datasize = nob * blksz;
+#ifdef HAS_DMA
 	struct scatterlist *sg;
-	int i, nents;
-
+	int i;
+	int ret;
+#endif
 	if (data->flags & MMC_DATA_STREAM)
 		nob = 0xffff;
 
@@ -229,9 +227,7 @@ static int mxcmci_setup_data(struct mxcmci_host *host, struct mmc_data *data)
 	writew(blksz, host->base + MMC_REG_BLK_LEN);
 	host->datasize = datasize;
 
-	if (!mxcmci_use_dma(host))
-		return 0;
-
+#ifdef HAS_DMA
 	for_each_sg(data->sg, sg, data->sg_len, i) {
 		if (sg->offset & 3 || sg->length & 3) {
 			host->do_dma = 0;
@@ -239,30 +235,34 @@ static int mxcmci_setup_data(struct mxcmci_host *host, struct mmc_data *data)
 		}
 	}
 
-	if (data->flags & MMC_DATA_READ)
+	if (data->flags & MMC_DATA_READ) {
 		host->dma_dir = DMA_FROM_DEVICE;
-	else
+		host->dma_nents = dma_map_sg(mmc_dev(host->mmc), data->sg,
+					     data->sg_len,  host->dma_dir);
+
+		ret = imx_dma_setup_sg(host->dma, data->sg, host->dma_nents,
+				datasize,
+				host->res->start + MMC_REG_BUFFER_ACCESS,
+				DMA_MODE_READ);
+	} else {
 		host->dma_dir = DMA_TO_DEVICE;
+		host->dma_nents = dma_map_sg(mmc_dev(host->mmc), data->sg,
+					     data->sg_len,  host->dma_dir);
 
-	nents = dma_map_sg(host->dma->device->dev, data->sg,
-				     data->sg_len,  host->dma_dir);
-	if (nents != data->sg_len)
-		return -EINVAL;
+		ret = imx_dma_setup_sg(host->dma, data->sg, host->dma_nents,
+				datasize,
+				host->res->start + MMC_REG_BUFFER_ACCESS,
+				DMA_MODE_WRITE);
+	}
 
-	host->desc = host->dma->device->device_prep_slave_sg(host->dma,
-		data->sg, data->sg_len, host->dma_dir,
-		DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-
-	if (!host->desc) {
-		dma_unmap_sg(host->dma->device->dev, data->sg, data->sg_len,
-				host->dma_dir);
-		host->do_dma = 0;
-		return 0; /* Fall back to PIO */
+	if (ret) {
+		dev_err(mmc_dev(host->mmc), "failed to setup DMA : %d\n", ret);
+		return ret;
 	}
 	wmb();
 
-	dmaengine_submit(host->desc);
-
+	imx_dma_enable(host->dma);
+#endif /* HAS_DMA */
 	return 0;
 }
 
@@ -337,11 +337,13 @@ static int mxcmci_finish_data(struct mxcmci_host *host, unsigned int stat)
 	struct mmc_data *data = host->data;
 	int data_error;
 
+#ifdef HAS_DMA
 	if (mxcmci_use_dma(host)) {
-		dmaengine_terminate_all(host->dma);
-		dma_unmap_sg(host->dma->device->dev, data->sg, data->sg_len,
+		imx_dma_disable(host->dma);
+		dma_unmap_sg(mmc_dev(host->mmc), data->sg, host->dma_nents,
 				host->dma_dir);
 	}
+#endif
 
 	if (stat & STATUS_ERR_MASK) {
 		dev_dbg(mmc_dev(host->mmc), "request failed. status: 0x%08x\n",
@@ -543,6 +545,7 @@ static void mxcmci_datawork(struct work_struct *work)
 	}
 }
 
+#ifdef HAS_DMA
 static void mxcmci_data_done(struct mxcmci_host *host, unsigned int stat)
 {
 	struct mmc_data *data = host->data;
@@ -565,6 +568,7 @@ static void mxcmci_data_done(struct mxcmci_host *host, unsigned int stat)
 		mxcmci_finish_request(host, host->req);
 	}
 }
+#endif /* HAS_DMA */
 
 static void mxcmci_cmd_done(struct mxcmci_host *host, unsigned int stat)
 {
@@ -602,10 +606,12 @@ static irqreturn_t mxcmci_irq(int irq, void *devid)
 	sdio_irq = (stat & STATUS_SDIO_INT_ACTIVE) && host->use_sdio;
 	spin_unlock_irqrestore(&host->lock, flags);
 
+#ifdef HAS_DMA
 	if (mxcmci_use_dma(host) &&
 	    (stat & (STATUS_READ_OP_DONE | STATUS_WRITE_OP_DONE)))
 		writel(STATUS_READ_OP_DONE | STATUS_WRITE_OP_DONE,
 			host->base + MMC_REG_STATUS);
+#endif
 
 	if (sdio_irq) {
 		writel(STATUS_SDIO_INT_ACTIVE, host->base + MMC_REG_STATUS);
@@ -615,14 +621,14 @@ static irqreturn_t mxcmci_irq(int irq, void *devid)
 	if (stat & STATUS_END_CMD_RESP)
 		mxcmci_cmd_done(host, stat);
 
+#ifdef HAS_DMA
 	if (mxcmci_use_dma(host) &&
 		  (stat & (STATUS_DATA_TRANS_DONE | STATUS_WRITE_OP_DONE)))
 		mxcmci_data_done(host, stat);
-
+#endif
 	if (host->default_irq_mask &&
 		  (stat & (STATUS_CARD_INSERTION | STATUS_CARD_REMOVAL)))
 		mmc_detect_change(host->mmc, msecs_to_jiffies(200));
-
 	return IRQ_HANDLED;
 }
 
@@ -636,10 +642,9 @@ static void mxcmci_request(struct mmc_host *mmc, struct mmc_request *req)
 
 	host->req = req;
 	host->cmdat &= ~CMD_DAT_CONT_INIT;
-
-	if (host->dma)
-		host->do_dma = 1;
-
+#ifdef HAS_DMA
+	host->do_dma = 1;
+#endif
 	if (req->data) {
 		error = mxcmci_setup_data(host, req->data);
 		if (error) {
@@ -655,7 +660,6 @@ static void mxcmci_request(struct mmc_host *mmc, struct mmc_request *req)
 	}
 
 	error = mxcmci_start_cmd(host, req->cmd, cmdat);
-
 out:
 	if (error)
 		mxcmci_finish_request(host, req);
@@ -694,46 +698,22 @@ static void mxcmci_set_clk_rate(struct mxcmci_host *host, unsigned int clk_ios)
 			prescaler, divider, clk_in, clk_ios);
 }
 
-static int mxcmci_setup_dma(struct mmc_host *mmc)
-{
-	struct mxcmci_host *host = mmc_priv(mmc);
-	struct dma_slave_config *config = &host->dma_slave_config;
-
-	config->dst_addr = host->res->start + MMC_REG_BUFFER_ACCESS;
-	config->src_addr = host->res->start + MMC_REG_BUFFER_ACCESS;
-	config->dst_addr_width = 4;
-	config->src_addr_width = 4;
-	config->dst_maxburst = host->burstlen;
-	config->src_maxburst = host->burstlen;
-
-	return dmaengine_slave_config(host->dma, config);
-}
-
 static void mxcmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct mxcmci_host *host = mmc_priv(mmc);
-	int burstlen, ret;
-
+#ifdef HAS_DMA
+	unsigned int blen;
 	/*
 	 * use burstlen of 64 in 4 bit mode (--> reg value  0)
 	 * use burstlen of 16 in 1 bit mode (--> reg value 16)
 	 */
 	if (ios->bus_width == MMC_BUS_WIDTH_4)
-		burstlen = 64;
+		blen = 0;
 	else
-		burstlen = 16;
+		blen = 16;
 
-	if (mxcmci_use_dma(host) && burstlen != host->burstlen) {
-		host->burstlen = burstlen;
-		ret = mxcmci_setup_dma(mmc);
-		if (ret) {
-			dev_err(mmc_dev(host->mmc),
-				"failed to config DMA channel. Falling back to PIO\n");
-			dma_release_channel(host->dma);
-			host->do_dma = 0;
-		}
-	}
-
+	imx_dma_config_burstlen(host->dma, blen);
+#endif
 	if (ios->bus_width == MMC_BUS_WIDTH_4)
 		host->cmdat |= CMD_DAT_CONT_BUS_WIDTH_4;
 	else
@@ -814,18 +794,6 @@ static void mxcmci_init_card(struct mmc_host *host, struct mmc_card *card)
 		host->caps |= MMC_CAP_4_BIT_DATA;
 }
 
-static bool filter(struct dma_chan *chan, void *param)
-{
-	struct mxcmci_host *host = param;
-
-	if (!imx_dma_is_general_purpose(chan))
-		return false;
-
-	chan->private = &host->dma_data;
-
-	return true;
-}
-
 static const struct mmc_host_ops mxcmci_ops = {
 	.request		= mxcmci_request,
 	.set_ios		= mxcmci_set_ios,
@@ -840,7 +808,6 @@ static int mxcmci_probe(struct platform_device *pdev)
 	struct mxcmci_host *host = NULL;
 	struct resource *iores, *r;
 	int ret = 0, irq;
-	dma_cap_mask_t mask;
 
 	printk(KERN_INFO "i.MX SDHC driver\n");
 
@@ -916,23 +883,29 @@ static int mxcmci_probe(struct platform_device *pdev)
 
 	writel(host->default_irq_mask, host->base + MMC_REG_INT_CNTR);
 
-	r = platform_get_resource(pdev, IORESOURCE_DMA, 0);
-	if (r) {
-		host->dmareq = r->start;
-		host->dma_data.peripheral_type = IMX_DMATYPE_SDHC;
-		host->dma_data.priority = DMA_PRIO_LOW;
-		host->dma_data.dma_request = host->dmareq;
-		dma_cap_zero(mask);
-		dma_cap_set(DMA_SLAVE, mask);
-		host->dma = dma_request_channel(mask, filter, host);
-		if (host->dma)
-			mmc->max_seg_size = dma_get_max_seg_size(
-					host->dma->device->dev);
+#ifdef HAS_DMA
+	host->dma = imx_dma_request_by_prio(DRIVER_NAME, DMA_PRIO_LOW);
+	if (host->dma < 0) {
+		dev_err(mmc_dev(host->mmc), "imx_dma_request_by_prio failed\n");
+		ret = -EBUSY;
+		goto out_clk_put;
 	}
 
-	if (!host->dma)
-		dev_info(mmc_dev(host->mmc), "dma not available. Using PIO\n");
+	r = platform_get_resource(pdev, IORESOURCE_DMA, 0);
+	if (!r) {
+		ret = -EINVAL;
+		goto out_free_dma;
+	}
 
+	ret = imx_dma_config_channel(host->dma,
+				     IMX_DMA_MEMSIZE_32 | IMX_DMA_TYPE_FIFO,
+				     IMX_DMA_MEMSIZE_32 | IMX_DMA_TYPE_LINEAR,
+				     r->start, 0);
+	if (ret) {
+		dev_err(mmc_dev(host->mmc), "failed to config DMA channel\n");
+		goto out_free_dma;
+	}
+#endif
 	INIT_WORK(&host->datawork, mxcmci_datawork);
 
 	ret = request_irq(host->irq, mxcmci_irq, 0, DRIVER_NAME, host);
@@ -955,8 +928,9 @@ static int mxcmci_probe(struct platform_device *pdev)
 out_free_irq:
 	free_irq(host->irq, host);
 out_free_dma:
-	if (host->dma)
-		dma_release_channel(host->dma);
+#ifdef HAS_DMA
+	imx_dma_free(host->dma);
+#endif
 out_clk_put:
 	clk_disable(host->clk);
 	clk_put(host->clk);
@@ -986,10 +960,9 @@ static int mxcmci_remove(struct platform_device *pdev)
 
 	free_irq(host->irq, host);
 	iounmap(host->base);
-
-	if (host->dma)
-		dma_release_channel(host->dma);
-
+#ifdef HAS_DMA
+	imx_dma_free(host->dma);
+#endif
 	clk_disable(host->clk);
 	clk_put(host->clk);
 

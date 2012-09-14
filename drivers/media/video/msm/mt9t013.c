@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/slab.h>
@@ -28,9 +23,6 @@
 #include <mach/camera.h>
 #include <asm/mach-types.h>
 #include "mt9t013.h"
-#ifdef CONFIG_HUAWEI_HW_DEV_DCT
-#include <linux/hw_dev_dec.h>
-#endif
 
 /*=============================================================
 	SENSOR REGISTER DEFINES
@@ -1480,10 +1472,6 @@ static int mt9t013_sensor_probe(
 		goto probe_done;
 	}
 
-    #ifdef CONFIG_HUAWEI_HW_DEV_DCT
-    /* detect current device successful, set the flag as present */
-    set_hw_dev_flag(DEV_I2C_CAMERA_MAIN);
-    #endif
 	s->s_init = mt9t013_sensor_open_init;
 	s->s_release = mt9t013_sensor_release;
 	s->s_config  = mt9t013_sensor_config;

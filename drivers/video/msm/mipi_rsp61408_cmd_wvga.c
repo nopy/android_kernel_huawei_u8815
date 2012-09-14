@@ -12,14 +12,12 @@
 
 #include "msm_fb.h"
 #include "mipi_dsi.h"
-#include "hw_lcd_common.h"
-#include <mach/rpc_pmapp.h>
+#include "lcdc_huawei_config.h"
 
 #define LCD_DEVICE_NAME "mipi_cmd_rsp61408_wvga"
 
 static lcd_panel_type lcd_panel_wvga = LCD_NONE;
 
-/*< DTS2011110706222 qitongliang 20111201 begin */
 /*mipi dsi register setting , help qualcomm to set.*/
 static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = 
 {
@@ -38,12 +36,10 @@ static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db =
 	0x01, 0x0f, 0x07, 
 	0x05, 0x14, 0x03, 0x0, 0x0, 0x0, 0x20, 0x0, 0x02, 0x0}, 
 };
-/* DTS2011110706222 qitongliang 20111201 end >*/
 
 static struct dsi_buf rsp61408_tx_buf;
 static struct sequence * rsp61408_lcd_init_table_debug = NULL;
 
-/*< DTS2011110302555 qitongliang 20111103 begin */
 /*LCD init code*/
 static const struct sequence rsp61408_wvga_standby_enter_table[]= 
 {
@@ -69,7 +65,6 @@ static const struct sequence rsp61408_wvga_standby_exit_table[]=
 	{0x00000,TYPE_PARAMETER,0},
 	{0x00029,MIPI_TYPE_END,0}, // add new command for 
 };
-/* DTS2011110302555 qitongliang 20111103 end >*/
 
 /*lcd resume function*/
 static int mipi_rsp61408_lcd_on(struct platform_device *pdev)
@@ -119,9 +114,6 @@ static int mipi_rsp61408_lcd_off(struct platform_device *pdev)
 		return -ENODEV;
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
-
-	/* Hack! */
-	pmapp_disp_backlight_set_brightness(0);
 
 	process_mipi_table(mfd,&rsp61408_tx_buf,(struct sequence*)&rsp61408_wvga_standby_enter_table,
 		 ARRAY_SIZE(rsp61408_wvga_standby_enter_table), lcd_panel_wvga);
@@ -183,10 +175,11 @@ static int __init mipi_cmd_rsp61408_wvga_init(void)
 
 	lcd_panel_wvga = get_lcd_panel_type();
 	if ((MIPI_RSP61408_CHIMEI_WVGA!= lcd_panel_wvga )&&(MIPI_RSP61408_BYD_WVGA!= lcd_panel_wvga )
-		&&(MIPI_RSP61408_TRULY_WVGA!= lcd_panel_wvga))
+		&&(MIPI_RSP61408_TRULY_WVGA!= lcd_panel_wvga ))
 	{
 		return 0;
 	}
+
 	pr_info("enter mipi_cmd_rsp61408_wvga_init \n");
 	mipi_dsi_buf_alloc(&rsp61408_tx_buf, DSI_BUF_SIZE);
 
@@ -203,9 +196,7 @@ static int __init mipi_cmd_rsp61408_wvga_init(void)
 		pinfo->bl_max = 255;
 		pinfo->bl_min = 30;		
 		pinfo->fb_num = 2;
-		/*< DTS2011110706222 qitongliang 20111201 begin */
         pinfo->clk_rate = 300000000;
-		/* DTS2011110706222 qitongliang 20111201 end >*/
 		pinfo->lcd.refx100 = 6000; /* adjust refx100 to prevent tearing */
 
 		pinfo->mipi.mode = DSI_CMD_MODE;

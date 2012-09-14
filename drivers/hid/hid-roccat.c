@@ -26,7 +26,8 @@
 #include <linux/cdev.h>
 #include <linux/poll.h>
 #include <linux/sched.h>
-#include <linux/hid-roccat.h>
+
+#include "hid-roccat.h"
 
 #define ROCCAT_FIRST_MINOR 0
 #define ROCCAT_MAX_DEVICES 8
@@ -36,11 +37,11 @@
 
 struct roccat_report {
 	uint8_t *value;
+	int len;
 };
 
 struct roccat_device {
 	unsigned int minor;
-	int report_size;
 	int open;
 	int exist;
 	wait_queue_head_t wait;
@@ -122,7 +123,7 @@ static ssize_t roccat_read(struct file *file, char __user *buffer,
 	 * If report is larger than requested amount of data, rest of report
 	 * is lost!
 	 */
-	len = device->report_size > count ? count : device->report_size;
+	len = report->len > count ? count : report->len;
 
 	if (copy_to_user(buffer, report->value, len)) {
 		retval = -EFAULT;
@@ -247,18 +248,18 @@ static int roccat_release(struct inode *inode, struct file *file)
  *
  * This is called from interrupt handler.
  */
-int roccat_report_event(int minor, u8 const *data)
+int roccat_report_event(int minor, u8 const *data, int len)
 {
 	struct roccat_device *device;
 	struct roccat_reader *reader;
 	struct roccat_report *report;
 	uint8_t *new_value;
 
-	device = devices[minor];
-
-	new_value = kmemdup(data, device->report_size, GFP_ATOMIC);
+	new_value = kmemdup(data, len, GFP_ATOMIC);
 	if (!new_value)
 		return -ENOMEM;
+
+	device = devices[minor];
 
 	report = &device->cbuf[device->cbuf_end];
 
@@ -266,6 +267,7 @@ int roccat_report_event(int minor, u8 const *data)
 	kfree(report->value);
 
 	report->value = new_value;
+	report->len = len;
 	device->cbuf_end = (device->cbuf_end + 1) % ROCCAT_CBUF_SIZE;
 
 	list_for_each_entry(reader, &device->readers, node) {
@@ -293,7 +295,7 @@ EXPORT_SYMBOL_GPL(roccat_report_event);
  * Return value is minor device number in Range [0, ROCCAT_MAX_DEVICES] on
  * success, a negative error code on failure.
  */
-int roccat_connect(struct class *klass, struct hid_device *hid, int report_size)
+int roccat_connect(struct class *klass, struct hid_device *hid)
 {
 	unsigned int minor;
 	struct roccat_device *device;
@@ -341,7 +343,6 @@ int roccat_connect(struct class *klass, struct hid_device *hid, int report_size)
 	device->hid = hid;
 	device->exist = 1;
 	device->cbuf_end = 0;
-	device->report_size = report_size;
 
 	return minor;
 }
@@ -356,16 +357,13 @@ void roccat_disconnect(int minor)
 
 	mutex_lock(&devices_lock);
 	device = devices[minor];
+	devices[minor] = NULL;
 	mutex_unlock(&devices_lock);
 
 	device->exist = 0; /* TODO exist maybe not needed */
 
 	device_destroy(device->dev->class, MKDEV(roccat_major, minor));
 
-	mutex_lock(&devices_lock);
-	devices[minor] = NULL;
-	mutex_unlock(&devices_lock);
-	
 	if (device->open) {
 		hid_hw_close(device->hid);
 		wake_up_interruptible(&device->wait);
@@ -375,34 +373,6 @@ void roccat_disconnect(int minor)
 }
 EXPORT_SYMBOL_GPL(roccat_disconnect);
 
-static long roccat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
-{
-	struct inode *inode = file->f_path.dentry->d_inode;
-	struct roccat_device *device;
-	unsigned int minor = iminor(inode);
-	long retval = 0;
-
-	mutex_lock(&devices_lock);
-
-	device = devices[minor];
-	if (!device) {
-		retval = -ENODEV;
-		goto out;
-	}
-
-	switch (cmd) {
-	case ROCCATIOCGREPSIZE:
-		if (put_user(device->report_size, (int __user *)arg))
-			retval = -EFAULT;
-		break;
-	default:
-		retval = -ENOTTY;
-	}
-out:
-	mutex_unlock(&devices_lock);
-	return retval;
-}
-
 static const struct file_operations roccat_ops = {
 	.owner = THIS_MODULE,
 	.read = roccat_read,
@@ -410,7 +380,6 @@ static const struct file_operations roccat_ops = {
 	.open = roccat_open,
 	.release = roccat_release,
 	.llseek = noop_llseek,
-	.unlocked_ioctl = roccat_ioctl,
 };
 
 static int __init roccat_init(void)

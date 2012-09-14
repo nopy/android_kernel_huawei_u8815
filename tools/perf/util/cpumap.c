@@ -177,8 +177,3 @@ struct cpu_map *cpu_map__dummy_new(void)
 
 	return cpus;
 }
-
-void cpu_map__delete(struct cpu_map *map)
-{
-	free(map);
-}

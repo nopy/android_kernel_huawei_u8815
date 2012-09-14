@@ -690,9 +690,9 @@ static int __devinit smb137b_probe(struct i2c_client *client,
 		goto free_valid_gpio;
 	}
 
-	ret = irq_set_irq_wake(client->irq, 1);
+	ret = set_irq_wake(client->irq, 1);
 	if (ret) {
-		dev_err(&client->dev, "%s failed for irq_set_irq_wake %d ret =%d\n",
+		dev_err(&client->dev, "%s failed for set_irq_wake %d ret =%d\n",
 			 __func__, client->irq, ret);
 		goto unregister_charger;
 	}
@@ -749,7 +749,7 @@ static int __devinit smb137b_probe(struct i2c_client *client,
 	return 0;
 
 disable_irq_wake:
-	irq_set_irq_wake(client->irq, 0);
+	set_irq_wake(client->irq, 0);
 unregister_charger:
 	msm_charger_unregister(&smb137b_chg->adapter_hw_chg);
 free_valid_gpio:
@@ -782,7 +782,7 @@ static int __devexit smb137b_remove(struct i2c_client *client)
 
 	pdata = client->dev.platform_data;
 	device_init_wakeup(&client->dev, 0);
-	irq_set_irq_wake(client->irq, 0);
+	set_irq_wake(client->irq, 0);
 	free_irq(client->irq, client);
 	gpio_free(pdata->valid_n_gpio);
 	cancel_delayed_work_sync(&smb137b_chg->charge_work);

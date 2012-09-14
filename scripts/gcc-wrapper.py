@@ -58,10 +58,9 @@ allowed_warnings = set([
     "msm_sdcc.c:128",
     "nf_conntrack_netlink.c:790",
     "nf_nat_standalone.c:118",
-    "return_address.c:62",
+    "return_address.c:61",
     "soc-core.c:1719",
     "xt_log.h:50",
-    "vx6953.c:3124",
  ])
 
 # Capture the name of the object file, can find it.

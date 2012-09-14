@@ -18,23 +18,19 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
- * Has optional support for uart power management independent of linux
- * suspend/resume:
- *
- * RX wakeup.
- * UART wakeup can be triggered by RX activity (using a wakeup GPIO on the
- * UART RX pin). This should only be used if there is not a wakeup
- * GPIO on the UART CTS, and the first RX byte is known (for example, with the
- * Bluetooth Texas Instruments HCILL protocol), since the first RX byte will
- * always be lost. RTS will be asserted even while the UART is off in this mode
- * of operation. See msm_serial_hs_platform_data.rx_wakeup_irq.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, you can find it at http://www.fsf.org
  */
 
+/* This driver has optional support for low power wakeup on a rx gpio. This is
+ * useful for peripherals that send unsolicited RX such as Bluetooth.
+ */
+
+#include <linux/slab.h>
 #include <linux/module.h>
 
 #include <linux/serial.h>
 #include <linux/serial_core.h>
-#include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -196,7 +192,7 @@ static ssize_t show_clock(struct device *dev, struct device_attribute *attr,
 	if (clk_state <= MSM_HS_CLK_OFF)
 		state = 0;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", state);
+	return sprintf(buf, "%d\n", state);
 }
 
 static ssize_t set_clock(struct device *dev, struct device_attribute *attr,
@@ -262,10 +258,7 @@ static void msm_hs_release_port(struct uart_port *port)
 		gsbi_resource = platform_get_resource_byname(pdev,
 							     IORESOURCE_MEM,
 							     "gsbi_resource");
-		if (unlikely(!gsbi_resource))
-			return;
-
-		size = resource_size(gsbi_resource);
+		size = gsbi_resource->end - gsbi_resource->start + 1;
 		release_mem_region(gsbi_resource->start, size);
 		iounmap(msm_uport->mapped_gsbi);
 		msm_uport->mapped_gsbi = NULL;
@@ -283,7 +276,7 @@ static int msm_hs_request_port(struct uart_port *port)
 						     IORESOURCE_MEM,
 						     "gsbi_resource");
 	if (gsbi_resource) {
-		size = resource_size(gsbi_resource);
+		size = gsbi_resource->end - gsbi_resource->start + 1;
 		if (unlikely(!request_mem_region(gsbi_resource->start, size,
 						 "msm_serial_hs")))
 			return -EBUSY;
@@ -405,9 +398,9 @@ static int __devexit msm_hs_remove(struct platform_device *pdev)
 		      msm_uport->rx.rbuffer);
 	dma_pool_destroy(msm_uport->rx.pool);
 
-	dma_unmap_single(dev, msm_uport->rx.cmdptr_dmaaddr, sizeof(u32),
+	dma_unmap_single(dev, msm_uport->rx.cmdptr_dmaaddr, sizeof(u32 *),
 			 DMA_TO_DEVICE);
-	dma_unmap_single(dev, msm_uport->tx.mapped_cmd_ptr_ptr, sizeof(u32),
+	dma_unmap_single(dev, msm_uport->tx.mapped_cmd_ptr_ptr, sizeof(u32 *),
 			 DMA_TO_DEVICE);
 	dma_unmap_single(dev, msm_uport->tx.mapped_cmd_ptr, sizeof(dmov_box),
 			 DMA_TO_DEVICE);
@@ -897,7 +890,7 @@ static void msm_hs_submit_tx_locked(struct uart_port *uport)
 	mb();
 
 	dma_sync_single_for_device(uport->dev, tx->mapped_cmd_ptr_ptr,
-				   sizeof(u32), DMA_TO_DEVICE);
+				   sizeof(u32 *), DMA_TO_DEVICE);
 
 	msm_dmov_enqueue_cmd(msm_uport->dma_tx_channel, &tx->xfer);
 }
@@ -1096,8 +1089,8 @@ out:
 }
 
 /* Enable the transmitter Interrupt */
-/* add calling callback for bluesleep here */
-#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
+#if defined(CONFIG_HUAWEI_KERNEL) && defined(HUAWEI_BT_BCM_VER_3)
+/* lgh add calling callback for bluesleep here */
 extern void bluesleep_outgoing_data(void);
 #endif
 static void msm_hs_start_tx_locked(struct uart_port *uport )
@@ -1105,12 +1098,12 @@ static void msm_hs_start_tx_locked(struct uart_port *uport )
 	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
 
 	clk_enable(msm_uport->clk);
-
-	/* add for lpm here */
-	#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
+#if defined(CONFIG_HUAWEI_KERNEL) && defined(HUAWEI_BT_BCM_VER_3)
+	/* lgh add for lpm here */
+    printk(KERN_ERR "%s BCM bt 3.0 call bluesleep_outgoing_data\n", __FUNCTION__);
 	bluesleep_outgoing_data();
-	#endif
-	
+#endif
+
 	if (msm_uport->tx.tx_ready_int_en == 0) {
 		msm_uport->tx.tx_ready_int_en = 1;
 		if (msm_uport->tx.dma_in_flight == 0)
@@ -1563,7 +1556,7 @@ void msm_hs_request_clock_on(struct uart_port *uport) {
 }
 EXPORT_SYMBOL(msm_hs_request_clock_on);
 
-#if (defined(CONFIG_HUAWEI_BT_BLUEZ_VER30) || (!defined(CONFIG_HUAWEI_KERNEL)))
+#if (defined(HUAWEI_BT_WCN2243) || (!defined(CONFIG_HUAWEI_KERNEL)))
 static irqreturn_t msm_hs_wakeup_isr(int irq, void *dev)
 {
 	unsigned int wakeup = 0;
@@ -1601,18 +1594,17 @@ static irqreturn_t msm_hs_wakeup_isr(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 #endif
-
 static const char *msm_hs_type(struct uart_port *port)
 {
 	return ("MSM HS UART");
 }
 
 /* Called when port is opened */
-#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
-/* added for bluesleep */
+#if defined(CONFIG_HUAWEI_KERNEL) && defined(HUAWEI_BT_BCM_VER_3)
+/* lgh added for bluesleep */
 extern void bluesleep_uart_open(struct uart_port *uport);
-#endif
 
+#endif
 static int msm_hs_startup(struct uart_port *uport)
 {
 	int ret;
@@ -1623,8 +1615,9 @@ static int msm_hs_startup(struct uart_port *uport)
 	struct circ_buf *tx_buf = &uport->state->xmit;
 	struct msm_hs_tx *tx = &msm_uport->tx;
 
-/* added we should re-consider that whether here would bt called*/
-#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
+#if defined(CONFIG_HUAWEI_KERNEL) && defined(HUAWEI_BT_BCM_VER_3)
+	/*lgh added we should re-consider that whether here would bt called*/
+    printk(KERN_ERR "%s BCM bt 3.0 call bluesleep_uart_open\n", __FUNCTION__);
 	bluesleep_uart_open(uport);
 #endif
 	rfr_level = uport->fifosize;
@@ -1678,6 +1671,9 @@ static int msm_hs_startup(struct uart_port *uport)
 
 	tx->xfer.complete_func = msm_hs_dmov_tx_callback;
 
+	tx->xfer.crci_mask = msm_dmov_build_crci_mask(1,
+						      msm_uport->dma_tx_crci);
+
 	tx->command_ptr->cmd = CMD_LC |
 	    CMD_DST_CRCI(msm_uport->dma_tx_crci) | CMD_MODE_BOX;
 
@@ -1701,7 +1697,7 @@ static int msm_hs_startup(struct uart_port *uport)
 	mb();
 
 	if (use_low_power_wakeup(msm_uport)) {
-		ret = irq_set_irq_wake(msm_uport->wakeup.irq, 1);
+		ret = set_irq_wake(msm_uport->wakeup.irq, 1);
 		if (unlikely(ret))
 			return ret;
 	}
@@ -1712,7 +1708,7 @@ static int msm_hs_startup(struct uart_port *uport)
 		return ret;
 	if (use_low_power_wakeup(msm_uport)) {
 /* Disable QC In-Band sleep mode if BCM4330 is used. */
-#if (defined(CONFIG_HUAWEI_BT_BLUEZ_VER30) || (!defined(CONFIG_HUAWEI_KERNEL)))
+#if (defined(HUAWEI_BT_WCN2243) || (!defined(CONFIG_HUAWEI_KERNEL)))
 		ret = request_irq(msm_uport->wakeup.irq, msm_hs_wakeup_isr,
 				  IRQF_TRIGGER_FALLING,
 				  "msm_hs_wakeup", msm_uport);
@@ -1721,7 +1717,6 @@ static int msm_hs_startup(struct uart_port *uport)
 		disable_irq(msm_uport->wakeup.irq);
 #endif
 	}
-
 	spin_lock_irqsave(&uport->lock, flags);
 
 	msm_hs_start_rx_locked(uport);
@@ -1749,7 +1744,7 @@ static int uartdm_init_port(struct uart_port *uport)
 	if (!tx->command_ptr)
 		return -ENOMEM;
 
-	tx->command_ptr_ptr = kmalloc(sizeof(u32), GFP_KERNEL | __GFP_DMA);
+	tx->command_ptr_ptr = kmalloc(sizeof(u32 *), GFP_KERNEL | __GFP_DMA);
 	if (!tx->command_ptr_ptr) {
 		ret = -ENOMEM;
 		goto free_tx_command_ptr;
@@ -1759,7 +1754,7 @@ static int uartdm_init_port(struct uart_port *uport)
 					    sizeof(dmov_box), DMA_TO_DEVICE);
 	tx->mapped_cmd_ptr_ptr = dma_map_single(uport->dev,
 						tx->command_ptr_ptr,
-						sizeof(u32), DMA_TO_DEVICE);
+						sizeof(u32 *), DMA_TO_DEVICE);
 	tx->xfer.cmdptr = DMOV_CMD_ADDR(tx->mapped_cmd_ptr_ptr);
 
 	init_waitqueue_head(&rx->wait);
@@ -1795,7 +1790,7 @@ static int uartdm_init_port(struct uart_port *uport)
 		goto free_rx_buffer;
 	}
 
-	rx->command_ptr_ptr = kmalloc(sizeof(u32), GFP_KERNEL | __GFP_DMA);
+	rx->command_ptr_ptr = kmalloc(sizeof(u32 *), GFP_KERNEL | __GFP_DMA);
 	if (!rx->command_ptr_ptr) {
 		pr_err("%s(): cannot allocate rx->command_ptr_ptr", __func__);
 		ret = -ENOMEM;
@@ -1812,6 +1807,9 @@ static int uartdm_init_port(struct uart_port *uport)
 
 	rx->xfer.complete_func = msm_hs_dmov_rx_callback;
 
+	rx->xfer.crci_mask = msm_dmov_build_crci_mask(1,
+						      msm_uport->dma_rx_crci);
+
 	rx->command_ptr->cmd = CMD_LC |
 	    CMD_SRC_CRCI(msm_uport->dma_rx_crci) | CMD_MODE_BOX;
 
@@ -1826,7 +1824,7 @@ static int uartdm_init_port(struct uart_port *uport)
 	*rx->command_ptr_ptr = CMD_PTR_LP | DMOV_CMD_ADDR(rx->mapped_cmd_ptr);
 
 	rx->cmdptr_dmaaddr = dma_map_single(uport->dev, rx->command_ptr_ptr,
-					    sizeof(u32), DMA_TO_DEVICE);
+					    sizeof(u32 *), DMA_TO_DEVICE);
 	rx->xfer.cmdptr = DMOV_CMD_ADDR(rx->cmdptr_dmaaddr);
 
 	INIT_DELAYED_WORK(&rx->flip_insert_work, flip_insert_work);
@@ -1849,7 +1847,7 @@ exit_tasket_init:
 	tasklet_kill(&msm_uport->tx.tlet);
 	tasklet_kill(&msm_uport->rx.tlet);
 	dma_unmap_single(uport->dev, msm_uport->tx.mapped_cmd_ptr_ptr,
-			sizeof(u32), DMA_TO_DEVICE);
+			sizeof(u32 *), DMA_TO_DEVICE);
 	dma_unmap_single(uport->dev, msm_uport->tx.mapped_cmd_ptr,
 			sizeof(dmov_box), DMA_TO_DEVICE);
 	kfree(msm_uport->tx.command_ptr_ptr);
@@ -1887,7 +1885,7 @@ static int __init msm_hs_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	uport->irq = platform_get_irq(pdev, 0);
-	if (unlikely((int)uport->irq < 0))
+	if (unlikely(uport->irq < 0))
 		return -ENXIO;
 
 	if (pdata == NULL)
@@ -1928,11 +1926,11 @@ static int __init msm_hs_probe(struct platform_device *pdev)
 	uport->uartclk = 7372800;
 	msm_uport->imr_reg = 0x0;
 
-	msm_uport->clk = clk_get(&pdev->dev, "core_clk");
+	msm_uport->clk = clk_get(&pdev->dev, "uartdm_clk");
 	if (IS_ERR(msm_uport->clk))
 		return PTR_ERR(msm_uport->clk);
 
-	msm_uport->pclk = clk_get(&pdev->dev, "iface_clk");
+	msm_uport->pclk = clk_get(&pdev->dev, "uartdm_pclk");
 	/*
 	 * Some configurations do not require explicit pclk control so
 	 * do not flag error on pclk get failure.
@@ -2011,34 +2009,32 @@ static int __init msm_serial_hs_init(void)
  *     - Disables the port
  *     - Unhook the ISR
  */
-#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
-/*  add for bluesleep */
+#if defined(CONFIG_HUAWEI_KERNEL) && defined(HUAWEI_BT_BCM_VER_3)
+/* lgh add for bluesleep */
 extern void bluesleep_uart_close(struct uart_port *uport);
-#endif
 
+#endif
 static void msm_hs_shutdown(struct uart_port *uport)
 {
 	unsigned long flags;
 	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
-
-	
-#if (defined(CONFIG_HUAWEI_BT_BTLA_VER30) && defined(CONFIG_HUAWEI_KERNEL))
-	/* added for bluesleep */
+#if defined(CONFIG_HUAWEI_KERNEL) && defined(HUAWEI_BT_BCM_VER_3)
+	/*lgh added for bluesleep */
+    printk(KERN_ERR "%s BCM bt 3.0 call bluesleep_uart_close\n", __FUNCTION__);
 	bluesleep_uart_close(uport);
 #endif
-	
 	BUG_ON(msm_uport->rx.flush < FLUSH_STOP);
 	tasklet_kill(&msm_uport->tx.tlet);
 	wait_event(msm_uport->rx.wait, msm_uport->rx.flush == FLUSH_SHUTDOWN);
 	tasklet_kill(&msm_uport->rx.tlet);
 	cancel_delayed_work_sync(&msm_uport->rx.flip_insert_work);
 
+	spin_lock_irqsave(&uport->lock, flags);
 	clk_enable(msm_uport->clk);
 
 	pm_runtime_disable(uport->dev);
 	pm_runtime_set_suspended(uport->dev);
 
-	spin_lock_irqsave(&uport->lock, flags);
 	/* Disable the transmitter */
 	msm_hs_write(uport, UARTDM_CR_ADDR, UARTDM_CR_TX_DISABLE_BMSK);
 	/* Disable the receiver */
@@ -2067,7 +2063,7 @@ static void msm_hs_shutdown(struct uart_port *uport)
 	spin_unlock_irqrestore(&uport->lock, flags);
 
 	if (use_low_power_wakeup(msm_uport))
-		irq_set_irq_wake(msm_uport->wakeup.irq, 0);
+		set_irq_wake(msm_uport->wakeup.irq, 0);
 
 	/* Free the interrupt */
 	free_irq(uport->irq, msm_uport);
@@ -2082,6 +2078,7 @@ static void __exit msm_serial_hs_exit(void)
 	uart_unregister_driver(&msm_hs_driver);
 }
 
+#if (defined(HUAWEI_BT_WCN2243) || (!defined(CONFIG_HUAWEI_KERNEL)))
 static int msm_hs_runtime_idle(struct device *dev)
 {
 	/*
@@ -2115,11 +2112,15 @@ static const struct dev_pm_ops msm_hs_dev_pm_ops = {
 	.runtime_idle    = msm_hs_runtime_idle,
 };
 
+#endif
 static struct platform_driver msm_serial_hs_platform_driver = {
 	.remove = msm_hs_remove,
 	.driver = {
 		.name = "msm_serial_hs",
+/*deactive pm if use bcm chip*/
+#if (defined(HUAWEI_BT_WCN2243) || (!defined(CONFIG_HUAWEI_KERNEL)))
 		.pm   = &msm_hs_dev_pm_ops,
+#endif		
 	},
 };
 

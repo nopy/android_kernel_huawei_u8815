@@ -26,78 +26,64 @@
 #include "nouveau_drv.h"
 #include "nouveau_mm.h"
 
-/* 0 = unsupported
- * 1 = non-compressed
- * 3 = compressed
- */
-static const u8 types[256] = {
-	1, 1, 3, 3, 3, 3, 0, 3, 3, 3, 3, 0, 0, 0, 0, 0,
-	0, 1, 0, 0, 0, 0, 0, 3, 3, 3, 3, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3,
-	3, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 0, 1, 1, 1, 1, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 3, 3, 3, 3, 1, 1, 1, 1, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3,
-	3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3,
-	3, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 0, 3, 0, 3,
-	3, 0, 3, 3, 3, 3, 3, 0, 0, 3, 0, 3, 0, 3, 3, 0,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 1, 1, 0
-};
-
 bool
 nvc0_vram_flags_valid(struct drm_device *dev, u32 tile_flags)
 {
-	u8 memtype = (tile_flags & NOUVEAU_GEM_TILE_LAYOUT_MASK) >> 8;
-	return likely((types[memtype] == 1));
+	switch (tile_flags & NOUVEAU_GEM_TILE_LAYOUT_MASK) {
+	case 0x0000:
+	case 0xfe00:
+	case 0xdb00:
+	case 0x1100:
+		return true;
+	default:
+		break;
+	}
+
+	return false;
 }
 
 int
 nvc0_vram_new(struct drm_device *dev, u64 size, u32 align, u32 ncmin,
-	      u32 type, struct nouveau_mem **pmem)
+	      u32 type, struct nouveau_vram **pvram)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct ttm_bo_device *bdev = &dev_priv->ttm.bdev;
 	struct ttm_mem_type_manager *man = &bdev->man[TTM_PL_VRAM];
 	struct nouveau_mm *mm = man->priv;
 	struct nouveau_mm_node *r;
-	struct nouveau_mem *mem;
+	struct nouveau_vram *vram;
 	int ret;
 
 	size  >>= 12;
 	align >>= 12;
 	ncmin >>= 12;
 
-	mem = kzalloc(sizeof(*mem), GFP_KERNEL);
-	if (!mem)
+	vram = kzalloc(sizeof(*vram), GFP_KERNEL);
+	if (!vram)
 		return -ENOMEM;
 
-	INIT_LIST_HEAD(&mem->regions);
-	mem->dev = dev_priv->dev;
-	mem->memtype = (type & 0xff);
-	mem->size = size;
+	INIT_LIST_HEAD(&vram->regions);
+	vram->dev = dev_priv->dev;
+	vram->memtype = type;
+	vram->size = size;
 
 	mutex_lock(&mm->mutex);
 	do {
 		ret = nouveau_mm_get(mm, 1, size, ncmin, align, &r);
 		if (ret) {
 			mutex_unlock(&mm->mutex);
-			nv50_vram_del(dev, &mem);
+			nv50_vram_del(dev, &vram);
 			return ret;
 		}
 
-		list_add_tail(&r->rl_entry, &mem->regions);
+		list_add_tail(&r->rl_entry, &vram->regions);
 		size -= r->length;
 	} while (size);
 	mutex_unlock(&mm->mutex);
 
-	r = list_first_entry(&mem->regions, struct nouveau_mm_node, rl_entry);
-	mem->offset = (u64)r->offset << 12;
-	*pmem = mem;
+	r = list_first_entry(&vram->regions, struct nouveau_mm_node, rl_entry);
+	vram->offset = (u64)r->offset << 12;
+	*pvram = vram;
 	return 0;
 }
 

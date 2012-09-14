@@ -34,7 +34,7 @@
 /*
  * This is the size at which it becomes more efficient to
  * clean the whole cache, rather than using the individual
- * cache line maintenance instructions.
+ * cache line maintainence instructions.
  *
  * *** This needs benchmarking
  */

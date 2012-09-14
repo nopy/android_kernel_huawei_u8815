@@ -15,10 +15,10 @@
 #ifndef HW_EXTERN_SDCARD_H
 #define HW_EXTERN_SDCARD_H
 
-// interface function. It`s called by mmc-host moudule when extern sdcard insert.
+/* interface function. It`s called by mmc-host moudule when extern sdcard insert */
 void hw_extern_sdcard_insert(void);
 
-// interface function. It`s called by mmc-host moudule when extern sdcard remouve.
+/* interface function. It`s called by mmc-host moudule when extern sdcard remove */
 void hw_extern_sdcard_remove(void);
 
 #endif /* HW_EXTERN_SDCARD_H */

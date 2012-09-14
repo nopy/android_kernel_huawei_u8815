@@ -216,11 +216,6 @@ msm_i2c_interrupt(int irq, void *devid)
 			err = -EIO;
 			goto out_err;
 		}
-    	if( (dev->msg->addr == 0x1E))//st303_compass address 0x1e
-		{
-			//printk(KERN_ERR "msg->addr=:0x%x \n",dev->msg->addr);
-			udelay(10);
-		}
 
 		if (dev->cnt) {
 			/* Ready to take a byte */
@@ -397,7 +392,7 @@ msm_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 		/* If other processor did some transactions, we may have
 		 * interrupt pending. Clear it
 		 */
-		irq_get_chip(dev->irq)->irq_ack(irq_get_irq_data(dev->irq));
+		get_irq_chip(dev->irq)->ack(dev->irq);
 	}
 
 	if (adap == &dev->adap_pri)
@@ -595,7 +590,7 @@ msm_i2c_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "I2C region already claimed\n");
 		return -EBUSY;
 	}
-	clk = clk_get(&pdev->dev, "core_clk");
+	clk = clk_get(&pdev->dev, "i2c_clk");
 	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "Could not get clock\n");
 		ret = PTR_ERR(clk);

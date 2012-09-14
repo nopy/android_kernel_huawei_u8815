@@ -69,7 +69,7 @@ cy_as_intr_start(
 
    Returns
    * CY_AS_ERROR_SUCCESS - the interrupt module was stopped
-   *	successfully
+   *	sucessfully
    * CY_AS_ERROR_NOT_RUNNING - the interrupt module was not
    *	running
 

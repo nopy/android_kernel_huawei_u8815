@@ -388,14 +388,6 @@ static int gs_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 	pdata = client->dev.platform_data;
 	if (pdata){
-#ifdef CONFIG_ARCH_MSM7X30
-		if(pdata->gs_power != NULL){
-			ret = pdata->gs_power(IC_PM_ON);
-			if(ret < 0 ){
-				goto err_check_functionality_failed;
-			}
-		}
-#endif
 		if(pdata->adapt_fn != NULL){
 			ret = pdata->adapt_fn();
 			if(ret > 0){
@@ -404,7 +396,7 @@ static int gs_probe(struct i2c_client *client, const struct i2c_device_id *id)
 				if(client->addr == 0){
 					printk(KERN_ERR "%s: bad i2c address = %d\n", __FUNCTION__, client->addr);
 					ret = -EFAULT;
-					goto err_power_failed;
+					goto err_check_functionality_failed;
 				}
 			}
 		}
@@ -415,7 +407,7 @@ static int gs_probe(struct i2c_client *client, const struct i2c_device_id *id)
 			if(*(pdata->init_flag)){
 				printk(KERN_ERR "gs_kxtik probe failed, because the othe gsensor has been probed.\n");
 				ret = -ENODEV;
-				goto err_power_failed;
+				goto err_check_functionality_failed;
 			}
 		}
 	}
@@ -423,7 +415,7 @@ static int gs_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	ret = gs_config_int_pin();
 	if(ret <0)
 	{
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 #endif
 	gs = kzalloc(sizeof(*gs), GFP_KERNEL);
@@ -536,13 +528,6 @@ err_detect_failed:
 err_alloc_data_failed:
 #ifndef   GS_POLLING 
 	gs_free_int();
-#endif
-/*turn down the power*/	
-err_power_failed:
-#ifdef CONFIG_ARCH_MSM7X30
-	if(pdata->gs_power != NULL){
-		pdata->gs_power(IC_PM_OFF);
-	}
 #endif
 err_check_functionality_failed:
 	return ret;

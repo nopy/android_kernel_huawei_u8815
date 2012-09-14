@@ -105,7 +105,6 @@
 #define COMP_MAC80211		BIT(26)
 #define COMP_REGD			BIT(27)
 #define COMP_CHAN			BIT(28)
-#define COMP_USB			BIT(29)
 
 /*--------------------------------------------------------------
 		Define the rt_print components

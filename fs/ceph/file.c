@@ -191,8 +191,7 @@ int ceph_open(struct inode *inode, struct file *file)
 		err = PTR_ERR(req);
 		goto out;
 	}
-	req->r_inode = inode;
-	ihold(inode);
+	req->r_inode = igrab(inode);
 	req->r_num_caps = 1;
 	err = ceph_mdsc_do_request(mdsc, parent_inode, req);
 	if (!err)
@@ -283,13 +282,14 @@ int ceph_release(struct inode *inode, struct file *file)
 static int striped_read(struct inode *inode,
 			u64 off, u64 len,
 			struct page **pages, int num_pages,
-			int *checkeof, bool o_direct,
+			int *checkeof, bool align_to_pages,
 			unsigned long buf_align)
 {
 	struct ceph_fs_client *fsc = ceph_inode_to_client(inode);
 	struct ceph_inode_info *ci = ceph_inode(inode);
 	u64 pos, this_len;
 	int io_align, page_align;
+	int page_off = off & ~PAGE_CACHE_MASK; /* first byte's offset in page */
 	int left, pages_left;
 	int read;
 	struct page **page_pos;
@@ -307,7 +307,7 @@ static int striped_read(struct inode *inode,
 	io_align = off & ~PAGE_MASK;
 
 more:
-	if (o_direct)
+	if (align_to_pages)
 		page_align = (pos - io_align + buf_align) & ~PAGE_MASK;
 	else
 		page_align = pos & ~PAGE_MASK;
@@ -317,19 +317,20 @@ more:
 				  ci->i_truncate_seq,
 				  ci->i_truncate_size,
 				  page_pos, pages_left, page_align);
-	if (ret == -ENOENT)
-		ret = 0;
 	hit_stripe = this_len < left;
 	was_short = ret >= 0 && ret < this_len;
+	if (ret == -ENOENT)
+		ret = 0;
 	dout("striped_read %llu~%u (read %u) got %d%s%s\n", pos, left, read,
 	     ret, hit_stripe ? " HITSTRIPE" : "", was_short ? " SHORT" : "");
 
 	if (ret > 0) {
-		int didpages = (page_align + ret) >> PAGE_CACHE_SHIFT;
+		int didpages =
+			((pos & ~PAGE_CACHE_MASK) + ret) >> PAGE_CACHE_SHIFT;
 
 		if (read < pos - off) {
 			dout(" zero gap %llu to %llu\n", off + read, pos);
-			ceph_zero_page_vector_range(page_align + read,
+			ceph_zero_page_vector_range(page_off + read,
 						    pos - off - read, pages);
 		}
 		pos += ret;
@@ -344,22 +345,20 @@ more:
 	}
 
 	if (was_short) {
-		/* did we bounce off eof? */
-		if (pos + left > inode->i_size)
-			*checkeof = 1;
-
-		/* zero trailing bytes (inside i_size) */
-		if (left > 0 && pos < inode->i_size) {
-			if (pos + left > inode->i_size)
-				left = inode->i_size - pos;
-
-			dout("zero tail %d\n", left);
-			ceph_zero_page_vector_range(page_align + read, left,
+		/* was original extent fully inside i_size? */
+		if (pos + left <= inode->i_size) {
+			dout("zero tail\n");
+			ceph_zero_page_vector_range(page_off + read, len - read,
 						    pages);
-			read += left;
+			read = len;
+			goto out;
 		}
+
+		/* check i_size */
+		*checkeof = 1;
 	}
 
+out:
 	if (ret >= 0)
 		ret = read;
 	dout("striped_read returns %d\n", ret);
@@ -476,6 +475,9 @@ static ssize_t ceph_sync_write(struct file *file, const char __user *data,
 	else
 		pos = *offset;
 
+	io_align = pos & ~PAGE_MASK;
+	buf_align = (unsigned long)data & ~PAGE_MASK;
+
 	ret = filemap_write_and_wait_range(inode->i_mapping, pos, pos + left);
 	if (ret < 0)
 		return ret;
@@ -499,8 +501,6 @@ static ssize_t ceph_sync_write(struct file *file, const char __user *data,
 	 * boundary.  this isn't atomic, unfortunately.  :(
 	 */
 more:
-	io_align = pos & ~PAGE_MASK;
-	buf_align = (unsigned long)data & ~PAGE_MASK;
 	len = left;
 	if (file->f_flags & O_DIRECT) {
 		/* write from beginning of first page, regardless of
@@ -564,19 +564,11 @@ more:
 			 * start_request so that a tid has been assigned.
 			 */
 			spin_lock(&ci->i_unsafe_lock);
-			list_add_tail(&req->r_unsafe_item,
-				      &ci->i_unsafe_writes);
+			list_add(&req->r_unsafe_item, &ci->i_unsafe_writes);
 			spin_unlock(&ci->i_unsafe_lock);
 			ceph_get_cap_refs(ci, CEPH_CAP_FILE_WR);
 		}
-		
 		ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
-		if (ret < 0 && req->r_safe_callback) {
-			spin_lock(&ci->i_unsafe_lock);
-			list_del_init(&req->r_unsafe_item);
-			spin_unlock(&ci->i_unsafe_lock);
-			ceph_put_cap_refs(ci, CEPH_CAP_FILE_WR);
-		}
 	}
 
 	if (file->f_flags & O_DIRECT)
@@ -590,7 +582,6 @@ out:
 		pos += len;
 		written += len;
 		left -= len;
-		data += written;
 		if (left)
 			goto more;
 
@@ -659,7 +650,7 @@ out:
 
 		/* hit EOF or hole? */
 		if (statret == 0 && *ppos < inode->i_size) {
-			dout("aio_read sync_read hit hole, ppos %lld < size %lld, reading more\n", *ppos, inode->i_size);
+			dout("aio_read sync_read hit hole, reading more\n");
 			read += ret;
 			base += ret;
 			len -= ret;
@@ -735,12 +726,9 @@ retry_snap:
 		}
 	}
 	if (ret >= 0) {
-		int dirty;
 		spin_lock(&inode->i_lock);
-		dirty = __ceph_mark_dirty_caps(ci, CEPH_CAP_FILE_WR);
+		__ceph_mark_dirty_caps(ci, CEPH_CAP_FILE_WR);
 		spin_unlock(&inode->i_lock);
-		if (dirty)
-			__mark_inode_dirty(inode, dirty);
 	}
 
 out:

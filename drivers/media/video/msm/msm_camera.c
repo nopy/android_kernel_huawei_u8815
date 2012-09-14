@@ -35,10 +35,9 @@
 #include <linux/syscalls.h>
 #include <linux/hrtimer.h>
 #include <asm/mach-types.h>
-#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
+#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION
 #include <mach/msm_battery.h>
 #endif
-#include <linux/ion.h>
 DEFINE_MUTEX(ctrl_cmd_lock);
 
 #define CAMERA_STOP_VIDEO 58
@@ -60,8 +59,6 @@ int g_v4l2_opencnt;
 static int camera_node;
 static enum msm_camera_type camera_type[MSM_MAX_CAMERA_SENSORS];
 static uint32_t sensor_mount_angle[MSM_MAX_CAMERA_SENSORS];
-
-struct ion_client *client_for_ion;
 
 static const char *vfe_config_cmd[] = {
 	"CMD_GENERAL",  /* 0 */
@@ -247,7 +244,7 @@ static void msm_enqueue_vpe(struct msm_device_queue *queue,
 		qcmd = list_first_entry(&__q->list,		\
 			struct msm_queue_cmd, member);		\
 		if (qcmd) {					\
-			if (&qcmd->member)	\
+			if ((&qcmd->member) && (&qcmd->member.next))	\
 				list_del_init(&qcmd->member);		\
 			free_qcmd(qcmd);				\
 		}							\
@@ -300,41 +297,29 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 	struct msm_pmem_info *info, spinlock_t* pmem_spinlock,
 	struct msm_sync *sync)
 {
-	unsigned long paddr;
-#ifndef CONFIG_MSM_MULTIMEDIA_USE_ION
 	struct file *file;
+	unsigned long paddr;
 	unsigned long kvstart;
-#endif
 	unsigned long len;
-	int rc = -ENOMEM;
+	int rc;
 	struct msm_pmem_region *region;
 	unsigned long flags;
 
-	region = kmalloc(sizeof(struct msm_pmem_region), GFP_KERNEL);
-	if (!region)
-		goto out;
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-		region->handle = ion_import_fd(client_for_ion, info->fd);
-		if (IS_ERR_OR_NULL(region->handle))
-			goto out1;
-		ion_phys(client_for_ion, region->handle,
-			&paddr, (size_t *)&len);
-#else
+
 	rc = get_pmem_file(info->fd, &paddr, &kvstart, &len, &file);
 	if (rc < 0) {
 		pr_err("%s: get_pmem_file fd %d error %d\n",
 			__func__,
 			info->fd, rc);
-		goto out1;
+		return rc;
 	}
-	region->file = file;
-#endif
+
 	if (!info->len)
 		info->len = len;
 
 	rc = check_pmem_info(info, len);
 	if (rc < 0)
-		goto out2;
+		return rc;
 
 	paddr += info->offset;
 	len = info->len;
@@ -342,33 +327,29 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 	spin_lock_irqsave(pmem_spinlock, flags);
 	if (check_overlap(ptype, paddr, len) < 0) {
 		spin_unlock_irqrestore(pmem_spinlock, flags);
-		rc = -EINVAL;
-		goto out2;
+		return -EINVAL;
 	}
 	spin_unlock_irqrestore(pmem_spinlock, flags);
+
+
+	region = kmalloc(sizeof(struct msm_pmem_region), GFP_KERNEL);
+	if (!region)
+		return -ENOMEM;
 
 	spin_lock_irqsave(pmem_spinlock, flags);
 	INIT_HLIST_NODE(&region->list);
 
 	region->paddr = paddr;
 	region->len = len;
+	region->file = file;
 	memcpy(&region->info, info, sizeof(region->info));
 
 	hlist_add_head(&(region->list), ptype);
 	spin_unlock_irqrestore(pmem_spinlock, flags);
 	CDBG("%s: type %d, paddr 0x%lx, vaddr 0x%lx\n",
 		__func__, info->type, paddr, (unsigned long)info->vaddr);
+
 	return 0;
-out2:
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-	ion_free(client_for_ion, region->handle);
-#else
-	put_pmem_file(region->file);
-#endif
-out1:
-	kfree(region);
-out:
-	return rc;
 }
 
 /* return of 0 means failure */
@@ -639,11 +620,7 @@ static int __msm_pmem_table_del(struct msm_sync *sync,
 					pinfo->vaddr == region->info.vaddr &&
 					pinfo->fd == region->info.fd) {
 				hlist_del(node);
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-				ion_free(client_for_ion, region->handle);
-#else
 				put_pmem_file(region->file);
-#endif
 				kfree(region);
 				CDBG("%s: type %d, vaddr  0x%p\n",
 					__func__, pinfo->type, pinfo->vaddr);
@@ -663,11 +640,7 @@ static int __msm_pmem_table_del(struct msm_sync *sync,
 				pinfo->vaddr == region->info.vaddr &&
 				pinfo->fd == region->info.fd) {
 				hlist_del(node);
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-				ion_free(client_for_ion, region->handle);
-#else
 				put_pmem_file(region->file);
-#endif
 				kfree(region);
 				CDBG("%s: type %d, vaddr  0x%p\n",
 					__func__, pinfo->type, pinfo->vaddr);
@@ -686,11 +659,7 @@ static int __msm_pmem_table_del(struct msm_sync *sync,
 					pinfo->vaddr == region->info.vaddr &&
 					pinfo->fd == region->info.fd) {
 				hlist_del(node);
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-				ion_free(client_for_ion, region->handle);
-#else
 				put_pmem_file(region->file);
-#endif
 				kfree(region);
 				CDBG("%s: type %d, vaddr  0x%p\n",
 					__func__, pinfo->type, pinfo->vaddr);
@@ -1014,7 +983,7 @@ static int msm_control(struct msm_control_device *ctrl_pmsm,
 		qcmd_resp = __msm_control_nb(sync, qcmd);
 		goto end;
 	}
-	msm_queue_drain(&ctrl_pmsm->ctrl_q, list_control);
+
 	qcmd_resp = __msm_control(sync,
 				  &ctrl_pmsm->ctrl_q,
 				  qcmd, msecs_to_jiffies(10000));
@@ -1283,8 +1252,6 @@ static int msm_get_stats(struct msm_sync *sync, void __user *arg)
 
 		if (data->type == VFE_MSG_COMMON) {
 			stats.status_bits = data->stats_msg.status_bits;
-			stats.awb_ymin = data->stats_msg.awb_ymin;
-
 			if (data->stats_msg.aec_buff) {
 				stats.aec.buff =
 				msm_pmem_stats_ptov_lookup(sync,
@@ -1388,7 +1355,6 @@ static int msm_get_stats(struct msm_sync *sync, void __user *arg)
 		} else if ((data->type >= VFE_MSG_STATS_AEC) &&
 			(data->type <=  VFE_MSG_STATS_WE)) {
 			/* the check above includes all stats type. */
-			stats.awb_ymin = data->stats_msg.awb_ymin;
 			stats.buffer =
 				msm_pmem_stats_ptov_lookup(sync,
 						data->phy.sbuf_phy,
@@ -2564,17 +2530,20 @@ static int msm_pp_grab(struct msm_sync *sync, void __user *arg)
 	} else {
 		enable &= PP_MASK;
 		if (enable & (enable - 1)) {
-			CDBG("%s: more than one PP request!\n",
+			pr_err("%s: error: more than one PP request!\n",
 				__func__);
+			return -EINVAL;
 		}
 		if (sync->pp_mask) {
 			if (enable) {
-				CDBG("%s: postproc %x is already enabled\n",
+				pr_err("%s: postproc %x is already enabled\n",
 					__func__, sync->pp_mask & enable);
+				return -EINVAL;
 			} else {
 				sync->pp_mask &= enable;
 				CDBG("%s: sync->pp_mask %d enable %d\n",
 					__func__, sync->pp_mask, enable);
+				return 0;
 			}
 		}
 
@@ -2902,16 +2871,12 @@ static long msm_ioctl_config(struct file *filep, unsigned int cmd,
 			rc = -EFAULT;
 		} else
 		{
-            /*Condition that the flash is tps61310 */
-			if(machine_is_msm8255_u8680())
-			{
-				if(LED_FLASH == flash_info.flashtype)
-				{
-					CDBG("tps61310_set_flash enter");
-					rc = tps61310_set_flash(flash_info.ctrl_data.led_state);
-				}
+			/*Condition that the flash is tps61310 */
+			if(LED_FLASH == flash_info.flashtype){
+				CDBG("tps61310_set_flash enter");
+				rc = tps61310_set_flash(flash_info.ctrl_data.led_state);
 			}
-            /*other flashes*/
+			/*other flashes*/
 			else
 			{
 				CDBG("msm_flash_ctrl enter");
@@ -2946,28 +2911,7 @@ static long msm_ioctl_config(struct file *filep, unsigned int cmd,
 }
 
 static int msm_unblock_poll_frame(struct msm_sync *);
-/*add this interface to do timeout reset sensor*/
-static int msm_reset_camera_esd(struct msm_sync *sync,void __user *arg)
-{
-    int rc = -EINVAL;
-    int esd_debug_count = 0;
-    
-    if(sync->sctrl.s_reset_regs)
-    {
-        if (copy_from_user(&esd_debug_count,arg,sizeof(int))) {
-            ERR_COPY_FROM_USER();
-            return -EFAULT;
-        }
 
-        printk(KERN_DEBUG "%s:%d real_count=%d\n",__func__,__LINE__,esd_debug_count);
-
-        rc = sync->sctrl.s_reset_regs();
-        if(rc < 0)
-            printk("%s:%d fail\n",__func__,__LINE__);
-    }
-
-    return rc;
-}
 static long msm_ioctl_frame(struct file *filep, unsigned int cmd,
 	unsigned long arg)
 {
@@ -2987,9 +2931,6 @@ static long msm_ioctl_frame(struct file *filep, unsigned int cmd,
 		break;
 	case MSM_CAM_IOCTL_UNBLOCK_POLL_FRAME:
 		rc = msm_unblock_poll_frame(pmsm->sync);
-		break;
-	case MSM_CAM_IOCTL_RESETCAMERA_FOR_ESD:
-		rc = msm_reset_camera_esd(pmsm->sync, argp);
 		break;
 	default:
 		break;
@@ -3100,37 +3041,27 @@ static int __msm_release(struct msm_sync *sync)
 		hlist_for_each_entry_safe(region, hnode, n,
 				&sync->pmem_frames, list) {
 			hlist_del(hnode);
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-				ion_free(client_for_ion, region->handle);
-#else
 			put_pmem_file(region->file);
-#endif
 			kfree(region);
 		}
 		CDBG("%s, free stats pmem region\n", __func__);
 		hlist_for_each_entry_safe(region, hnode, n,
 				&sync->pmem_stats, list) {
 			hlist_del(hnode);
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-				ion_free(client_for_ion, region->handle);
-#else
 			put_pmem_file(region->file);
-#endif
 			kfree(region);
 		}
 		msm_queue_drain(&sync->pict_q, list_pict);
 		msm_queue_drain(&sync->event_q, list_config);
 
 		wake_unlock(&sync->wake_lock);
-#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
-        /* turn down inside and outside camera consume */
-        huawei_rpc_current_consuem_notify(EVENT_CAMERA_STATE, DEVICE_POWER_STATE_OFF);
+#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION
+        huawei_rpc_current_consuem_notify(EVENT_CAMERA_MODULE, DEVICE_POWER_STATE_OFF);
 #endif
 		sync->apps_id = NULL;
 		sync->core_powered_on = 0;
 	}
 	mutex_unlock(&sync->lock);
-	ion_client_destroy(client_for_ion);
 
 	return 0;
 }
@@ -3647,12 +3578,6 @@ vfe_for_config:
 	CDBG("%s: msm_enqueue event_q\n", __func__);
 	if (sync->frame_q.len <= 100 && sync->event_q.len <= 100) {
 		msm_enqueue(&sync->event_q, &qcmd->list_config);
-	} else if (sync->event_q.len > 100) {
-		pr_err("%s, Error Event Queue limit exceeded f_q = %d, e_q = %d\n",
-			__func__, sync->frame_q.len, sync->event_q.len);
-		qcmd->error_code = 0xffffffff;
-		qcmd->command = NULL;
-		msm_enqueue(&sync->frame_q, &qcmd->list_frame);
 	} else {
 		pr_err("%s, Error Queue limit exceeded f_q = %d, e_q = %d\n",
 			__func__, sync->frame_q.len, sync->event_q.len);
@@ -3817,25 +3742,23 @@ static int __msm_open(struct msm_cam_device *pmsm, const char *const apps_id,
 			rc = -ENODEV;
 			goto msm_open_err;
 		}
-#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
-        /* calculate consume for ins and outs camera */
-        if(sync->sdata->slave_sensor) /* inside camera open */       
-        {   
-            huawei_rpc_current_consuem_notify(EVENT_INS_CAMERA_STATE, DEVICE_POWER_STATE_ON);
-        }
-        else  /*out side camera open */
-        {
-            huawei_rpc_current_consuem_notify(EVENT_OUTS_CAMERA_STATE, DEVICE_POWER_STATE_ON);
-        }
-
-#endif
-
 		msm_camvpe_fn_init(&sync->vpefn, sync);
 
 		spin_lock_init(&sync->abort_pict_lock);
 		spin_lock_init(&pp_prev_spinlock);
 		spin_lock_init(&pp_stereocam_spinlock);
 		spin_lock_init(&st_frame_spinlock);
+#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION
+        /*根据camera IN/OUT 进行功耗补偿*/
+        if(sync->sdata->slave_sensor) /*内camera打开*/       
+        {   
+            huawei_rpc_current_consuem_notify(EVENT_IN_CAMERA, DEVICE_POWER_STATE_ON);
+        }
+        else  /*外camera打开*/
+        {
+            huawei_rpc_current_consuem_notify(EVENT_OUT_CAMERA, DEVICE_POWER_STATE_ON);
+        }
+#endif
 		if (rc >= 0) {
 			msm_region_init(sync);
 			if (sync->vpefn.vpe_reg)
@@ -3846,7 +3769,6 @@ static int __msm_open(struct msm_cam_device *pmsm, const char *const apps_id,
 		sync->core_powered_on = 1;
 	}
 	sync->opencnt++;
-	client_for_ion = msm_ion_client_create(-1, "camera");
 
 msm_open_done:
 	mutex_unlock(&sync->lock);
@@ -3886,14 +3808,6 @@ static int msm_open_common(struct inode *inode, struct file *filep,
 	filep->private_data = pmsm;
 	CDBG("%s: rc %d\n", __func__, rc);
 	return rc;
-}
-
-static int msm_open_frame(struct inode *inode, struct file *filep)
-{
-	struct msm_cam_device *pmsm =
-		container_of(inode->i_cdev, struct msm_cam_device, cdev);
-	msm_queue_drain(&pmsm->sync->frame_q, list_frame);
-	return msm_open_common(inode, filep, 1, 0);
 }
 
 static int msm_open(struct inode *inode, struct file *filep)
@@ -3944,7 +3858,7 @@ static const struct file_operations msm_fops_control = {
 
 static const struct file_operations msm_fops_frame = {
 	.owner = THIS_MODULE,
-	.open = msm_open_frame,
+	.open = msm_open,
 	.unlocked_ioctl = msm_ioctl_frame,
 	.release = msm_release_frame,
 	.poll = msm_poll_frame,
@@ -4005,17 +3919,13 @@ static int msm_sync_init(struct msm_sync *sync,
 	int rc = 0;
 	struct msm_sensor_ctrl sctrl;
 	sync->sdata = pdev->dev.platform_data;
-	memset(&sctrl, 0, sizeof(struct msm_sensor_ctrl));
+
 	msm_queue_init(&sync->event_q, "event");
 	msm_queue_init(&sync->frame_q, "frame");
 	msm_queue_init(&sync->pict_q, "pict");
 	msm_queue_init(&sync->vpe_q, "vpe");
 
-#ifdef CONFIG_HUAWEI_KERNEL
-	wake_lock_init(&sync->wake_lock, WAKE_LOCK_SUSPEND, "msm_camera");
-#else
 	wake_lock_init(&sync->wake_lock, WAKE_LOCK_IDLE, "msm_camera");
-#endif
 
 	rc = msm_camio_probe_on(pdev);
 	if (rc < 0) {
@@ -4028,8 +3938,7 @@ static int msm_sync_init(struct msm_sync *sync,
 		sync->sctrl = sctrl;
 	}
 	msm_camio_probe_off(pdev);
-	/*add a 10ms delay between camera probes for IOVDD to down*/
-	mdelay(10);
+	mdelay(10); //add a 10ms delay between two cameras probe
 	if (rc < 0) {
 		pr_err("%s: failed to initialize %s\n",
 			__func__,
@@ -4127,20 +4036,21 @@ int msm_camera_drv_start(struct platform_device *dev,
 	struct msm_cam_device *pmsm = NULL;
 	struct msm_sync *sync;
 	int rc = -ENODEV;
-	
+
 #ifdef CONFIG_HUAWEI_CAMERA
 	struct msm_camera_sensor_info *sinfo;
-	static int camera_num;
-	static int camera_node_succee[MSM_MAX_CAMERA_SENSORS] = 
-	{0,0,0,0,0};
+	int camera_slave_sensor;
+	static int camera_node_succee[MSM_MAX_CAMERA_SENSORS] = {0,0,0,0,0};
 
 	sinfo = dev->dev.platform_data;
-	camera_num = sinfo->slave_sensor;
-	if (camera_node_succee[camera_num]) {
+	camera_slave_sensor = sinfo->slave_sensor;
+ 
+	/*if we have probed one camera at the same position successfully, return*/
+	if (camera_node_succee[camera_slave_sensor])
+	{
 		return rc;
 	}
-#endif	
-
+#endif
 	if (camera_node >= MSM_MAX_CAMERA_SENSORS) {
 		pr_err("%s: too many camera sensors\n", __func__);
 		return rc;
@@ -4177,25 +4087,23 @@ int msm_camera_drv_start(struct platform_device *dev,
 		kfree(pmsm);
 		return rc;
 	}
-#ifdef CONFIG_HUAWEI_CAMERA
-    	sinfo = dev->dev.platform_data;
-        camera_num = sinfo->slave_sensor;
-#endif
 
-	CDBG("%s: setting camera node %d\n", __func__, camera_num);
-	rc = msm_device_init(pmsm, sync, camera_num);
+	CDBG("%s: setting camera node %d\n", __func__, camera_node);
+	rc = msm_device_init(pmsm, sync, camera_node);
 	if (rc < 0) {
 		msm_sync_destroy(sync);
 		kfree(pmsm);
 		return rc;
 	}
 
-	camera_type[camera_num] = sync->sctrl.s_camera_type;
-	sensor_mount_angle[camera_num] = sync->sctrl.s_mount_angle;
-	camera_node_succee[camera_num] = 1;
+#ifdef CONFIG_HUAWEI_CAMERA
+	/*camera probed succeed, sign it*/
+	camera_node_succee[camera_slave_sensor] = 1;
+#endif
+	camera_type[camera_node] = sync->sctrl.s_camera_type;
+	sensor_mount_angle[camera_node] = sync->sctrl.s_mount_angle;
 	camera_node++;
-	CDBG("num:%d, id:%d, type:%d, mount_angle:%d\n", 
-		camera_node, camera_num, camera_type[camera_num], sensor_mount_angle[camera_num]);
+
 	list_add(&sync->list, &msm_sensors);
 	return rc;
 }

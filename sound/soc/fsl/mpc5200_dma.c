@@ -369,7 +369,8 @@ static struct snd_soc_platform_driver mpc5200_audio_dma_platform = {
 	.pcm_free	= &psc_dma_free,
 };
 
-static int mpc5200_hpcd_probe(struct platform_device *op)
+static int mpc5200_hpcd_probe(struct of_device *op,
+		const struct of_device_id *match)
 {
 	phys_addr_t fifo;
 	struct psc_dma *psc_dma;
@@ -487,7 +488,7 @@ out_unmap:
 	return ret;
 }
 
-static int mpc5200_hpcd_remove(struct platform_device *op)
+static int mpc5200_hpcd_remove(struct of_device *op)
 {
 	struct psc_dma *psc_dma = dev_get_drvdata(&op->dev);
 
@@ -511,31 +512,32 @@ static int mpc5200_hpcd_remove(struct platform_device *op)
 }
 
 static struct of_device_id mpc5200_hpcd_match[] = {
-	{ .compatible = "fsl,mpc5200-pcm", },
+	{
+		.compatible = "fsl,mpc5200-pcm",
+	},
 	{}
 };
 MODULE_DEVICE_TABLE(of, mpc5200_hpcd_match);
 
-static struct platform_driver mpc5200_hpcd_of_driver = {
+static struct of_platform_driver mpc5200_hpcd_of_driver = {
+	.owner		= THIS_MODULE,
+	.name		= "mpc5200-pcm-audio",
+	.match_table    = mpc5200_hpcd_match,
 	.probe		= mpc5200_hpcd_probe,
 	.remove		= mpc5200_hpcd_remove,
-	.driver = {
-		.owner		= THIS_MODULE,
-		.name		= "mpc5200-pcm-audio",
-		.of_match_table    = mpc5200_hpcd_match,
-	}
 };
 
 static int __init mpc5200_hpcd_init(void)
 {
-	return platform_driver_register(&mpc5200_hpcd_of_driver);
+	return of_register_platform_driver(&mpc5200_hpcd_of_driver);
 }
-module_init(mpc5200_hpcd_init);
 
 static void __exit mpc5200_hpcd_exit(void)
 {
-	platform_driver_unregister(&mpc5200_hpcd_of_driver);
+	of_unregister_platform_driver(&mpc5200_hpcd_of_driver);
 }
+
+module_init(mpc5200_hpcd_init);
 module_exit(mpc5200_hpcd_exit);
 
 MODULE_AUTHOR("Grant Likely <grant.likely@secretlab.ca>");

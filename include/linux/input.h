@@ -167,7 +167,6 @@ struct input_keymap_entry {
 #define SYN_REPORT		0
 #define SYN_CONFIG		1
 #define SYN_MT_REPORT		2
-#define SYN_DROPPED		3
 
 /*
  * Keys and buttons
@@ -437,7 +436,6 @@ struct input_keymap_entry {
 
 #define KEY_WIMAX		246
 #define KEY_RFKILL		247	/* Key that controls all radios */
-#define KEY_GENIUSBUTTON        248  /* specially for a certain APK */
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
@@ -555,8 +553,8 @@ struct input_keymap_entry {
 #define KEY_DVD			0x185	/* Media Select DVD */
 #define KEY_AUX			0x186
 #define KEY_MP3			0x187
-#define KEY_AUDIO		0x188	/* AL Audio Browser */
-#define KEY_VIDEO		0x189	/* AL Movie Browser */
+#define KEY_AUDIO		0x188
+#define KEY_VIDEO		0x189
 #define KEY_DIRECTORY		0x18a
 #define KEY_LIST		0x18b
 #define KEY_MEMO		0x18c	/* Media Select Messages */
@@ -605,9 +603,8 @@ struct input_keymap_entry {
 #define KEY_FRAMEFORWARD	0x1b5
 #define KEY_CONTEXT_MENU	0x1b6	/* GenDesc - system context menu */
 #define KEY_MEDIA_REPEAT	0x1b7	/* Consumer - transport control */
-#define KEY_10CHANNELSUP	0x1b8	/* 10 channels up (10+) */
-#define KEY_10CHANNELSDOWN	0x1b9	/* 10 channels down (10-) */
-#define KEY_IMAGES		0x1ba	/* AL Image Browser */
+#define KEY_10CHANNELSUP        0x1b8   /* 10 channels up (10+) */
+#define KEY_10CHANNELSDOWN      0x1b9   /* 10 channels down (10-) */
 
 #define KEY_DEL_EOL		0x1c0
 #define KEY_DEL_EOS		0x1c1
@@ -666,13 +663,6 @@ struct input_keymap_entry {
 #define KEY_TOUCHPAD_TOGGLE	0x212	/* Request switch touchpad on or off */
 #define KEY_TOUCHPAD_ON		0x213
 #define KEY_TOUCHPAD_OFF	0x214
-
-#define KEY_CAMERA_ZOOMIN	0x215
-#define KEY_CAMERA_ZOOMOUT	0x216
-#define KEY_CAMERA_UP		0x217
-#define KEY_CAMERA_DOWN		0x218
-#define KEY_CAMERA_LEFT		0x219
-#define KEY_CAMERA_RIGHT	0x21a
 
 #define BTN_TRIGGER_HAPPY		0x2c0
 #define BTN_TRIGGER_HAPPY1		0x2c0
@@ -770,6 +760,7 @@ struct input_keymap_entry {
 #define ABS_VOLUME		0x20
 
 #define ABS_MISC		0x28
+#define ABS_LIGHT      0x2e
 
 #define ABS_MT_SLOT		0x2f	/* MT slot being modified */
 #define ABS_MT_TOUCH_MAJOR	0x30	/* Major axis of touching ellipse */
@@ -813,8 +804,6 @@ struct input_keymap_entry {
 #define SW_KEYPAD_SLIDE		0x0a  /* set = keypad slide out */
 #define SW_FRONT_PROXIMITY	0x0b  /* set = front proximity sensor active */
 #define SW_ROTATE_LOCK		0x0c  /* set = rotate locked/disabled */
-#define SW_HPHL_OVERCURRENT	0x0d  /* set = over current on left hph */
-#define SW_HPHR_OVERCURRENT	0x0e  /* set = over current on right hph */
 #define SW_MAX			0x0f
 #define SW_CNT			(SW_MAX+1)
 
@@ -830,12 +819,6 @@ struct input_keymap_entry {
 #define MSC_MAX			0x07
 #define MSC_CNT			(MSC_MAX+1)
 
-/* modify for ES-version*/
-#define ABS_LIGHT            0x2e
-
-/*<BU5D09205 zhangtao 20100503 begin*/
-#define BTN_TOUCH2         0x102
-/*BU5D09205 zhangtao 20100503 end>*/
 /*
  * LEDs
  */
@@ -1172,6 +1155,8 @@ struct ff_effect {
  *	sparse keymaps. If not supplied default mechanism will be used.
  *	The method is being called while holding event_lock and thus must
  *	not sleep
+ * @getkeycode_new: transition method
+ * @setkeycode_new: transition method
  * @ff: force feedback structure associated with the device if device
  *	supports force feedback effects
  * @repeat_key: stores key code of the last key pressed; used to implement
@@ -1250,10 +1235,14 @@ struct input_dev {
 	void *keycode;
 
 	int (*setkeycode)(struct input_dev *dev,
-			  const struct input_keymap_entry *ke,
-			  unsigned int *old_keycode);
+			  unsigned int scancode, unsigned int keycode);
 	int (*getkeycode)(struct input_dev *dev,
-			  struct input_keymap_entry *ke);
+			  unsigned int scancode, unsigned int *keycode);
+	int (*setkeycode_new)(struct input_dev *dev,
+			      const struct input_keymap_entry *ke,
+			      unsigned int *old_keycode);
+	int (*getkeycode_new)(struct input_dev *dev,
+			      struct input_keymap_entry *ke);
 
 	struct ff_device *ff;
 

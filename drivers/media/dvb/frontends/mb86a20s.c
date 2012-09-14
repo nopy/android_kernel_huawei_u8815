@@ -406,7 +406,7 @@ err:
 		printk(KERN_INFO "mb86a20s: Init failed. Will try again later\n");
 	} else {
 		state->need_init = false;
-		dprintk("Initialization succeeded.\n");
+		dprintk("Initialization succeded.\n");
 	}
 	return rc;
 }

@@ -36,7 +36,6 @@
 #endif
 /*add this macro for probe phase debugging*/
 //#define TS_MELFAS_DEBUG
-#include <linux/touch_platform_config.h>
 #undef TS_MELFAS_DEBUG
 #ifdef TS_MELFAS_DEBUG
 #define TS_DEBUG_MELFAS(fmt, args...) printk(KERN_INFO fmt, ##args)
@@ -50,7 +49,7 @@ module_param_named(melfas_debug, melfas_debug_mask, int, S_IRUGO | S_IWUSR | S_I
 		printk(KERN_ERR fmt, ##args); \
 		} \
 } while(0)
-
+static bool first_int_flag = true;
 #define TS_X_OFFSET		1
 #define TS_Y_OFFSET		TS_X_OFFSET
 #define TS_SCL_GPIO		131
@@ -753,6 +752,57 @@ static void clear_pressed_point_status(struct melfas_ts_data *ts)
     input_sync(ts->input_dev);
     memset(g_Mtouch_info, 0, sizeof(g_Mtouch_info));
 }
+#define OFILM_MODULE 0X00
+#define MUTTO_MODULE 0X01
+#define TRULY_MODULE 0X02
+#define BYD_MODULE   0X03
+#define TPK_MODULE   0X04
+#define CMI_MODULE   0X05
+#define EELY_MODULE  0X06
+
+static char touch_info[50] = {0};
+char * get_melfas_touch_info(void)
+{
+	int ret = 0;
+	char * module_name = NULL;
+
+	if (g_client == NULL)
+		return NULL;
+	ret = tp_read_input_name();
+	if (ret < 0)
+		return NULL;
+
+	switch(query_name[4])
+	{
+		case OFILM_MODULE:
+			module_name = "OFILM";
+			break;
+		case MUTTO_MODULE:
+			module_name = "MUTTO";
+			break;
+		case TRULY_MODULE:
+			module_name = "TRULY";
+			break;
+		case BYD_MODULE:
+			module_name = "BYD";
+			break;
+		case TPK_MODULE:
+			module_name = "TPK";
+			break;
+		case CMI_MODULE:
+			module_name = "CMI";
+			break;
+		case EELY_MODULE:
+			module_name = "EELY";
+			break;
+		default:
+			break;
+	}
+	
+	sprintf(touch_info,"melfas-%s.%d",module_name,query_name[2]);
+
+	return touch_info;
+}
 static void melfas_ts_work_func(struct work_struct *work)
 {
 	struct melfas_ts_data *ts = container_of(work, struct melfas_ts_data, work);
@@ -761,7 +811,6 @@ static void melfas_ts_work_func(struct work_struct *work)
 	uint8_t read_num = 0;
 	uint8_t touchAction = 0, touchType = 0, fingerID = 0;
 	int k = 0;
-	u8 finger_pressed_count = 0;
 
 	TS_DEBUG_MELFAS(KERN_ERR "melfas_ts_work_func\n");
 	if (ts == NULL)
@@ -866,14 +915,9 @@ static void melfas_ts_work_func(struct work_struct *work)
             input_report_abs(ts->input_dev, ABS_MT_POSITION_X,  g_Mtouch_info[i].fingerX);
             input_report_abs(ts->input_dev, ABS_MT_POSITION_Y,  g_Mtouch_info[i].fingerY);
             input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, g_Mtouch_info[i].strength);
-            //input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, g_Mtouch_info[i].width);
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, g_Mtouch_info[i].strength);
-			input_mt_sync(ts->input_dev);	
-
-			if (g_Mtouch_info[i].strength)
-				finger_pressed_count++;
-        }
-		input_report_key(ts->input_dev, BTN_TOUCH, finger_pressed_count);
+            input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, g_Mtouch_info[i].width);
+			input_mt_sync(ts->input_dev);				
+        }		
 	}
 	else
 	{
@@ -908,6 +952,11 @@ static enum hrtimer_restart melfas_ts_timer_func(struct hrtimer *timer)
 static irqreturn_t melfas_ts_irq_handler(int irq, void *dev_id)
 {
 	struct melfas_ts_data *ts = dev_id;
+	if (first_int_flag)
+	{
+		first_int_flag = false;
+		return IRQ_HANDLED;
+	}
 	disable_irq_nosync(ts->client->irq);
  	MELFAS_DEBUG("melfas_ts_irq_handler: disable irq\n");
 	queue_work(ts->melfas_wq, &ts->work);
@@ -1069,17 +1118,12 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	set_bit(ABS_Y, ts->input_dev->absbit);
 	set_bit(KEY_NUMLOCK, ts->input_dev->keybit);
 
-
-	/*add INPUT_PROP_DIRECT property*/
-	set_bit(INPUT_PROP_DIRECT,ts->input_dev->propbit);
-
     if(ts->support_multi_touch)
     {
     	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, 0, lcd_x, 0, 0);
     	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, 0, lcd_y, 0, 0);
     	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
     	input_set_abs_params(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0, 15, 0, 0);
-		input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE, 0,	255, 0, 0);
     }
 	else
 	{
@@ -1125,7 +1169,7 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 		{
 			TS_DEBUG_MELFAS("Received IRQ!\n");
 			ts->use_irq = 1;
-			if (irq_set_irq_wake(client->irq, 1) < 0)
+			if (set_irq_wake(client->irq, 1) < 0)
             {
             	printk(KERN_ERR "failed to set IRQ wake\n");
             }         
@@ -1153,8 +1197,8 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	/*move before*/
 	printk(KERN_INFO "melfas_ts_probe: Start touchscreen %s in %s mode\n", ts->input_dev->name, ts->use_irq ? "interrupt" : "polling");
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
-	/* detect current device successful, set the flag as present */
-	set_hw_dev_flag(DEV_I2C_TOUCH_PANEL);
+    /* detect current device successful, set the flag as present */
+    set_hw_dev_flag(DEV_I2C_TOUCH_PANEL);
 #endif
 
 	return 0;
@@ -1245,7 +1289,7 @@ static int melfas_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	{
 		enable_irq(client->irq);
 	}
-
+	first_int_flag = true;
 	ret = melfas_ts_power(client,0);
 	if (ret < 0)
 	{

@@ -34,6 +34,7 @@
 #include <linux/blkdev.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/smp_lock.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_host.h>
 
@@ -150,7 +151,7 @@ static int rd_build_device_space(struct rd_dev *rd_dev)
 	if (rd_dev->rd_page_count <= 0) {
 		printk(KERN_ERR "Illegal page count: %u for Ramdisk device\n",
 			rd_dev->rd_page_count);
-		return -EINVAL;
+		return -1;
 	}
 	total_sg_needed = rd_dev->rd_page_count;
 
@@ -160,7 +161,7 @@ static int rd_build_device_space(struct rd_dev *rd_dev)
 	if (!(sg_table)) {
 		printk(KERN_ERR "Unable to allocate memory for Ramdisk"
 			" scatterlist tables\n");
-		return -ENOMEM;
+		return -1;
 	}
 
 	rd_dev->sg_table_array = sg_table;
@@ -175,7 +176,7 @@ static int rd_build_device_space(struct rd_dev *rd_dev)
 		if (!(sg)) {
 			printk(KERN_ERR "Unable to allocate scatterlist array"
 				" for struct rd_dev\n");
-			return -ENOMEM;
+			return -1;
 		}
 
 		sg_init_table((struct scatterlist *)&sg[0], sg_per_table);
@@ -191,7 +192,7 @@ static int rd_build_device_space(struct rd_dev *rd_dev)
 			if (!(pg)) {
 				printk(KERN_ERR "Unable to allocate scatterlist"
 					" pages for struct rd_dev_sg_table\n");
-				return -ENOMEM;
+				return -1;
 			}
 			sg_assign_page(&sg[j], pg);
 			sg[j].length = PAGE_SIZE;
@@ -253,13 +254,12 @@ static struct se_device *rd_create_virtdevice(
 	struct se_dev_limits dev_limits;
 	struct rd_dev *rd_dev = p;
 	struct rd_host *rd_host = hba->hba_ptr;
-	int dev_flags = 0, ret;
+	int dev_flags = 0;
 	char prod[16], rev[4];
 
 	memset(&dev_limits, 0, sizeof(struct se_dev_limits));
 
-	ret = rd_build_device_space(rd_dev);
-	if (ret < 0)
+	if (rd_build_device_space(rd_dev) < 0)
 		goto fail;
 
 	snprintf(prod, 16, "RAMDISK-%s", (rd_dev->rd_direct) ? "DR" : "MCP");
@@ -293,7 +293,7 @@ static struct se_device *rd_create_virtdevice(
 
 fail:
 	rd_release_device_space(rd_dev);
-	return ERR_PTR(ret);
+	return NULL;
 }
 
 static struct se_device *rd_DIRECT_create_virtdevice(

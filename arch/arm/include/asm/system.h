@@ -62,6 +62,13 @@
 
 #include <asm/outercache.h>
 
+#define __exception	__attribute__((section(".exception.text")))
+#ifdef CONFIG_FUNCTION_GRAPH_TRACER
+#define __exception_irq_entry	__irq_entry
+#else
+#define __exception_irq_entry	__exception
+#endif
+
 void cpu_idle_wait(void);
 
 struct thread_info;
@@ -154,7 +161,7 @@ extern unsigned int user_debug;
 #include <mach/barriers.h>
 #elif defined(CONFIG_ARM_DMA_MEM_BUFFERABLE) || defined(CONFIG_SMP)
 #define mb()		do { dsb(); outer_sync(); } while (0)
-#define rmb()		dsb()
+#define rmb()		dmb()
 #define wmb()		mb()
 #else
 #include <asm/memory.h>
@@ -244,7 +251,7 @@ do {									\
  * cache totally.  This means that the cache becomes inconsistent, and,
  * since we use normal loads/stores as well, this is really bad.
  * Typically, this causes oopsen in filp_close, but could have other,
- * more disastrous effects.  There are two work-arounds:
+ * more disasterous effects.  There are two work-arounds:
  *  1. Disable interrupts and emulate the atomic swap
  *  2. Clean the cache, perform atomic swap, flush the cache
  *
@@ -342,7 +349,6 @@ void cpu_idle_wait(void);
 #include <asm-generic/cmpxchg-local.h>
 
 #if __LINUX_ARM_ARCH__ < 6
-/* min ARCH < ARMv6 */
 
 #ifdef CONFIG_SMP
 #error "SMP is not supported on this platform"
@@ -361,7 +367,7 @@ void cpu_idle_wait(void);
 #include <asm-generic/cmpxchg.h>
 #endif
 
-#else	/* min ARCH >= ARMv6 */
+#else	/* __LINUX_ARM_ARCH__ >= 6 */
 
 extern void __bad_cmpxchg(volatile void *ptr, int size);
 
@@ -375,7 +381,7 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 	unsigned long oldval, res;
 
 	switch (size) {
-#ifndef CONFIG_CPU_V6	/* min ARCH >= ARMv6K */
+#ifdef CONFIG_CPU_32v6K
 	case 1:
 		do {
 			asm volatile("@ __cmpxchg1\n"
@@ -400,7 +406,7 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
 				: "memory", "cc");
 		} while (res);
 		break;
-#endif
+#endif /* CONFIG_CPU_32v6K */
 	case 4:
 		do {
 			asm volatile("@ __cmpxchg4\n"
@@ -446,12 +452,12 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
 	unsigned long ret;
 
 	switch (size) {
-#ifdef CONFIG_CPU_V6	/* min ARCH == ARMv6 */
+#ifndef CONFIG_CPU_32v6K
 	case 1:
 	case 2:
 		ret = __cmpxchg_local_generic(ptr, old, new, size);
 		break;
-#endif
+#endif	/* !CONFIG_CPU_32v6K */
 	default:
 		ret = __cmpxchg(ptr, old, new, size);
 	}
@@ -465,7 +471,7 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
 				       (unsigned long)(n),		\
 				       sizeof(*(ptr))))
 
-#ifndef CONFIG_CPU_V6	/* min ARCH >= ARMv6K */
+#ifdef CONFIG_CPU_32v6K
 
 /*
  * Note : ARMv7-M (currently unsupported by Linux) does not support
@@ -520,11 +526,11 @@ static inline unsigned long long __cmpxchg64_mb(volatile void *ptr,
 					 (unsigned long long)(o),	\
 					 (unsigned long long)(n)))
 
-#else /* min ARCH = ARMv6 */
+#else	/* !CONFIG_CPU_32v6K */
 
 #define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 
-#endif
+#endif	/* CONFIG_CPU_32v6K */
 
 #endif	/* __LINUX_ARM_ARCH__ >= 6 */
 

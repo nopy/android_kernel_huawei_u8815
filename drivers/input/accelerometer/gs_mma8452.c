@@ -29,7 +29,6 @@
 #include <asm/uaccess.h>
 #include "linux/hardware_self_adapt.h"
 #include <linux/slab.h>
-#include <mach/vreg.h>
 
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 #include <linux/hw_dev_dec.h>
@@ -158,31 +157,6 @@ static void gs_early_suspend(struct early_suspend *h);
 static void gs_late_resume(struct early_suspend *h);
 #endif
 static compass_gs_position_type  compass_gs_position=COMPASS_TOP_GS_TOP;
-static inline int reg_read(struct gs_data *gs , int reg);
-static int mma8452_debug_mask;
-module_param_named(mma8452_debug, mma8452_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
-
-#define mma8452_DBG(x...) do {\
-    if (mma8452_debug_mask) \
-        printk(KERN_DEBUG x);\
-    } while (0)
-#define mma8452_PRINT_PER_TIMES 100
-unsigned int mma8452_times = 0;
-
-void mma8452_print_debug(int start_reg,int end_reg)
-{
-        int reg, ret;
-
-        for(reg = start_reg ; reg <= end_reg ; reg ++)
-        {                
-			/* read reg value */
-            ret = reg_read(this_gs_data,reg);
-			/* print reg info */
-            mma8452_DBG("mma8452 reg 0x%x values 0x%x\n",reg,ret);
-         }
-
-}
-
 /**************************************************************************************/
 static inline int reg_read(struct gs_data *gs , int reg)
 {
@@ -253,9 +227,10 @@ static int gs_mma8452_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 gs_mma8452_ioctl(struct file *file, unsigned int cmd,
-	   unsigned long arg)
+		unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
 	signed short accel_buf[3];
@@ -332,6 +307,7 @@ gs_mma8452_ioctl(struct file *file, unsigned int cmd,
 	return 0;
 }
 
+/* modify iotcl interface */
 static struct file_operations gs_mma8452_fops = {
 	.owner = THIS_MODULE,
 	.open = gs_mma8452_open,
@@ -383,7 +359,7 @@ static void gs_work_func(struct work_struct *work)
 		GS_DEBUG("%s:A_z l 0x%x \n", __FUNCTION__, udata[1]);
 		z = ((udata[0])<<4)|udata[1]>>4;
 		
-		mma8452_DBG("Gs_mma8452:A  x : %d y : %d z : %d \n", x,y,z);
+		GS_DEBUG("gs_mma8452  A  x :0x%x y :0x%x z :0x%x \n", x,y,z);
 	 
 		if(x&0x800)/**/
 		{
@@ -439,19 +415,6 @@ static void gs_work_func(struct work_struct *work)
 		
 
 	}
-    mma8452_DBG("Gs_mma8452:A  x : %d y : %d z : %d \n", x,y,z);
-    if(mma8452_debug_mask)
-    {
-	    /* print reg info in such times */
-		if(!(++mma8452_times%mma8452_PRINT_PER_TIMES))
-		{
-			/* count return to 0 */
-			mma8452_times = 0;
-			mma8452_print_debug(MMA8452_STATUS,MMA8452_OUT_Z_LSB);
-			mma8452_print_debug(MMA8452_SYSMOD,MMA8452_FF_MT_COUNT);
-			mma8452_print_debug(MMA8452_TRANSIENT_CFG,MMA8452_REG_END);
-		}
-    }
 	if (gs->use_irq)
 		enable_irq(gs->client->irq);
 	else
@@ -512,25 +475,15 @@ static int gs_probe(
 	s32 result = 0;
 	struct gs_data *gs;
 	struct gs_platform_data *pdata = NULL;
-	/*delete 19 lines*/
-	    
+    
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		printk(KERN_ERR "gs_mma8452_probe: need I2C_FUNC_I2C\n");
 		ret = -ENODEV;
 		goto err_check_functionality_failed;
 	}
 	
-	/*turn on the power*/
 	pdata = client->dev.platform_data;
 	if (pdata){
-#ifdef CONFIG_ARCH_MSM7X30
-		if(pdata->gs_power != NULL){
-			ret = pdata->gs_power(IC_PM_ON);
-			if(ret < 0 ){
-				goto err_check_functionality_failed;
-			}
-		}
-#endif
 		if(pdata->adapt_fn != NULL){
 			ret = pdata->adapt_fn();
 			if(ret > 0){
@@ -539,7 +492,7 @@ static int gs_probe(
 				if(client->addr == 0){
 					printk(KERN_ERR "%s: bad i2c address = %d\n", __FUNCTION__, client->addr);
 					ret = -EFAULT;
-					goto err_power_failed;
+					goto err_check_functionality_failed;
 				}
 			}
 		}
@@ -551,7 +504,7 @@ static int gs_probe(
 			if(*(pdata->init_flag)){
 				printk(KERN_ERR "gs_mma8452 probe failed, because the othe gsensor has been probed.\n");
 				ret = -ENODEV;
-				goto err_power_failed;
+				goto err_check_functionality_failed;
 			}
 		}
 	}
@@ -563,14 +516,14 @@ static int gs_probe(
 		dev_err(&client->dev,"read chip ID 0x%x is not equal to 0x%x!\n", result,MMA8452_ID);
 		printk(KERN_INFO "read chip ID failed\n");
 		result = -ENODEV;
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 	
 #ifndef   GS_POLLING 	
 	ret = gs_config_int_pin();
 	if(ret <0)
 	{
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 #endif
 
@@ -629,7 +582,7 @@ static int gs_probe(
 	gs->input_dev->id.vendor = GS_MMA8452;
 	
 	set_bit(EV_ABS,gs->input_dev->evbit);
-	/* modify for ES-version*/
+	/* modify the func of init */
 	input_set_abs_params(gs->input_dev, ABS_X, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Y, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Z, -11520, 11520, 0, 0);
@@ -704,13 +657,6 @@ err_detect_failed:
 err_alloc_data_failed:
 #ifndef   GS_POLLING 
 	gs_free_int();
-#endif
-/*turn down the power*/
-err_power_failed:
-#ifdef CONFIG_ARCH_MSM7X30
-	if(pdata->gs_power != NULL){
-		pdata->gs_power(IC_PM_OFF);
-	}
 #endif
 err_check_functionality_failed:
 	return ret;

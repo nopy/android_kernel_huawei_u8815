@@ -1,4 +1,6 @@
 /*
+ *  linux/drivers/char/vt_ioctl.c
+ *
  *  Copyright (C) 1992 obz under the linux copyright
  *
  *  Dynamic diacritical handling - aeb@cwi.nl - Dec 1993
@@ -25,6 +27,7 @@
 #include <linux/console.h>
 #include <linux/consolemap.h>
 #include <linux/signal.h>
+#include <linux/smp_lock.h>
 #include <linux/timex.h>
 
 #include <asm/io.h>
@@ -492,7 +495,7 @@ do_unimap_ioctl(int cmd, struct unimapdesc __user *user_ud, int perm, struct vc_
  * We handle the console-specific ioctl's here.  We allow the
  * capability to modify any console, not just the fg_console. 
  */
-int vt_ioctl(struct tty_struct *tty,
+int vt_ioctl(struct tty_struct *tty, struct file * file,
 	     unsigned int cmd, unsigned long arg)
 {
 	struct vc_data *vc = tty->driver_data;
@@ -685,9 +688,6 @@ int vt_ioctl(struct tty_struct *tty,
 			kbd->kbdmode = VC_UNICODE;
 			compute_shiftstate();
 			break;
-		  case K_OFF:
-			kbd->kbdmode = VC_OFF;
-			break;
 		  default:
 			ret = -EINVAL;
 			goto out;
@@ -696,23 +696,10 @@ int vt_ioctl(struct tty_struct *tty,
 		break;
 
 	case KDGKBMODE:
-		switch (kbd->kbdmode) {
-		case VC_RAW:
-			uival = K_RAW;
-			break;
-		case VC_MEDIUMRAW:
-			uival = K_MEDIUMRAW;
-			break;
-		case VC_UNICODE:
-			uival = K_UNICODE;
-			break;
-		case VC_OFF:
-			uival = K_OFF;
-			break;
-		default:
-			uival = K_XLATE;
-			break;
-		}
+		uival = ((kbd->kbdmode == VC_RAW) ? K_RAW :
+				 (kbd->kbdmode == VC_MEDIUMRAW) ? K_MEDIUMRAW :
+				 (kbd->kbdmode == VC_UNICODE) ? K_UNICODE :
+				 K_XLATE);
 		goto setint;
 
 	/* this could be folded into KDSKBMODE, but for compatibility
@@ -1020,9 +1007,8 @@ int vt_ioctl(struct tty_struct *tty,
 			if (ret)
 				break;
 			/* Commence switch and lock */
-			set_console(vsa.console);
+			set_console(arg);
 		}
-		break;
 	}
 
 	/*
@@ -1505,11 +1491,12 @@ compat_unimap_ioctl(unsigned int cmd, struct compat_unimapdesc __user *user_ud,
 	return 0;
 }
 
-long vt_compat_ioctl(struct tty_struct *tty,
+long vt_compat_ioctl(struct tty_struct *tty, struct file * file,
 	     unsigned int cmd, unsigned long arg)
 {
 	struct vc_data *vc = tty->driver_data;
 	struct console_font_op op;	/* used in multiple places here */
+	struct kbd_struct *kbd;
 	unsigned int console;
 	void __user *up = (void __user *)arg;
 	int perm;
@@ -1532,6 +1519,7 @@ long vt_compat_ioctl(struct tty_struct *tty,
 	if (current->signal->tty == tty || capable(CAP_SYS_TTY_CONFIG))
 		perm = 1;
 
+	kbd = kbd_table + console;
 	switch (cmd) {
 	/*
 	 * these need special handlers for incompatible data structures
@@ -1589,7 +1577,7 @@ out:
 
 fallback:
 	tty_unlock();
-	return vt_ioctl(tty, cmd, arg);
+	return vt_ioctl(tty, file, cmd, arg);
 }
 
 

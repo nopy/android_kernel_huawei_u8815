@@ -21,6 +21,8 @@
 #ifndef _ACPI_INTERNAL_H_
 #define _ACPI_INTERNAL_H_
 
+#include <linux/sysdev.h>
+
 #define PREFIX "ACPI: "
 
 int init_acpi_device_notify(void);
@@ -28,10 +30,9 @@ int acpi_scan_init(void);
 int acpi_sysfs_init(void);
 
 #ifdef CONFIG_DEBUG_FS
-extern struct dentry *acpi_debugfs_dir;
 int acpi_debugfs_init(void);
 #else
-static inline void acpi_debugfs_init(void) { return; }
+static inline int acpi_debugfs_init(void) { return 0; }
 #endif
 
 /* --------------------------------------------------------------------------
@@ -63,6 +64,7 @@ struct acpi_ec {
 	struct list_head list;
 	struct transaction *curr;
 	spinlock_t curr_lock;
+	struct sys_device sysdev;
 };
 
 extern struct acpi_ec *first_ec;

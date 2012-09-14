@@ -29,7 +29,7 @@
 
 #include <linux/fb.h>
 #ifdef CONFIG_HUAWEI_KERNEL
-#include <linux/hardware_self_adapt.h>
+#include "lcdc_huawei_config.h"
 #endif
 #include "mdp.h"
 #include "msm_fb.h"
@@ -105,6 +105,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	lcd_panel_type lcdtype = LCD_NONE;
 	lcd_align_type lcd_align = LCD_PANEL_ALIGN_LSB;
 #endif
+
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
 	if (!mfd)
@@ -115,7 +116,6 @@ int mdp_lcdc_on(struct platform_device *pdev)
 
 	fbi = mfd->fbi;
 	var = &fbi->var;
-	vsync_cntrl.dev = mfd->fbi->dev;
 
 	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
@@ -294,7 +294,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 		MDP_OUTP(MDP_BASE + timer_base + 0x30, active_v_start);
 		MDP_OUTP(MDP_BASE + timer_base + 0x38, active_v_end);
 	}
-
+	
 #ifdef CONFIG_HUAWEI_KERNEL
 	ret = 0;
     lcdtype = get_lcd_panel_type();
@@ -305,6 +305,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 #else
 	ret = panel_next_on(pdev);
 #endif
+	
 	if (ret == 0) {
 		/* enable LCDC block */
 		MDP_OUTP(MDP_BASE + timer_base, 1);
@@ -312,6 +313,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	}
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
 #ifdef CONFIG_HUAWEI_KERNEL
 	/*need to send 2 frame pclk data before sending sleep out command*/
 	if( (LCD_HX8357C_TIANMA_HVGA == lcdtype )||(LCD_HX8357B_TIANMA_HVGA == lcdtype ))
@@ -320,6 +322,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 		ret = panel_next_on(pdev);
 	}
 #endif
+
 #ifdef CONFIG_HUAWEI_KERNEL
 	if(mdp_continues_display) {
 		mdp_continues_display = FALSE;
@@ -362,22 +365,6 @@ int mdp_lcdc_off(struct platform_device *pdev)
 	msleep(16);
 
 	return ret;
-}
-
-void mdp_dma_lcdc_vsync_ctrl(int enable)
-{
-	if (vsync_cntrl.vsync_irq_enabled == enable)
-		return;
-
-	vsync_cntrl.vsync_irq_enabled = enable;
-
-	if (enable) {
-		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-		mdp3_vsync_irq_enable(LCDC_FRAME_START, MDP_VSYNC_TERM);
-	} else {
-		mdp3_vsync_irq_disable(LCDC_FRAME_START, MDP_VSYNC_TERM);
-		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-	}
 }
 
 void mdp_lcdc_update(struct msm_fb_data_type *mfd)

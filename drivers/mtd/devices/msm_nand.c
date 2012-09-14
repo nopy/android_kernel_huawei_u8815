@@ -41,6 +41,7 @@ unsigned long ebi2_register_base;
 uint32_t dual_nand_ctlr_present;
 uint32_t interleave_enable;
 uint32_t enable_bch_ecc;
+unsigned crci_mask;
 
 #define MSM_NAND_DMA_BUFFER_SIZE SZ_8K
 #define MSM_NAND_DMA_BUFFER_SLOTS \
@@ -63,6 +64,11 @@ uint32_t enable_bch_ecc;
 #define FLASH_READ_ONFI_PARAMETERS_ADDRESS 0x00
 
 #define VERBOSE 0
+
+#ifdef CONFIG_HUAWEI_KERNEL
+#define BUF_SIZE_ID 30
+static char flash_found = 0;
+#endif
 
 struct msm_nand_chip {
 	struct device *dev;
@@ -293,7 +299,7 @@ unsigned flash_rd_reg(struct msm_nand_chip *chip, unsigned addr)
 
 	mb();
 	msm_dmov_exec_cmd(
-		chip->dma_channel, DMOV_CMD_PTR_LIST |
+		chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST |
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
@@ -327,7 +333,7 @@ void flash_wr_reg(struct msm_nand_chip *chip, unsigned addr, unsigned val)
 
 	mb();
 	msm_dmov_exec_cmd(
-		chip->dma_channel, DMOV_CMD_PTR_LIST |
+		chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST |
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
@@ -412,7 +418,7 @@ uint32_t flash_read_id(struct msm_nand_chip *chip)
 			) | CMD_PTR_LP;
 
 	mb();
-	msm_dmov_exec_cmd(chip->dma_channel, DMOV_CMD_PTR_LIST |
+	msm_dmov_exec_cmd(chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST |
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
@@ -677,7 +683,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 				>> 3) | CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 			&dma_buffer->cmdptr)));
 		mb();
@@ -1050,7 +1056,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			| CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 			&dma_buffer->cmdptr)));
 		mb();
@@ -1831,7 +1837,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 			| CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 			&dma_buffer->cmdptr)));
 		mb();
@@ -2033,7 +2039,7 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 	unsigned page = 0;
 	uint32_t oob_len;
 	uint32_t sectordatawritesize;
-	int err = 0;
+	int err;
 	dma_addr_t data_dma_addr = 0;
 	dma_addr_t oob_dma_addr = 0;
 	dma_addr_t data_dma_addr_curr = 0;
@@ -2275,7 +2281,7 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 			CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(
 				msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 		mb();
@@ -2379,7 +2385,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 	unsigned page = 0;
 	uint32_t oob_len;
 	uint32_t sectordatawritesize;
-	int err = 0;
+	int err;
 	dma_addr_t data_dma_addr = 0;
 	dma_addr_t oob_dma_addr = 0;
 	dma_addr_t data_dma_addr_curr = 0;
@@ -2884,7 +2890,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 		((msm_virt_to_dma(chip, dma_buffer->cmd) >> 3) | CMD_PTR_LP);
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(
 				msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 		mb();
@@ -2980,7 +2986,7 @@ static int msm_nand_write(struct mtd_info *mtd, loff_t to, size_t len,
 
 #ifdef CONFIG_HUAWEI_KERNEL
 #include <asm/delay.h>
-extern int msm_dmov_exec_cmd_apanic(unsigned id, unsigned int cmdptr);
+extern int msm_dmov_exec_cmd_apanic(unsigned id, unsigned int crci_mask, unsigned int cmdptr);
 
 /* msm_nand_write_oob_apanic is inherit from msm_nand_write_oob. 
  * when in panic the irq is lock, so all wait about irq is will not return,
@@ -3264,7 +3270,7 @@ msm_nand_write_oob_apanic(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *o
         /* we use the while poll to instead of the waitting 
          * operator in msm_dmov_exec_cmd_apanic
          */
-		msm_dmov_exec_cmd_apanic(chip->dma_channel, 
+		msm_dmov_exec_cmd_apanic(chip->dma_channel, crci_mask,
             DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(
                 msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
         mb();
@@ -3886,7 +3892,7 @@ msm_nand_write_oob_dualnandc_apanic(struct mtd_info *mtd, loff_t to,
         /* we use the while poll to instead of the waitting 
          * operator in msm_dmov_exec_cmd_apanic
          */
-		msm_dmov_exec_cmd_apanic(chip->dma_channel, 
+		msm_dmov_exec_cmd_apanic(chip->dma_channel, crci_mask,
             DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(
                 msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
         mb();
@@ -4086,7 +4092,7 @@ msm_nand_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	mb();
 	msm_dmov_exec_cmd(
-		chip->dma_channel, DMOV_CMD_PTR_LIST |
+		chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST |
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
@@ -4325,7 +4331,7 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 
 	mb();
 	msm_dmov_exec_cmd(
-		chip->dma_channel, DMOV_CMD_PTR_LIST |
+		chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST |
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
@@ -4476,7 +4482,7 @@ msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 				dma_buffer->cmd) >> 3) | CMD_PTR_LP;
 
 	mb();
-	msm_dmov_exec_cmd(chip->dma_channel, DMOV_CMD_PTR_LIST |
+	msm_dmov_exec_cmd(chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST |
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
@@ -4733,7 +4739,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 				dma_buffer->cmd) >> 3) | CMD_PTR_LP;
 
 	mb();
-	msm_dmov_exec_cmd(chip->dma_channel, DMOV_CMD_PTR_LIST |
+	msm_dmov_exec_cmd(chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST |
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
@@ -4948,7 +4954,7 @@ uint32_t flash_onenand_probe(struct msm_nand_chip *chip)
 			>> 3) | CMD_PTR_LP;
 
 	mb();
-	msm_dmov_exec_cmd(chip->dma_channel, DMOV_CMD_PTR_LIST
+	msm_dmov_exec_cmd(chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST
 			| DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 			&dma_buffer->cmdptr)));
 	mb();
@@ -5577,7 +5583,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 				>> 3) | CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 				&dma_buffer->cmdptr)));
 		mb();
@@ -6323,7 +6329,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 				>> 3) | CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 				&dma_buffer->cmdptr)));
 		mb();
@@ -6746,7 +6752,7 @@ static int msm_onenand_erase(struct mtd_info *mtd, struct erase_info *instr)
 			>> 3) | CMD_PTR_LP;
 
 	mb();
-	msm_dmov_exec_cmd(chip->dma_channel, DMOV_CMD_PTR_LIST
+	msm_dmov_exec_cmd(chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST
 			| DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 			&dma_buffer->cmdptr)));
 	mb();
@@ -7210,7 +7216,7 @@ static int msm_onenand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 				>> 3) | CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 				&dma_buffer->cmdptr)));
 		mb();
@@ -7574,7 +7580,7 @@ static int msm_onenand_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 				>> 3) | CMD_PTR_LP;
 
 		mb();
-		msm_dmov_exec_cmd(chip->dma_channel,
+		msm_dmov_exec_cmd(chip->dma_channel, crci_mask,
 			DMOV_CMD_PTR_LIST | DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 				&dma_buffer->cmdptr)));
 		mb();
@@ -7674,6 +7680,35 @@ int msm_onenand_scan(struct mtd_info *mtd, int maxchips)
 	return 0;
 }
 
+#ifdef CONFIG_HUAWEI_KERNEL
+void get_flash_id(char *str_flash_id, int len) 
+{
+   char buf[BUF_SIZE_ID] = {0};
+   uint32_t manid;
+   char *flashman = NULL;
+   int i;
+   
+   if(flash_found)
+   { 
+       manid = supported_flash.flash_id & 0xFF;
+	
+       for (i = 0; !flashman && nand_manuf_ids[i].id; ++i)
+		   if (nand_manuf_ids[i].id == manid)
+		   {
+		   	   flashman = nand_manuf_ids[i].name;
+		   	   strcat(str_flash_id,nand_manuf_ids[i].name);
+		   }
+      
+      snprintf(buf,BUF_SIZE_ID,"-0x%x",supported_flash.flash_id);		
+   
+      strcat(str_flash_id,buf); 
+	  
+      if(len <= strlen(nand_manuf_ids[i].name) + strlen(buf))
+      	str_flash_id[len - 1] = '\0';   	  
+   }		
+}
+#endif
+
 /**
  * msm_nand_scan - [msm_nand Interface] Scan for the msm_nand device
  * @param mtd		MTD device structure
@@ -7740,6 +7775,11 @@ int msm_nand_scan(struct mtd_info *mtd, int maxchips)
 	}
 
 	if (dev_found) {
+
+#ifdef CONFIG_HUAWEI_KERNEL		
+		flash_found = 1;
+#endif		
+    
 		(!interleave_enable) ? (i = 1) : (i = 2);
 		wide_bus       = supported_flash.widebus;
 		mtd->size      = supported_flash.density  * i;
@@ -7887,10 +7927,18 @@ void msm_nand_release(struct mtd_info *mtd)
 {
 	/* struct msm_nand_chip *this = mtd->priv; */
 
+#ifdef CONFIG_MTD_PARTITIONS
+	/* Deregister partitions */
+	del_mtd_partitions(mtd);
+#endif
 	/* Deregister the device */
-	mtd_device_unregister(mtd);
+	del_mtd_device(mtd);
 }
 EXPORT_SYMBOL_GPL(msm_nand_release);
+
+#ifdef CONFIG_MTD_PARTITIONS
+static const char *part_probes[] = { "cmdlinepart", NULL,  };
+#endif
 
 struct msm_nand_info {
 	struct mtd_info		mtd;
@@ -7930,7 +7978,7 @@ static int msm_nand_nc10_xfr_settings(struct mtd_info *mtd)
 				| CMD_PTR_LP;
 
 	mb();
-	msm_dmov_exec_cmd(chip->dma_channel, DMOV_CMD_PTR_LIST
+	msm_dmov_exec_cmd(chip->dma_channel, crci_mask, DMOV_CMD_PTR_LIST
 			| DMOV_CMD_ADDR(msm_virt_to_dma(chip,
 			&dma_buffer->cmdptr)));
 	mb();
@@ -7938,26 +7986,36 @@ static int msm_nand_nc10_xfr_settings(struct mtd_info *mtd)
 	return 0;
 }
 
-static int setup_mtd_device(struct platform_device *pdev,
+#ifdef CONFIG_MTD_PARTITIONS
+static void setup_mtd_device(struct platform_device *pdev,
 			     struct msm_nand_info *info)
 {
-	int i, err;
+	int i, nr_parts;
 	struct flash_platform_data *pdata = pdev->dev.platform_data;
 
-	if (pdata) {
-		for (i = 0; i < pdata->nr_parts; i++) {
-			pdata->parts[i].offset = pdata->parts[i].offset
-				* info->mtd.erasesize;
-			pdata->parts[i].size = pdata->parts[i].size
-				* info->mtd.erasesize;
-		}
-		err = mtd_device_register(&info->mtd, pdata->parts,
-				pdata->nr_parts);
-	} else {
-		err = mtd_device_register(&info->mtd, NULL, 0);
+	for (i = 0; i < pdata->nr_parts; i++) {
+		pdata->parts[i].offset = pdata->parts[i].offset
+			* info->mtd.erasesize;
+		pdata->parts[i].size = pdata->parts[i].size
+			* info->mtd.erasesize;
 	}
-	return err;
+
+	nr_parts = parse_mtd_partitions(&info->mtd, part_probes, &info->parts,
+					0);
+	if (nr_parts > 0)
+		add_mtd_partitions(&info->mtd, info->parts, nr_parts);
+	else if (nr_parts <= 0 && pdata && pdata->parts)
+		add_mtd_partitions(&info->mtd, pdata->parts, pdata->nr_parts);
+	else
+		add_mtd_device(&info->mtd);
 }
+#else
+static void setup_mtd_device(struct platform_device *pdev,
+			     struct msm_nand_info *info)
+{
+	add_mtd_device(&info->mtd);
+}
+#endif
 
 static int __devinit msm_nand_probe(struct platform_device *pdev)
 {
@@ -8047,6 +8105,9 @@ no_dual_nand_ctlr_support:
 	pr_info("%s: allocated dma buffer at %p, dma_addr %x\n",
 		__func__, info->msm_nand.dma_buffer, info->msm_nand.dma_addr);
 
+	crci_mask = msm_dmov_build_crci_mask(2,
+			DMOV_NAND_CRCI_DATA, DMOV_NAND_CRCI_CMD);
+
 	info->mtd.name = dev_name(&pdev->dev);
 	info->mtd.priv = &info->msm_nand;
 	info->mtd.owner = THIS_MODULE;
@@ -8065,13 +8126,7 @@ no_dual_nand_ctlr_support:
 			goto out_free_dma_buffer;
 		}
 
-	err = setup_mtd_device(pdev, info);
-	if (err < 0) {
-		pr_err("%s: setup_mtd_device failed with err=%d\n",
-				__func__, err);
-		goto out_free_dma_buffer;
-	}
-
+	setup_mtd_device(pdev, info);
 	dev_set_drvdata(&pdev->dev, info);
 
 	return 0;
@@ -8093,6 +8148,13 @@ static int __devexit msm_nand_remove(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, NULL);
 
 	if (info) {
+#ifdef CONFIG_MTD_PARTITIONS
+		if (info->parts)
+			del_mtd_partitions(&info->mtd);
+		else
+#endif
+			del_mtd_device(&info->mtd);
+
 		msm_nand_release(&info->mtd);
 		dma_free_coherent(NULL, MSM_NAND_DMA_BUFFER_SIZE,
 				  info->msm_nand.dma_buffer,

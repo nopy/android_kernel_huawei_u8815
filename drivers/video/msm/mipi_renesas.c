@@ -22,8 +22,6 @@ static struct msm_panel_common_pdata *mipi_renesas_pdata;
 static struct dsi_buf renesas_tx_buf;
 static struct dsi_buf renesas_rx_buf;
 
-static int mipi_renesas_lcd_init(void);
-
 static char config_sleep_out[2] = {0x11, 0x00};
 static char config_CMD_MODE[2] = {0x40, 0x01};
 static char config_WRTXHT[7] = {0x92, 0x16, 0x08, 0x08, 0x00, 0x01, 0xe0};
@@ -1221,12 +1219,6 @@ int mipi_renesas_device_register(struct msm_panel_info *pinfo,
 
 	ch_used[channel] = TRUE;
 
-	ret = mipi_renesas_lcd_init();
-	if (ret) {
-		pr_err("mipi_renesas_lcd_init() failed with ret %u\n", ret);
-		return ret;
-	}
-
 	pdev = platform_device_alloc("mipi_renesas", (panel << 8)|channel);
 	if (!pdev)
 		return -ENOMEM;
@@ -1253,10 +1245,12 @@ err_device_put:
 	return ret;
 }
 
-static int mipi_renesas_lcd_init(void)
+static int __init mipi_renesas_lcd_init(void)
 {
 	mipi_dsi_buf_alloc(&renesas_tx_buf, DSI_BUF_SIZE);
 	mipi_dsi_buf_alloc(&renesas_rx_buf, DSI_BUF_SIZE);
 
 	return platform_driver_register(&this_driver);
 }
+
+module_init(mipi_renesas_lcd_init);

@@ -48,49 +48,42 @@ nv50_vram_flags_valid(struct drm_device *dev, u32 tile_flags)
 }
 
 void
-nv50_vram_del(struct drm_device *dev, struct nouveau_mem **pmem)
+nv50_vram_del(struct drm_device *dev, struct nouveau_vram **pvram)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct ttm_bo_device *bdev = &dev_priv->ttm.bdev;
 	struct ttm_mem_type_manager *man = &bdev->man[TTM_PL_VRAM];
 	struct nouveau_mm *mm = man->priv;
 	struct nouveau_mm_node *this;
-	struct nouveau_mem *mem;
+	struct nouveau_vram *vram;
 
-	mem = *pmem;
-	*pmem = NULL;
-	if (unlikely(mem == NULL))
+	vram = *pvram;
+	*pvram = NULL;
+	if (unlikely(vram == NULL))
 		return;
 
 	mutex_lock(&mm->mutex);
-	while (!list_empty(&mem->regions)) {
-		this = list_first_entry(&mem->regions, struct nouveau_mm_node, rl_entry);
+	while (!list_empty(&vram->regions)) {
+		this = list_first_entry(&vram->regions, struct nouveau_mm_node, rl_entry);
 
 		list_del(&this->rl_entry);
 		nouveau_mm_put(mm, this);
 	}
-
-	if (mem->tag) {
-		drm_mm_put_block(mem->tag);
-		mem->tag = NULL;
-	}
 	mutex_unlock(&mm->mutex);
 
-	kfree(mem);
+	kfree(vram);
 }
 
 int
 nv50_vram_new(struct drm_device *dev, u64 size, u32 align, u32 size_nc,
-	      u32 memtype, struct nouveau_mem **pmem)
+	      u32 type, struct nouveau_vram **pvram)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct ttm_bo_device *bdev = &dev_priv->ttm.bdev;
 	struct ttm_mem_type_manager *man = &bdev->man[TTM_PL_VRAM];
 	struct nouveau_mm *mm = man->priv;
 	struct nouveau_mm_node *r;
-	struct nouveau_mem *mem;
-	int comp = (memtype & 0x300) >> 8;
-	int type = (memtype & 0x07f);
+	struct nouveau_vram *vram;
 	int ret;
 
 	if (!types[type])
@@ -99,46 +92,32 @@ nv50_vram_new(struct drm_device *dev, u64 size, u32 align, u32 size_nc,
 	align >>= 12;
 	size_nc >>= 12;
 
-	mem = kzalloc(sizeof(*mem), GFP_KERNEL);
-	if (!mem)
+	vram = kzalloc(sizeof(*vram), GFP_KERNEL);
+	if (!vram)
 		return -ENOMEM;
 
+	INIT_LIST_HEAD(&vram->regions);
+	vram->dev = dev_priv->dev;
+	vram->memtype = type;
+	vram->size = size;
+
 	mutex_lock(&mm->mutex);
-	if (comp) {
-		if (align == 16) {
-			struct nouveau_fb_engine *pfb = &dev_priv->engine.fb;
-			int n = (size >> 4) * comp;
-
-			mem->tag = drm_mm_search_free(&pfb->tag_heap, n, 0, 0);
-			if (mem->tag)
-				mem->tag = drm_mm_get_block(mem->tag, n, 0);
-		}
-
-		if (unlikely(!mem->tag))
-			comp = 0;
-	}
-
-	INIT_LIST_HEAD(&mem->regions);
-	mem->dev = dev_priv->dev;
-	mem->memtype = (comp << 7) | type;
-	mem->size = size;
-
 	do {
 		ret = nouveau_mm_get(mm, types[type], size, size_nc, align, &r);
 		if (ret) {
 			mutex_unlock(&mm->mutex);
-			nv50_vram_del(dev, &mem);
+			nv50_vram_del(dev, &vram);
 			return ret;
 		}
 
-		list_add_tail(&r->rl_entry, &mem->regions);
+		list_add_tail(&r->rl_entry, &vram->regions);
 		size -= r->length;
 	} while (size);
 	mutex_unlock(&mm->mutex);
 
-	r = list_first_entry(&mem->regions, struct nouveau_mm_node, rl_entry);
-	mem->offset = (u64)r->offset << 12;
-	*pmem = mem;
+	r = list_first_entry(&vram->regions, struct nouveau_mm_node, rl_entry);
+	vram->offset = (u64)r->offset << 12;
+	*pvram = vram;
 	return 0;
 }
 

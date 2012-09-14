@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  * Copyright (c) 2010, Google Inc.
  *
  * Original authors: Code Aurora Forum
@@ -25,7 +25,6 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/msm_ssbi.h>
-#include <linux/remote_spinlock.h>
 
 /* SSBI 2.0 controller registers */
 #define SSBI2_CMD			0x0008
@@ -63,22 +62,11 @@
 
 #define SSBI_TIMEOUT_US			100
 
-/* SSBI_FSM Read and Write commands for the FSM9xxx SSBI implementation */
-#define SSBI_FSM_CMD_REG_ADDR_SHFT  (0x08)
-
-#define SSBI_FSM_CMD_READ(AD) \
-	(SSBI_CMD_RDWRN | (((AD) & 0xFFFF) << SSBI_FSM_CMD_REG_ADDR_SHFT))
-
-#define SSBI_FSM_CMD_WRITE(AD, DT) \
-	((((AD) & 0xFFFF) << SSBI_FSM_CMD_REG_ADDR_SHFT) | ((DT) & 0xFF))
-
 struct msm_ssbi {
 	struct device		*dev;
 	struct device		*slave;
 	void __iomem		*base;
-	bool			 use_rlock;
 	spinlock_t		lock;
-	remote_spinlock_t	 rspin_lock;
 	enum msm_ssbi_controller_type controller_type;
 	int (*read)(struct msm_ssbi *, u16 addr, u8 *buf, int len);
 	int (*write)(struct msm_ssbi *, u16 addr, u8 *buf, int len);
@@ -125,11 +113,6 @@ msm_ssbi_read_bytes(struct msm_ssbi *ssbi, u16 addr, u8 *buf, int len)
 		ssbi_writel(ssbi, mode2, SSBI2_MODE2);
 	}
 
-	if (ssbi->controller_type == FSM_SBI_CTRL_SSBI)
-		cmd = SSBI_FSM_CMD_READ(addr);
-	else
-		cmd = SSBI_CMD_RDWRN | ((addr & 0xff) << 16);
-
 	while (len) {
 		ret = ssbi_wait_mask(ssbi, SSBI_STATUS_READY, 0);
 		if (ret)
@@ -163,13 +146,7 @@ msm_ssbi_write_bytes(struct msm_ssbi *ssbi, u16 addr, u8 *buf, int len)
 		if (ret)
 			goto err;
 
-		if (ssbi->controller_type == FSM_SBI_CTRL_SSBI)
-			ssbi_writel(ssbi, SSBI_FSM_CMD_WRITE(addr, *buf),
-				SSBI2_CMD);
-		else
-			ssbi_writel(ssbi, ((addr & 0xff) << 16) | *buf,
-				SSBI2_CMD);
-
+		ssbi_writel(ssbi, ((addr & 0xff) << 16) | *buf, SSBI2_CMD);
 		ret = ssbi_wait_mask(ssbi, 0, SSBI_STATUS_MCHN_BUSY);
 		if (ret)
 			goto err;
@@ -258,15 +235,9 @@ int msm_ssbi_read(struct device *dev, u16 addr, u8 *buf, int len)
 	if (ssbi->dev != dev)
 		return -ENXIO;
 
-	if (ssbi->use_rlock) {
-		remote_spin_lock_irqsave(&ssbi->rspin_lock, flags);
-		ret = ssbi->read(ssbi, addr, buf, len);
-		remote_spin_unlock_irqrestore(&ssbi->rspin_lock, flags);
-	} else {
-		spin_lock_irqsave(&ssbi->lock, flags);
-		ret = ssbi->read(ssbi, addr, buf, len);
-		spin_unlock_irqrestore(&ssbi->lock, flags);
-	}
+	spin_lock_irqsave(&ssbi->lock, flags);
+	ret = ssbi->read(ssbi, addr, buf, len);
+	spin_unlock_irqrestore(&ssbi->lock, flags);
 
 	return ret;
 }
@@ -281,15 +252,9 @@ int msm_ssbi_write(struct device *dev, u16 addr, u8 *buf, int len)
 	if (ssbi->dev != dev)
 		return -ENXIO;
 
-	if (ssbi->use_rlock) {
-		remote_spin_lock_irqsave(&ssbi->rspin_lock, flags);
-		ret = ssbi->write(ssbi, addr, buf, len);
-		remote_spin_unlock_irqrestore(&ssbi->rspin_lock, flags);
-	} else {
-		spin_lock_irqsave(&ssbi->lock, flags);
-		ret = ssbi->write(ssbi, addr, buf, len);
-		spin_unlock_irqrestore(&ssbi->lock, flags);
-	}
+	spin_lock_irqsave(&ssbi->lock, flags);
+	ret = ssbi->write(ssbi, addr, buf, len);
+	spin_unlock_irqrestore(&ssbi->lock, flags);
 
 	return ret;
 }
@@ -375,15 +340,6 @@ static int __devinit msm_ssbi_probe(struct platform_device *pdev)
 	} else {
 		ssbi->read = msm_ssbi_read_bytes;
 		ssbi->write = msm_ssbi_write_bytes;
-	}
-
-	if (pdata->rsl_id) {
-		ret = remote_spin_lock_init(&ssbi->rspin_lock, pdata->rsl_id);
-		if (ret) {
-			dev_err(&pdev->dev, "remote spinlock init failed\n");
-			goto err_ssbi_add_slave;
-		}
-		ssbi->use_rlock = 1;
 	}
 
 	spin_lock_init(&ssbi->lock);

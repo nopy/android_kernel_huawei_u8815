@@ -134,20 +134,20 @@ struct wlan_ethhdr {
 	u8 daddr[WLAN_ETHADDR_LEN];
 	u8 saddr[WLAN_ETHADDR_LEN];
 	u16 type;
-} __packed;
+} __attribute__ ((packed));
 
 /* local llc header type */
 struct wlan_llc {
 	u8 dsap;
 	u8 ssap;
 	u8 ctl;
-} __packed;
+} __attribute__ ((packed));
 
 /* local snap header type */
 struct wlan_snap {
 	u8 oui[WLAN_IEEE_OUI_LEN];
 	u16 type;
-} __packed;
+} __attribute__ ((packed));
 
 /* Circular include trick */
 struct wlandevice;

@@ -807,11 +807,6 @@ static int parse_features(struct arg_set *as, struct multipath *m)
 	if (!argc)
 		return 0;
 
-	if (argc > as->argc) {
-		ti->error = "not enough arguments for features";
-		return -EINVAL;
-	}
-
 	do {
 		param_name = shift(as);
 		argc--;
@@ -849,8 +844,8 @@ static int multipath_ctr(struct dm_target *ti, unsigned int argc,
 {
 	/* target parameters */
 	static struct param _params[] = {
-		{0, 1024, "invalid number of priority groups"},
-		{0, 1024, "invalid initial priority group number"},
+		{1, 1024, "invalid number of priority groups"},
+		{1, 1024, "invalid initial priority group number"},
 	};
 
 	int r;
@@ -883,13 +878,6 @@ static int multipath_ctr(struct dm_target *ti, unsigned int argc,
 	r = read_param(_params + 1, shift(&as), &next_pg_num, &ti->error);
 	if (r)
 		goto bad;
-
-	if ((!m->nr_priority_groups && next_pg_num) ||
-	    (m->nr_priority_groups && !next_pg_num)) {
-		ti->error = "invalid initial priority group";
-		r = -EINVAL;
-		goto bad;
-	}
 
 	/* parse the priority groups */
 	while (as.argc) {
@@ -1077,7 +1065,7 @@ out:
 static int action_dev(struct multipath *m, struct dm_dev *dev,
 		      action_fn action)
 {
-	int r = -EINVAL;
+	int r = 0;
 	struct pgpath *pgpath;
 	struct priority_group *pg;
 
@@ -1295,22 +1283,24 @@ static int do_end_io(struct multipath *m, struct request *clone,
 	if (!error && !clone->errors)
 		return 0;	/* I/O complete */
 
-	if (error == -EOPNOTSUPP || error == -EREMOTEIO || error == -EILSEQ)
+	if (error == -EOPNOTSUPP)
+		return error;
+
+	if (clone->cmd_flags & REQ_DISCARD)
+		/*
+		 * Pass all discard request failures up.
+		 * FIXME: only fail_path if the discard failed due to a
+		 * transport problem.  This requires precise understanding
+		 * of the underlying failure (e.g. the SCSI sense).
+		 */
 		return error;
 
 	if (mpio->pgpath)
 		fail_path(mpio->pgpath);
 
 	spin_lock_irqsave(&m->lock, flags);
-	if (!m->nr_valid_paths) {
-		if (!m->queue_if_no_path) {
-			if (!__must_push_back(m))
-				r = -EIO;
-		} else {
-			if (error == -EBADE)
-				r = error;
-		}
-	}
+	if (!m->nr_valid_paths && !m->queue_if_no_path && !__must_push_back(m))
+		r = -EIO;
 	spin_unlock_irqrestore(&m->lock, flags);
 
 	return r;
@@ -1427,7 +1417,7 @@ static int multipath_status(struct dm_target *ti, status_type_t type,
 	else if (m->current_pg)
 		pg_num = m->current_pg->pg_num;
 	else
-		pg_num = (m->nr_priority_groups ? 1 : 0);
+			pg_num = 1;
 
 	DMEMIT("%u ", pg_num);
 
@@ -1681,7 +1671,7 @@ out:
  *---------------------------------------------------------------*/
 static struct target_type multipath_target = {
 	.name = "multipath",
-	.version = {1, 3, 0},
+	.version = {1, 2, 0},
 	.module = THIS_MODULE,
 	.ctr = multipath_ctr,
 	.dtr = multipath_dtr,

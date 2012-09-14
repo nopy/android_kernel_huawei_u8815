@@ -6,10 +6,8 @@
 /*
  * This is the maximum virtual address which can be DMA'd from.
  */
-#ifndef ARM_DMA_ZONE_SIZE
+#ifndef MAX_DMA_ADDRESS
 #define MAX_DMA_ADDRESS	0xffffffff
-#else
-#define MAX_DMA_ADDRESS	(PAGE_OFFSET + ARM_DMA_ZONE_SIZE)
 #endif
 
 #ifdef CONFIG_ISA_DMA_API
@@ -33,18 +31,18 @@
 #define DMA_MODE_CASCADE 0xc0
 #define DMA_AUTOINIT	 0x10
 
-extern raw_spinlock_t  dma_spin_lock;
+extern spinlock_t  dma_spin_lock;
 
 static inline unsigned long claim_dma_lock(void)
 {
 	unsigned long flags;
-	raw_spin_lock_irqsave(&dma_spin_lock, flags);
+	spin_lock_irqsave(&dma_spin_lock, flags);
 	return flags;
 }
 
 static inline void release_dma_lock(unsigned long flags)
 {
-	raw_spin_unlock_irqrestore(&dma_spin_lock, flags);
+	spin_unlock_irqrestore(&dma_spin_lock, flags);
 }
 
 /* Clear the 'DMA Pointer Flip Flop'.

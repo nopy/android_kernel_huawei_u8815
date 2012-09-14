@@ -289,10 +289,10 @@ static int adp5588_irq_setup(struct adp5588_gpio *dev)
 
 	for (gpio = 0; gpio < dev->gpio_chip.ngpio; gpio++) {
 		int irq = gpio + dev->irq_base;
-		irq_set_chip_data(irq, dev);
-		irq_set_chip_and_handler(irq, &adp5588_irq_chip,
+		set_irq_chip_data(irq, dev);
+		set_irq_chip_and_handler(irq, &adp5588_irq_chip,
 					 handle_level_irq);
-		irq_set_nested_thread(irq, 1);
+		set_irq_nested_thread(irq, 1);
 #ifdef CONFIG_ARM
 		/*
 		 * ARM needs us to explicitly flag the IRQ as VALID,
@@ -300,7 +300,7 @@ static int adp5588_irq_setup(struct adp5588_gpio *dev)
 		 */
 		set_irq_flags(irq, IRQF_VALID);
 #else
-		irq_set_noprobe(irq);
+		set_irq_noprobe(irq);
 #endif
 	}
 

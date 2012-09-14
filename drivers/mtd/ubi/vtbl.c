@@ -62,7 +62,7 @@
 #include <asm/div64.h>
 #include "ubi.h"
 
-#ifdef CONFIG_MTD_UBI_DEBUG
+#ifdef CONFIG_MTD_UBI_DEBUG_PARANOID
 static void paranoid_vtbl_check(const struct ubi_device *ubi);
 #else
 #define paranoid_vtbl_check(ubi)
@@ -868,7 +868,7 @@ out_free:
 	return err;
 }
 
-#ifdef CONFIG_MTD_UBI_DEBUG
+#ifdef CONFIG_MTD_UBI_DEBUG_PARANOID
 
 /**
  * paranoid_vtbl_check - check volume table.
@@ -876,13 +876,10 @@ out_free:
  */
 static void paranoid_vtbl_check(const struct ubi_device *ubi)
 {
-	if (!(ubi_chk_flags & UBI_CHK_GEN))
-		return;
-
 	if (vtbl_check(ubi, ubi->vtbl)) {
 		ubi_err("paranoid check failed");
 		BUG();
 	}
 }
 
-#endif /* CONFIG_MTD_UBI_DEBUG */
+#endif /* CONFIG_MTD_UBI_DEBUG_PARANOID */

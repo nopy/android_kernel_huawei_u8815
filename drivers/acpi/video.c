@@ -782,9 +782,6 @@ static void acpi_video_device_find_cap(struct acpi_video_device *device)
 
 	if (acpi_video_backlight_support()) {
 		struct backlight_properties props;
-		struct pci_dev *pdev;
-		acpi_handle acpi_parent;
-		struct device *parent = NULL;
 		int result;
 		static int count = 0;
 		char *name;
@@ -797,20 +794,9 @@ static void acpi_video_device_find_cap(struct acpi_video_device *device)
 			return;
 		count++;
 
-		acpi_get_parent(device->dev->handle, &acpi_parent);
-
-		pdev = acpi_get_pci_dev(acpi_parent);
-		if (pdev) {
-			parent = &pdev->dev;
-			pci_dev_put(pdev);
-		}
-
 		memset(&props, 0, sizeof(struct backlight_properties));
-		props.type = BACKLIGHT_FIRMWARE;
 		props.max_brightness = device->brightness->count - 3;
-		device->backlight = backlight_device_register(name,
-							      parent,
-							      device,
+		device->backlight = backlight_device_register(name, NULL, device,
 							      &acpi_backlight_ops,
 							      &props);
 		kfree(name);
@@ -823,6 +809,11 @@ static void acpi_video_device_find_cap(struct acpi_video_device *device)
 		 */
 		device->backlight->props.brightness =
 				acpi_video_get_brightness(device->backlight);
+
+		result = sysfs_create_link(&device->backlight->dev.kobj,
+					   &device->dev->dev.kobj, "device");
+		if (result)
+			printk(KERN_ERR PREFIX "Create sysfs link\n");
 
 		device->cooling_dev = thermal_cooling_device_register("LCD",
 					device->dev, &video_cooling_ops);
@@ -1354,7 +1345,7 @@ acpi_video_bus_get_devices(struct acpi_video_bus *video,
 		status = acpi_video_bus_get_one_device(dev, video);
 		if (ACPI_FAILURE(status)) {
 			printk(KERN_WARNING PREFIX
-					"Can't attach device\n");
+					"Cant attach device\n");
 			continue;
 		}
 	}
@@ -1373,9 +1364,10 @@ static int acpi_video_bus_put_one_device(struct acpi_video_device *device)
 					    acpi_video_device_notify);
 	if (ACPI_FAILURE(status)) {
 		printk(KERN_WARNING PREFIX
-		       "Can't remove video notify handler\n");
+		       "Cant remove video notify handler\n");
 	}
 	if (device->backlight) {
+		sysfs_remove_link(&device->backlight->dev.kobj, "device");
 		backlight_device_unregister(device->backlight);
 		device->backlight = NULL;
 	}
@@ -1521,7 +1513,7 @@ static void acpi_video_device_notify(acpi_handle handle, u32 event, void *data)
 		acpi_bus_generate_proc_event(device, event, 0);
 		keycode = KEY_BRIGHTNESSDOWN;
 		break;
-	case ACPI_VIDEO_NOTIFY_ZERO_BRIGHTNESS:	/* zero brightness */
+	case ACPI_VIDEO_NOTIFY_ZERO_BRIGHTNESS:	/* zero brightnesss */
 		if (brightness_switch_enabled)
 			acpi_video_switch_brightness(video_device, event);
 		acpi_bus_generate_proc_event(device, event, 0);

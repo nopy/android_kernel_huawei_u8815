@@ -2053,6 +2053,13 @@ static void emac_ethtool_get_pauseparam(struct net_device *ndev,
 	mutex_unlock(&dev->link_lock);
 }
 
+static u32 emac_ethtool_get_rx_csum(struct net_device *ndev)
+{
+	struct emac_instance *dev = netdev_priv(ndev);
+
+	return dev->tah_dev != NULL;
+}
+
 static int emac_get_regs_len(struct emac_instance *dev)
 {
 	if (emac_has_feature(dev, EMAC_FTR_EMAC4))
@@ -2196,11 +2203,15 @@ static const struct ethtool_ops emac_ethtool_ops = {
 	.get_ringparam = emac_ethtool_get_ringparam,
 	.get_pauseparam = emac_ethtool_get_pauseparam,
 
+	.get_rx_csum = emac_ethtool_get_rx_csum,
+
 	.get_strings = emac_ethtool_get_strings,
 	.get_sset_count = emac_ethtool_get_sset_count,
 	.get_ethtool_stats = emac_ethtool_get_ethtool_stats,
 
 	.get_link = ethtool_op_get_link,
+	.get_tx_csum = ethtool_op_get_tx_csum,
+	.get_sg = ethtool_op_get_sg,
 };
 
 static int emac_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
@@ -2708,7 +2719,8 @@ static const struct net_device_ops emac_gige_netdev_ops = {
 	.ndo_change_mtu		= emac_change_mtu,
 };
 
-static int __devinit emac_probe(struct platform_device *ofdev)
+static int __devinit emac_probe(struct platform_device *ofdev,
+				const struct of_device_id *match)
 {
 	struct net_device *ndev;
 	struct emac_instance *dev;
@@ -2848,10 +2860,8 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 	if (err != 0)
 		goto err_detach_tah;
 
-	if (dev->tah_dev) {
-		ndev->hw_features = NETIF_F_IP_CSUM | NETIF_F_SG;
-		ndev->features |= ndev->hw_features | NETIF_F_RXCSUM;
-	}
+	if (dev->tah_dev)
+		ndev->features |= NETIF_F_IP_CSUM | NETIF_F_SG;
 	ndev->watchdog_timeo = 5 * HZ;
 	if (emac_phy_supports_gige(dev->phy_mode)) {
 		ndev->netdev_ops = &emac_gige_netdev_ops;
@@ -2984,7 +2994,7 @@ static struct of_device_id emac_match[] =
 };
 MODULE_DEVICE_TABLE(of, emac_match);
 
-static struct platform_driver emac_driver = {
+static struct of_platform_driver emac_driver = {
 	.driver = {
 		.name = "emac",
 		.owner = THIS_MODULE,
@@ -3059,7 +3069,7 @@ static int __init emac_init(void)
 	rc = tah_init();
 	if (rc)
 		goto err_rgmii;
-	rc = platform_driver_register(&emac_driver);
+	rc = of_register_platform_driver(&emac_driver);
 	if (rc)
 		goto err_tah;
 
@@ -3081,7 +3091,7 @@ static void __exit emac_exit(void)
 {
 	int i;
 
-	platform_driver_unregister(&emac_driver);
+	of_unregister_platform_driver(&emac_driver);
 
 	tah_exit();
 	rgmii_exit();

@@ -278,24 +278,13 @@ config INPUT_TWL4030_PWRBUTTON
 config INPUT_TWL4030_VIBRA
 	tristate "Support for TWL4030 Vibrator"
 	depends on TWL4030_CORE
-	select MFD_TWL4030_AUDIO
+	select TWL4030_CODEC
 	select INPUT_FF_MEMLESS
 	help
 	  This option enables support for TWL4030 Vibrator Driver.
 
 	  To compile this driver as a module, choose M here. The module will
 	  be called twl4030_vibra.
-
-config INPUT_TWL6040_VIBRA
-	tristate "Support for TWL6040 Vibrator"
-	depends on TWL4030_CORE
-	select TWL6040_CORE
-	select INPUT_FF_MEMLESS
-	help
-	  This option enables support for TWL6040 Vibrator Driver.
-
-	  To compile this driver as a module, choose M here. The module will
-	  be called twl6040_vibra.
 
 config INPUT_UINPUT
 	tristate "User level driver support"
@@ -504,18 +493,15 @@ config INPUT_CMA3000_I2C
 	  To compile this driver as a module, choose M here: the
 	  module will be called cma3000_d0x_i2c.
 
-config INPUT_XEN_KBDDEV_FRONTEND
-	tristate "Xen virtual keyboard and mouse support"
-	depends on XEN_FBDEV_FRONTEND
-	default y
-	select XEN_XENBUS_FRONTEND
-	help
-	  This driver implements the front-end of the Xen virtual
-	  keyboard and mouse device driver.  It communicates with a back-end
-	  in another domain.
+config PMIC8058_PWRKEY
+        tristate "PMIC8058 power key support"
+        default n
+        depends on PMIC8058
+        help
+          Say Y here if you want support for the PMIC8058 power key.
 
-	  To compile this driver as a module, choose M here: the
-	  module will be called xen-kbdfront.
+          To compile this driver as a module, choose M here: the
+          module will be called pmic8058-pwrkey.
 
 config PMIC8058_OTHC
         tristate "Qualcomm PMIC8058 OTHC support"
@@ -545,8 +531,7 @@ config BOSCH_BMA150
         help
           If you say yes here you get support for Bosch Sensortec's
           acceleration sensors SMB380/BMA150.
-#/*delete select SERIO*/
-config  HUAWEI_FEATURE_PROXIMITY_EVERLIGHT_APS_12D
+config  PROXIMITY_EVERLIGHT_APS_12D
 	depends on HUAWEI_KERNEL
 	default n
 	tristate "EVERLIGHT APS-12D Proximity"
@@ -567,4 +552,5 @@ config  HUAWEI_FEATURE_PROXIMITY_EVERLIGHT_APS_9900
 
           To compile this driver as a module, choose M here: the
           module will be called aps-9900.
+
 endif

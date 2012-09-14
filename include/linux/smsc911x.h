@@ -36,7 +36,6 @@ struct smsc911x_platform_config {
 	unsigned int irq_polarity;
 	unsigned int irq_type;
 	unsigned int flags;
-	unsigned int shift;
 	phy_interface_t phy_interface;
 	unsigned char mac[6];
 	unsigned char has_reset_gpio;

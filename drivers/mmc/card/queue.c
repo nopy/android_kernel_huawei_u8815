@@ -29,8 +29,6 @@
  */
 static int mmc_prep_request(struct request_queue *q, struct request *req)
 {
-	struct mmc_queue *mq = q->queuedata;
-
 	/*
 	 * We only like normal block requests and discards.
 	 */
@@ -38,9 +36,6 @@ static int mmc_prep_request(struct request_queue *q, struct request *req)
 		blk_dump_rq_flags(req, "MMC bad request");
 		return BLKPREP_KILL;
 	}
-
-	if (mq && mmc_card_removed(mq->card))
-		return BLKPREP_KILL;
 
 	req->cmd_flags |= REQ_DONTPREP;
 
@@ -68,7 +63,8 @@ static int mmc_queue_thread(void *d)
 
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
-		req = blk_fetch_request(q);
+		if (!blk_queue_plugged(q))
+			req = blk_fetch_request(q);
 		mq->req = req;
 		spin_unlock_irq(q->queue_lock);
 
@@ -138,12 +134,10 @@ static void mmc_request(struct request_queue *q)
  * @mq: mmc queue
  * @card: mmc card to attach this queue
  * @lock: queue lock
- * @subname: partition subname
  *
  * Initialise a MMC card request queue.
  */
-int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
-		   spinlock_t *lock, const char *subname)
+int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock)
 {
 	struct mmc_host *host = card->host;
 	u64 limit = BLK_BOUNCE_HIGH;
@@ -167,7 +161,12 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 		mq->queue->limits.max_discard_sectors = UINT_MAX;
 		if (card->erased_byte == 0)
 			mq->queue->limits.discard_zeroes_data = 1;
-		mq->queue->limits.discard_granularity = card->pref_erase << 9;
+		if (!mmc_can_trim(card) && is_power_of_2(card->erase_size)) {
+			mq->queue->limits.discard_granularity =
+							card->erase_size << 9;
+			mq->queue->limits.discard_alignment =
+							card->erase_size << 9;
+		}
 		if (mmc_can_secure_erase_trim(card))
 			queue_flag_set_unlocked(QUEUE_FLAG_SECDISCARD,
 						mq->queue);
@@ -238,8 +237,8 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 
 	sema_init(&mq->thread_sem, 1);
 
-	mq->thread = kthread_run(mmc_queue_thread, mq, "mmcqd/%d%s",
-		host->index, subname ? subname : "");
+	mq->thread = kthread_run(mmc_queue_thread, mq, "mmcqd/%d",
+		host->index);
 
 	if (IS_ERR(mq->thread)) {
 		ret = PTR_ERR(mq->thread);
@@ -372,14 +371,18 @@ unsigned int mmc_queue_map_sg(struct mmc_queue *mq)
  */
 void mmc_queue_bounce_pre(struct mmc_queue *mq)
 {
+	unsigned long flags;
+
 	if (!mq->bounce_buf)
 		return;
 
 	if (rq_data_dir(mq->req) != WRITE)
 		return;
 
+	local_irq_save(flags);
 	sg_copy_to_buffer(mq->bounce_sg, mq->bounce_sg_len,
 		mq->bounce_buf, mq->sg[0].length);
+	local_irq_restore(flags);
 }
 
 /*
@@ -388,13 +391,17 @@ void mmc_queue_bounce_pre(struct mmc_queue *mq)
  */
 void mmc_queue_bounce_post(struct mmc_queue *mq)
 {
+	unsigned long flags;
+
 	if (!mq->bounce_buf)
 		return;
 
 	if (rq_data_dir(mq->req) != READ)
 		return;
 
+	local_irq_save(flags);
 	sg_copy_from_buffer(mq->bounce_sg, mq->bounce_sg_len,
 		mq->bounce_buf, mq->sg[0].length);
+	local_irq_restore(flags);
 }
 

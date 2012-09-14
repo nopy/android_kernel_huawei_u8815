@@ -8,7 +8,7 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 2 of the License.
  *
- * See Documentation/security/keys-trusted-encrypted.txt
+ * See Documentation/keys-trusted-encrypted.txt
  */
 
 #include <linux/uaccess.h>
@@ -765,7 +765,8 @@ static long encrypted_read(const struct key *key, char __user *buffer,
 	size_t asciiblob_len;
 	int ret;
 
-	epayload = rcu_dereference_key(key);
+	epayload = rcu_dereference_protected(key->payload.data,
+				  rwsem_is_locked(&((struct key *)key)->sem));
 
 	/* returns the hex encoded iv, encrypted-data, and hmac as ascii */
 	asciiblob_len = epayload->datablob_len + ivsize + 1

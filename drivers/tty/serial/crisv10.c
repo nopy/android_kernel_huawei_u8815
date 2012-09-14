@@ -3581,7 +3581,8 @@ rs_break(struct tty_struct *tty, int break_state)
 }
 
 static int
-rs_tiocmset(struct tty_struct *tty, unsigned int set, unsigned int clear)
+rs_tiocmset(struct tty_struct *tty, struct file *file,
+		unsigned int set, unsigned int clear)
 {
 	struct e100_serial *info = (struct e100_serial *)tty->driver_data;
 	unsigned long flags;
@@ -3613,7 +3614,7 @@ rs_tiocmset(struct tty_struct *tty, unsigned int set, unsigned int clear)
 }
 
 static int
-rs_tiocmget(struct tty_struct *tty)
+rs_tiocmget(struct tty_struct *tty, struct file *file)
 {
 	struct e100_serial *info = (struct e100_serial *)tty->driver_data;
 	unsigned int result;
@@ -3647,7 +3648,7 @@ rs_tiocmget(struct tty_struct *tty)
 
 
 static int
-rs_ioctl(struct tty_struct *tty,
+rs_ioctl(struct tty_struct *tty, struct file * file,
 	 unsigned int cmd, unsigned long arg)
 {
 	struct e100_serial * info = (struct e100_serial *)tty->driver_data;

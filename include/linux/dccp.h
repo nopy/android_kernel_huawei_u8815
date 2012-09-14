@@ -279,6 +279,8 @@ enum dccp_state {
 	DCCP_MAX_STATES
 };
 
+#define DCCP_STATE_MASK 0x1f
+
 enum {
 	DCCPF_OPEN	      = TCPF_ESTABLISHED,
 	DCCPF_REQUESTING      = TCPF_SYN_SENT,

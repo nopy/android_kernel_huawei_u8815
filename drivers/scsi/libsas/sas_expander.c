@@ -240,15 +240,10 @@ static int sas_ex_phy_discover_helper(struct domain_device *dev, u8 *disc_req,
 				       disc_resp, DISCOVER_RESP_SIZE);
 		if (res)
 			return res;
-		/* This is detecting a failure to transmit initial
+		/* This is detecting a failure to transmit inital
 		 * dev to host FIS as described in section G.5 of
 		 * sas-2 r 04b */
 		dr = &((struct smp_resp *)disc_resp)->disc;
-		if (memcmp(dev->sas_addr, dr->attached_sas_addr,
-			  SAS_ADDR_SIZE) == 0) {
-			sas_printk("Found loopback topology, just ignore it!\n");
-			return 0;
-		}
 		if (!(dr->attached_dev_type == 0 &&
 		      dr->attached_sata_dev))
 			break;
@@ -849,9 +844,6 @@ static struct domain_device *sas_ex_discover_expander(
 
 	res = sas_discover_expander(child);
 	if (res) {
-		spin_lock_irq(&parent->port->dev_list_lock);
-		list_del(&child->dev_list_node);
-		spin_unlock_irq(&parent->port->dev_list_lock);
 		kfree(child);
 		return NULL;
 	}
@@ -1721,7 +1713,7 @@ static int sas_find_bcast_dev(struct domain_device *dev,
 	list_for_each_entry(ch, &ex->children, siblings) {
 		if (ch->dev_type == EDGE_DEV || ch->dev_type == FANOUT_DEV) {
 			res = sas_find_bcast_dev(ch, src_dev);
-			if (*src_dev)
+			if (src_dev)
 				return res;
 		}
 	}
@@ -1769,12 +1761,10 @@ static void sas_unregister_devs_sas_addr(struct domain_device *parent,
 		sas_disable_routing(parent, phy->attached_sas_addr);
 	}
 	memset(phy->attached_sas_addr, 0, SAS_ADDR_SIZE);
-	if (phy->port) {
-		sas_port_delete_phy(phy->port, phy->phy);
-		if (phy->port->num_phys == 0)
-			sas_port_delete(phy->port);
-		phy->port = NULL;
-	}
+	sas_port_delete_phy(phy->port, phy->phy);
+	if (phy->port->num_phys == 0)
+		sas_port_delete(phy->port);
+	phy->port = NULL;
 }
 
 static int sas_discover_bfs_by_root_level(struct domain_device *root,

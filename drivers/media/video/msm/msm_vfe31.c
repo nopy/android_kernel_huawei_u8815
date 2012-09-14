@@ -24,16 +24,6 @@
 
 atomic_t irq_cnt;
 
-#ifdef CONFIG_HUAWEI_KERNEL
-#define RECORDING_ON 1
-#define RECORDING_OFF 0
-#define PREVIOUS_FRAME_IS_PREVIEW 0
-#define PREVIOUS_FRAME_IS_RECORDING 1
-/*when init, recording is off*/
-static uint32_t recording_flag = RECORDING_OFF;
-/*when init, previous frame is recording because the start preview frame can not be removed*/
-static uint32_t recording_frame_flag = PREVIOUS_FRAME_IS_RECORDING;
-#endif
 #define CHECKED_COPY_FROM_USER(in) {					\
 	if (copy_from_user((in), (void __user *)cmd->value,		\
 			cmd->length)) {					\
@@ -440,8 +430,6 @@ static void vfe31_proc_ops(enum VFE31_MESSAGE_ID id, void *msg, size_t len)
 			rp->evt_msg.data)->_u.msgStats.buff.rs;
 		rp->stats_msg.cs_buff = ((struct vfe_message *)
 			rp->evt_msg.data)->_u.msgStats.buff.cs;
-		rp->stats_msg.awb_ymin = ((struct vfe_message *)
-			rp->evt_msg.data)->_u.msgStats.buff.awb_ymin;
 		break;
 
 	case MSG_ID_SYNC_TIMER0_DONE:
@@ -1158,11 +1146,6 @@ static void vfe31_start_common(void)
 
 static int vfe31_start_recording(void)
 {
-	#ifdef CONFIG_HUAWEI_KERNEL
-	/*when start recording, init recording_flag and recording_frame_flag*/
-	recording_flag = RECORDING_ON;
-	recording_frame_flag = PREVIOUS_FRAME_IS_RECORDING;
-	#endif
 	msm_camio_set_perf_lvl(S_VIDEO);
 	usleep(1000);
 	vfe31_ctrl->recording_state = VFE_REC_STATE_START_REQUESTED;
@@ -1172,11 +1155,6 @@ static int vfe31_start_recording(void)
 
 static int vfe31_stop_recording(void)
 {
-	#ifdef CONFIG_HUAWEI_KERNEL
-	/*when stop recording, deinit recording_flag and recording_frame_flag*/
-	recording_flag = RECORDING_OFF;
-	recording_frame_flag = PREVIOUS_FRAME_IS_RECORDING;
-	#endif
 	vfe31_ctrl->recording_state = VFE_REC_STATE_STOP_REQUESTED;
 	msm_io_w_mb(1, vfe31_ctrl->vfebase + VFE_REG_UPDATE_CMD);
 	msm_camio_set_perf_lvl(S_PREVIEW);
@@ -3144,8 +3122,7 @@ static void vfe31_process_output_path_irq_2(uint32_t ping_pong)
 			"PP_status = 0x%x\n", ping_pong);
 		return;
 	}
-	if ((vfe31_ctrl->recording_state == VFE_REC_STATE_STOP_REQUESTED)
-		|| (vfe31_ctrl->recording_state == VFE_REC_STATE_STOPPED)) {
+	if (vfe31_ctrl->recording_state == VFE_REC_STATE_STOP_REQUESTED) {
 		vfe31_ctrl->outpath.out2.frame_drop_cnt++;
 		pr_warning("path_irq_2 - recording stopped\n");
 		return;
@@ -3174,10 +3151,6 @@ static void vfe31_process_output_path_irq_2(uint32_t ping_pong)
 		free_buf->paddr + free_buf->cbcr_off);
 		kfree(free_buf);
 		vfe_send_outmsg(MSG_ID_OUTPUT_V, pyaddr, pcbcraddr);
-		#ifdef CONFIG_HUAWEI_KERNEL
-		/*when process, set recording_frame_flag for PREVIOUS_FRAME_IS_RECORDING*/
-		recording_frame_flag = PREVIOUS_FRAME_IS_RECORDING;
-		#endif
 	} else {
 		vfe31_ctrl->outpath.out2.frame_drop_cnt++;
 		pr_warning("path_irq_2 - no free buffer!\n");
@@ -3248,8 +3221,6 @@ static uint32_t  vfe31_process_stats_irq_common(uint32_t statsNum,
 static void vfe_send_stats_msg(void)
 {
 	struct  vfe_message msg;
-	uint32_t temp;
-
 	/* fill message with right content. */
 	msg._u.msgStats.frameCounter = vfe31_ctrl->vfeFrameId;
 	msg._u.msgStats.status_bits = vfe31_ctrl->status_bits;
@@ -3262,9 +3233,6 @@ static void vfe_send_stats_msg(void)
 	msg._u.msgStats.buff.ihist = vfe31_ctrl->ihistStatsControl.bufToRender;
 	msg._u.msgStats.buff.rs = vfe31_ctrl->rsStatsControl.bufToRender;
 	msg._u.msgStats.buff.cs = vfe31_ctrl->csStatsControl.bufToRender;
-
-	temp = msm_io_r(vfe31_ctrl->vfebase + VFE_STATS_AWB_SGW_CFG);
-	msg._u.msgStats.buff.awb_ymin = (0xFF00 & temp) >> 8;
 
 	vfe31_proc_ops(msg._d,
 		&msg, sizeof(struct vfe_message));
@@ -3688,7 +3656,6 @@ static int vfe31_resource_init(struct msm_vfe_callback *presp,
 	spin_lock_init(&vfe31_ctrl->io_lock);
 	spin_lock_init(&vfe31_ctrl->update_ack_lock);
 	spin_lock_init(&vfe31_ctrl->tasklet_lock);
-	spin_lock_init(&vfe31_ctrl->xbar_lock);
 
 	INIT_LIST_HEAD(&vfe31_ctrl->tasklet_q);
 	vfe31_init_free_buf_queue();

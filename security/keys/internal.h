@@ -109,13 +109,11 @@ extern key_ref_t keyring_search_aux(key_ref_t keyring_ref,
 				    const struct cred *cred,
 				    struct key_type *type,
 				    const void *description,
-				    key_match_func_t match,
-				    bool no_state_check);
+				    key_match_func_t match);
 
 extern key_ref_t search_my_process_keyrings(struct key_type *type,
 					    const void *description,
 					    key_match_func_t match,
-					    bool no_state_check,
 					    const struct cred *cred);
 extern key_ref_t search_process_keyrings(struct key_type *type,
 					 const void *description,
@@ -216,14 +214,6 @@ extern long keyctl_assume_authority(key_serial_t);
 extern long keyctl_get_security(key_serial_t keyid, char __user *buffer,
 				size_t buflen);
 extern long keyctl_session_to_parent(void);
-extern long keyctl_reject_key(key_serial_t, unsigned, unsigned, key_serial_t);
-extern long keyctl_instantiate_key_iov(key_serial_t,
-				       const struct iovec __user *,
-				       unsigned, key_serial_t);
-
-extern long keyctl_instantiate_key_common(key_serial_t,
-					  const struct iovec __user *,
-					  unsigned, size_t, key_serial_t);
 
 /*
  * Debugging key validation

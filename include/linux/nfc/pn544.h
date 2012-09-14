@@ -24,6 +24,7 @@
  * 
  * when       who      what, where, why
  * -------------------------------------------------------------------------------
+ * 20110106  genghua  create  SUPPORT PN544 NFC on Huawei Mobile
  */
 
 /*
@@ -92,15 +93,8 @@
 #define FW_MODE						1 
 
 #define PN544_I2C_ADDR				0x28
-#ifdef CONFIG_ARCH_MSM7X30
-#define GPIO_NFC_INT				49
-#define GPIO_NFC_VEN				130
-#define GPIO_NFC_LOAD 				181
-#else
-#define GPIO_NFC_INT				114    
-#define GPIO_NFC_VEN				113       
-#define GPIO_NFC_LOAD 				115
-#endif
+#define GPIO_NFC_INT				114     //49//84 /* caomingxing */
+#define GPIO_NFC_VEN				113            //130//85 /* caomingxing */
 
 #define PN544_MAGIC	0xE9
 
@@ -127,6 +121,7 @@
 #define PN544_DEBUG_ON				1
 #define PN544_DEBUG_OFF				0
 #define PN544_DEBUG_SET_CLOCKANDSTANDBY		17
+
 
 struct pn544_llc_packet { 
 	unsigned char length;					/* of rest of packet */ 
@@ -158,7 +153,7 @@ struct pn544_info {
 	struct mutex mutex_mmi;				/* Serialize info struct access */ 
 	u8 *buf; 
 	unsigned int buflen; 
-	bool				irq_enabled;
+	bool				irq_enabled; 
 	spinlock_t	irq_enabled_lock;       /* irq spinlock */ 
 };
 
@@ -166,13 +161,9 @@ struct pn544_nfc_platform_data {
 	int (*pn544_ven_reset)(void);
 	int (*pn544_interrupt_gpio_config)(void);
 	int (*pn544_fw_download_pull_high)(void);
-	int (*pn544_fw_download_pull_down)(void);	
-#ifdef CONFIG_ARCH_MSM7X30
-	/* no other func */
-#else	
-    int (*pn544_clock_output_ctrl)(int);
-    int (*pn544_clock_output_mode_ctrl)(void);
-#endif	
+	int (*pn544_fw_download_pull_down)(void);
+       int (*pn544_clock_output_ctrl)(int);
+       int (*pn544_clock_output_mode_ctrl)(void);
 };
 
 /* the following functions are used for huawei MMI_TEST */ 
@@ -189,6 +180,9 @@ enum pn544_irq pn544_irq_state(struct pn544_info *info) ;
 
 extern int pn544_debug_mask;
 extern int pn544_debug_control;
+
+extern int pn544_download_gpio;
+
 extern int pn544_use_read_irq;
 extern struct i2c_client pn544_client;
 extern struct pn544_info * pn544_info;

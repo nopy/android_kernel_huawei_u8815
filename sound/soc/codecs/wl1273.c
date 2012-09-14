@@ -3,7 +3,7 @@
  *
  * Author:      Matti Aaltonen, <matti.j.aaltonen@nokia.com>
  *
- * Copyright:   (C) 2010, 2011 Nokia Corporation
+ * Copyright:   (C) 2010 Nokia Corporation
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -179,12 +179,7 @@ static int snd_wl1273_get_audio_route(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-/*
- * TODO: Implement the audio routing in the driver. Now this control
- * only indicates the setting that has been done elsewhere (in the user
- * space).
- */
-static const char * const wl1273_audio_route[] = { "Bt", "FmRx", "FmTx" };
+static const char *wl1273_audio_route[] = { "Bt", "FmRx", "FmTx" };
 
 static int snd_wl1273_set_audio_route(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_value *ucontrol)
@@ -244,7 +239,7 @@ static int snd_wl1273_fm_audio_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
-static const char * const wl1273_audio_strings[] = { "Digital", "Analog" };
+static const char *wl1273_audio_strings[] = { "Digital", "Analog" };
 
 static const struct soc_enum wl1273_audio_enum =
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(wl1273_audio_strings),

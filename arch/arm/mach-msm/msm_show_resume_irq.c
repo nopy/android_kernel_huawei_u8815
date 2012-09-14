@@ -14,9 +14,59 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/sysdev.h>
+#include <linux/suspend.h>
+#include <asm/hardware/gic.h>
+#include <linux/mfd/pmic8058.h>
+#include <mach/gpio.h>
 
-int msm_show_resume_irq_mask;
+/******************************************************************************
+ * Debug Definitions
+ *****************************************************************************/
 
+enum {
+	MSM_SHOW_IRQ_DEBUG_RESUME = BIT(0),
+};
+
+static int msm_show_resume_irq_mask;
 module_param_named(
 	debug_mask, msm_show_resume_irq_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
 );
+
+static int msm_show_resume_irq_resume(struct sys_device *dev)
+{
+	if (msm_show_resume_irq_mask & MSM_SHOW_IRQ_DEBUG_RESUME) {
+		gic_show_resume_irq(0);
+		msm_gpio_show_resume_irq();
+		pm8058_show_resume_irq();
+	}
+	return 0;
+}
+
+static struct sysdev_class msm_show_resume_irq_sysclass = {
+	.name = "msm_show_resume_irq",
+	.resume = msm_show_resume_irq_resume,
+};
+
+static struct sys_device msm_show_resume_irq_device = {
+	.cls = &msm_show_resume_irq_sysclass,
+};
+
+static int __init msm_show_resume_irq_init(void)
+{
+	int ret = -ENODEV;
+
+	ret = sysdev_class_register(&msm_show_resume_irq_sysclass);
+	if (ret == 0)
+		ret = sysdev_register(&msm_show_resume_irq_device);
+	return ret;
+}
+
+static void __exit msm_show_resume_irq_exit(void)
+{
+	sysdev_unregister(&msm_show_resume_irq_device);
+	sysdev_class_unregister(&msm_show_resume_irq_sysclass);
+}
+
+core_initcall(msm_show_resume_irq_init);
+module_exit(msm_show_resume_irq_exit);

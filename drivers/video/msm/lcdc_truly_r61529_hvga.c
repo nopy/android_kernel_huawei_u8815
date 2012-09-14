@@ -23,6 +23,7 @@
  * 
  * when       who      what, where, why
  * -------------------------------------------------------------------------------
+ * 20101230  genghua  create  SUPPORT TRULY R61529LCD ON U8510
  */
  
 /* Copyright (c) 2009, Code Aurora Forum. All rights reserved.
@@ -85,7 +86,7 @@
 #include <linux/delay.h>
 #include <mach/gpio.h>
 #include "msm_fb.h"
-#include "hw_lcd_common.h"
+#include "lcdc_huawei_config.h"
 #include <mach/gpio.h>
 #include <linux/io.h>
 #include <linux/gpio.h>

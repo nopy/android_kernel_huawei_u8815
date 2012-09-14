@@ -135,15 +135,14 @@ static struct mr6_table *ip6mr_get_table(struct net *net, u32 id)
 	return NULL;
 }
 
-static int ip6mr_fib_lookup(struct net *net, struct flowi6 *flp6,
+static int ip6mr_fib_lookup(struct net *net, struct flowi *flp,
 			    struct mr6_table **mrt)
 {
 	struct ip6mr_result res;
 	struct fib_lookup_arg arg = { .result = &res, };
 	int err;
 
-	err = fib_rules_lookup(net->ipv6.mr6_rules_ops,
-			       flowi6_to_flowi(flp6), 0, &arg);
+	err = fib_rules_lookup(net->ipv6.mr6_rules_ops, flp, 0, &arg);
 	if (err < 0)
 		return err;
 	*mrt = res.mrt;
@@ -271,7 +270,7 @@ static struct mr6_table *ip6mr_get_table(struct net *net, u32 id)
 	return net->ipv6.mrt6;
 }
 
-static int ip6mr_fib_lookup(struct net *net, struct flowi6 *flp6,
+static int ip6mr_fib_lookup(struct net *net, struct flowi *flp,
 			    struct mr6_table **mrt)
 {
 	*mrt = net->ipv6.mrt6;
@@ -618,9 +617,9 @@ static int pim6_rcv(struct sk_buff *skb)
 	struct net_device  *reg_dev = NULL;
 	struct net *net = dev_net(skb->dev);
 	struct mr6_table *mrt;
-	struct flowi6 fl6 = {
-		.flowi6_iif	= skb->dev->ifindex,
-		.flowi6_mark	= skb->mark,
+	struct flowi fl = {
+		.iif	= skb->dev->ifindex,
+		.mark	= skb->mark,
 	};
 	int reg_vif_num;
 
@@ -645,7 +644,7 @@ static int pim6_rcv(struct sk_buff *skb)
 	    ntohs(encap->payload_len) + sizeof(*pim) > skb->len)
 		goto drop;
 
-	if (ip6mr_fib_lookup(net, &fl6, &mrt) < 0)
+	if (ip6mr_fib_lookup(net, &fl, &mrt) < 0)
 		goto drop;
 	reg_vif_num = mrt->mroute_reg_vif_num;
 
@@ -663,7 +662,7 @@ static int pim6_rcv(struct sk_buff *skb)
 	skb_pull(skb, (u8 *)encap - skb->data);
 	skb_reset_network_header(skb);
 	skb->protocol = htons(ETH_P_IPV6);
-	skb->ip_summed = CHECKSUM_NONE;
+	skb->ip_summed = 0;
 	skb->pkt_type = PACKET_HOST;
 
 	skb_tunnel_rx(skb, reg_dev);
@@ -688,14 +687,14 @@ static netdev_tx_t reg_vif_xmit(struct sk_buff *skb,
 {
 	struct net *net = dev_net(dev);
 	struct mr6_table *mrt;
-	struct flowi6 fl6 = {
-		.flowi6_oif	= dev->ifindex,
-		.flowi6_iif	= skb->skb_iif,
-		.flowi6_mark	= skb->mark,
+	struct flowi fl = {
+		.oif		= dev->ifindex,
+		.iif		= skb->skb_iif,
+		.mark		= skb->mark,
 	};
 	int err;
 
-	err = ip6mr_fib_lookup(net, &fl6, &mrt);
+	err = ip6mr_fib_lookup(net, &fl, &mrt);
 	if (err < 0)
 		return err;
 
@@ -989,8 +988,8 @@ static int mif6_add(struct net *net, struct mr6_table *mrt,
 }
 
 static struct mfc6_cache *ip6mr_cache_find(struct mr6_table *mrt,
-					   const struct in6_addr *origin,
-					   const struct in6_addr *mcastgrp)
+					   struct in6_addr *origin,
+					   struct in6_addr *mcastgrp)
 {
 	int line = MFC6_HASH(mcastgrp, origin);
 	struct mfc6_cache *c;
@@ -1040,6 +1039,7 @@ static void ip6mr_cache_resolve(struct net *net, struct mr6_table *mrt,
 
 	while((skb = __skb_dequeue(&uc->mfc_un.unres.unresolved))) {
 		if (ipv6_hdr(skb)->version == 0) {
+			int err;
 			struct nlmsghdr *nlh = (struct nlmsghdr *)skb_pull(skb, sizeof(struct ipv6hdr));
 
 			if (__ip6mr_fill_mroute(mrt, skb, c, NLMSG_DATA(nlh)) > 0) {
@@ -1050,7 +1050,7 @@ static void ip6mr_cache_resolve(struct net *net, struct mr6_table *mrt,
 				skb_trim(skb, nlh->nlmsg_len);
 				((struct nlmsgerr *)NLMSG_DATA(nlh))->error = -EMSGSIZE;
 			}
-			rtnl_unicast(skb, net, NETLINK_CB(skb).pid);
+			err = rtnl_unicast(skb, net, NETLINK_CB(skb).pid);
 		} else
 			ip6_mr_forward(net, mrt, skb, c);
 	}
@@ -1548,13 +1548,13 @@ int ip6mr_sk_done(struct sock *sk)
 struct sock *mroute6_socket(struct net *net, struct sk_buff *skb)
 {
 	struct mr6_table *mrt;
-	struct flowi6 fl6 = {
-		.flowi6_iif	= skb->skb_iif,
-		.flowi6_oif	= skb->dev->ifindex,
-		.flowi6_mark	= skb->mark,
+	struct flowi fl = {
+		.iif	= skb->skb_iif,
+		.oif	= skb->dev->ifindex,
+		.mark	= skb->mark,
 	};
 
-	if (ip6mr_fib_lookup(net, &fl6, &mrt) < 0)
+	if (ip6mr_fib_lookup(net, &fl, &mrt) < 0)
 		return NULL;
 
 	return mrt->mroute6_sk;
@@ -1898,7 +1898,7 @@ static int ip6mr_forward2(struct net *net, struct mr6_table *mrt,
 	struct mif_device *vif = &mrt->vif6_table[vifi];
 	struct net_device *dev;
 	struct dst_entry *dst;
-	struct flowi6 fl6;
+	struct flowi fl;
 
 	if (vif->dev == NULL)
 		goto out_free;
@@ -1916,12 +1916,12 @@ static int ip6mr_forward2(struct net *net, struct mr6_table *mrt,
 
 	ipv6h = ipv6_hdr(skb);
 
-	fl6 = (struct flowi6) {
-		.flowi6_oif = vif->link,
-		.daddr = ipv6h->daddr,
+	fl = (struct flowi) {
+		.oif = vif->link,
+		.fl6_dst = ipv6h->daddr,
 	};
 
-	dst = ip6_route_output(net, NULL, &fl6);
+	dst = ip6_route_output(net, NULL, &fl);
 	if (!dst)
 		goto out_free;
 
@@ -2044,13 +2044,13 @@ int ip6_mr_input(struct sk_buff *skb)
 	struct mfc6_cache *cache;
 	struct net *net = dev_net(skb->dev);
 	struct mr6_table *mrt;
-	struct flowi6 fl6 = {
-		.flowi6_iif	= skb->dev->ifindex,
-		.flowi6_mark	= skb->mark,
+	struct flowi fl = {
+		.iif	= skb->dev->ifindex,
+		.mark	= skb->mark,
 	};
 	int err;
 
-	err = ip6mr_fib_lookup(net, &fl6, &mrt);
+	err = ip6mr_fib_lookup(net, &fl, &mrt);
 	if (err < 0)
 		return err;
 

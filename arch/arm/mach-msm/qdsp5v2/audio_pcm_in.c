@@ -36,7 +36,6 @@
 #include <mach/msm_subsystem_map.h>
 
 #include <mach/msm_adsp.h>
-#include <mach/socinfo.h>
 #include <mach/qdsp5v2/qdsp5audreccmdi.h>
 #include <mach/qdsp5v2/qdsp5audrecmsg.h>
 #include <mach/qdsp5v2/audpreproc.h>
@@ -121,7 +120,6 @@ struct audio_in {
 	int stopped; /* set when stopped, cleared on flush */
 	int abort; /* set when error, like sample rate mismatch */
 	int dual_mic_config;
-	char *build_id;
 };
 
 static struct audio_in the_audio_in;
@@ -372,13 +370,7 @@ static int audpcm_in_enc_config(struct audio_in *audio, int enable)
 	struct audpreproc_audrec_cmd_enc_cfg cmd;
 
 	memset(&cmd, 0, sizeof(cmd));
-	if (audio->build_id[17] == '1') {
-		cmd.cmd_id = AUDPREPROC_AUDREC_CMD_ENC_CFG_2;
-		MM_ERR("sending AUDPREPROC_AUDREC_CMD_ENC_CFG_2 command");
-	} else {
-		cmd.cmd_id = AUDPREPROC_AUDREC_CMD_ENC_CFG;
-		MM_ERR("sending AUDPREPROC_AUDREC_CMD_ENC_CFG command");
-	}
+	cmd.cmd_id = AUDPREPROC_AUDREC_CMD_ENC_CFG_2;
 	cmd.stream_id = audio->enc_id;
 
 	if (enable)
@@ -638,49 +630,29 @@ static long audpcm_in_ioctl(struct file *file,
 			rc = -EFAULT;
 			break;
 		}
-		if (audio->build_id[17] == '1') {
-			audio->enc_type = ENC_TYPE_EXT_WAV | audio->mode;
-			if (cfg.channel_count == 1) {
-				cfg.channel_count = AUDREC_CMD_MODE_MONO;
-				if ((cfg.buffer_size == MONO_DATA_SIZE_256) ||
-					(cfg.buffer_size ==
-						MONO_DATA_SIZE_512) ||
-					(cfg.buffer_size ==
-						MONO_DATA_SIZE_1024)) {
-					audio->buffer_size = cfg.buffer_size;
-				} else {
-					rc = -EINVAL;
-					break;
-				}
-			} else if (cfg.channel_count == 2) {
-				cfg.channel_count = AUDREC_CMD_MODE_STEREO;
-				if ((cfg.buffer_size ==
-						STEREO_DATA_SIZE_256) ||
-					(cfg.buffer_size ==
-						STEREO_DATA_SIZE_512) ||
-					(cfg.buffer_size ==
-						STEREO_DATA_SIZE_1024)) {
-					audio->buffer_size = cfg.buffer_size;
-				} else {
-					rc = -EINVAL;
-					break;
-				}
+		if (cfg.channel_count == 1) {
+			cfg.channel_count = AUDREC_CMD_MODE_MONO;
+			if ((cfg.buffer_size == MONO_DATA_SIZE_256) ||
+			    (cfg.buffer_size == MONO_DATA_SIZE_512) ||
+			    (cfg.buffer_size == MONO_DATA_SIZE_1024)) {
+				audio->buffer_size = cfg.buffer_size;
 			} else {
 				rc = -EINVAL;
 				break;
 			}
-		} else if (audio->build_id[17] == '0') {
-			audio->enc_type = ENC_TYPE_WAV | audio->mode;
-			if (cfg.channel_count == 1) {
-				cfg.channel_count = AUDREC_CMD_MODE_MONO;
-				audio->buffer_size = MONO_DATA_SIZE_1024;
-			} else if (cfg.channel_count == 2) {
-				cfg.channel_count = AUDREC_CMD_MODE_STEREO;
-				audio->buffer_size = STEREO_DATA_SIZE_1024;
+		} else if (cfg.channel_count == 2) {
+			cfg.channel_count = AUDREC_CMD_MODE_STEREO;
+			if ((cfg.buffer_size == STEREO_DATA_SIZE_256) ||
+			    (cfg.buffer_size == STEREO_DATA_SIZE_512) ||
+			    (cfg.buffer_size == STEREO_DATA_SIZE_1024)) {
+				audio->buffer_size = cfg.buffer_size;
+			} else {
+				rc = -EINVAL;
+				break;
 			}
 		} else {
-			MM_ERR("wrong build_id = %s\n", audio->build_id);
-			return -ENODEV;
+			rc = -EINVAL;
+			break;
 		}
 		audio->samp_rate = cfg.sample_rate;
 		audio->channel_mode = cfg.channel_count;
@@ -938,8 +910,6 @@ static int audpcm_in_open(struct inode *inode, struct file *file)
 	file->private_data = audio;
 	audio->opened = 1;
 	rc = 0;
-	audio->build_id = socinfo_get_build_id();
-	MM_DBG("Modem build id = %s\n", audio->build_id);
 done:
 	mutex_unlock(&audio->lock);
 	return rc;

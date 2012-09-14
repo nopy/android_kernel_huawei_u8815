@@ -58,7 +58,7 @@
 #include <linux/delay.h>
 #include <mach/gpio.h>
 #include "msm_fb.h"
-#include "hw_lcd_common.h"
+#include "lcdc_huawei_config.h"
 #include <mach/gpio.h>
 #include <linux/io.h>
 #include <linux/gpio.h>

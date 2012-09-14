@@ -20,9 +20,6 @@
 struct amplifier_platform_data {
 	void (*amplifier_on)(void);	
     void (*amplifier_off)(void);	
-    #ifdef CONFIG_HUAWEI_KERNEL
-    void (*amplifier_4music_on)(void);
-    #endif
 };
 
 #endif /* _LINUX_AUDIO_AMPLIFIER_H */

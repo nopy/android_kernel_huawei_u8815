@@ -13,11 +13,13 @@
 #include <linux/clk.h>
 #include "msm_fb.h"
 #include "mipi_dsi.h"
+#include <mach/clk.h>
 
 /* multimedia sub system sfpb */
 char *mmss_sfpb_base;
 void  __iomem *periph_base;
 
+int mipi_dsi_clk_on;
 static struct dsi_clk_desc dsicore_clk;
 static struct dsi_clk_desc dsi_pclk;
 
@@ -290,39 +292,31 @@ void mipi_dsi_phy_init(int panel_ndx, struct msm_panel_info const *panel_info,
 	MIPI_OUTP(MIPI_DSI_BASE + 0x100, 0x67);
 
 	/* pll ctrl 0 */
-	MIPI_OUTP(MIPI_DSI_BASE + 0x0200, pd->pll[0]);
+	MIPI_OUTP(MIPI_DSI_BASE + 0x200, pd->pll[0]);
 	wmb();
-}
-
-void mipi_dsi_ahb_ctrl(u32 enable)
-{
-	if (enable) {
-		clk_enable(dsi_ref_clk);
-		clk_enable(ahb_m_clk);
-		clk_enable(ahb_s_clk);
-	} else {
-		clk_disable(ahb_m_clk);
-		clk_disable(ahb_s_clk);
-		clk_disable(dsi_ref_clk);
-	}
+	MIPI_OUTP(MIPI_DSI_BASE + 0x200, (pd->pll[0] | 0x01));
 }
 
 void mipi_dsi_clk_enable(void)
 {
 	unsigned data = 0;
-	uint32 pll_ctrl;
 
-	if (clk_set_rate(ebi1_dsi_clk, 65000000)) /* 65 MHz */
+	if (mipi_dsi_clk_on) {
+		pr_err("%s: mipi_dsi_clk already ON\n", __func__);
+		return;
+	}
+
+	mipi_dsi_clk_on = 1;
+
+	if (clk_set_min_rate(ebi1_dsi_clk, 65000000)) /* 65 MHz */
 		pr_err("%s: ebi1_dsi_clk set rate failed\n", __func__);
 	clk_enable(ebi1_dsi_clk);
-
-	pll_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x0200);
-	MIPI_OUTP(MIPI_DSI_BASE + 0x0200, pll_ctrl | 0x01);
-	mb();
-
+	clk_enable(dsi_ref_clk);
 	clk_set_rate(dsi_byte_div_clk, data);
 	clk_set_rate(dsi_esc_clk, data);
 	clk_enable(mdp_dsi_pclk);
+	clk_enable(ahb_m_clk);
+	clk_enable(ahb_s_clk);
 	clk_enable(dsi_byte_div_clk);
 	clk_enable(dsi_esc_clk);
 	mipi_dsi_pclk_ctrl(&dsi_pclk, 1);
@@ -331,14 +325,24 @@ void mipi_dsi_clk_enable(void)
 
 void mipi_dsi_clk_disable(void)
 {
+	if (mipi_dsi_clk_on == 0) {
+		pr_err("%s: mipi_dsi_clk already OFF\n", __func__);
+		return;
+	}
+
+	mipi_dsi_clk_on = 0;
+
+	MIPI_OUTP(MIPI_DSI_BASE + 0x0118, 0);
+
 	mipi_dsi_pclk_ctrl(&dsi_pclk, 0);
 	mipi_dsi_clk_ctrl(&dsicore_clk, 0);
 	clk_disable(dsi_esc_clk);
 	clk_disable(dsi_byte_div_clk);
 	clk_disable(mdp_dsi_pclk);
-	/* DSIPHY_PLL_CTRL_0, disable dsi pll */
-	MIPI_OUTP(MIPI_DSI_BASE + 0x0200, 0x40);
-	if (clk_set_rate(ebi1_dsi_clk, 0))
+	clk_disable(ahb_m_clk);
+	clk_disable(ahb_s_clk);
+	clk_disable(dsi_ref_clk);
+	if (clk_set_min_rate(ebi1_dsi_clk, 0))
 		pr_err("%s: ebi1_dsi_clk set rate failed\n", __func__);
 	clk_disable(ebi1_dsi_clk);
 }
@@ -373,7 +377,10 @@ void mipi_dsi_phy_ctrl(int on)
 		/* DSIPHY_CTRL_1 */
 		MIPI_OUTP(MIPI_DSI_BASE + 0x0294, 0x7f);
 
-		/* disable dsi clk */
+		/* DSIPHY_PLL_CTRL_0, disbale dsi pll */
+		MIPI_OUTP(MIPI_DSI_BASE + 0x0200, 0x40);
+
+		/* disbale dsi clk */
 		MIPI_OUTP(MIPI_DSI_BASE + 0x0118, 0);
 	}
 }

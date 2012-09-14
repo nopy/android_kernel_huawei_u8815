@@ -11,8 +11,6 @@
  *  published by the Free Software Foundation.
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -292,9 +290,12 @@ static int dell_rfkill_set(void *data, bool blocked)
 	dell_send_request(buffer, 17, 11);
 
 	/* If the hardware switch controls this radio, and the hardware
-	   switch is disabled, don't allow changing the software state */
+	   switch is disabled, don't allow changing the software state.
+	   If the hardware switch is reported as not supported, always
+	   fire the SMI to toggle the killswitch. */
 	if ((hwswitch_state & BIT(hwswitch_bit)) &&
-	    !(buffer->output[1] & BIT(16))) {
+	    !(buffer->output[1] & BIT(16)) &&
+	    (buffer->output[1] & BIT(0))) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -400,6 +401,23 @@ static const struct file_operations dell_debugfs_fops = {
 
 static void dell_update_rfkill(struct work_struct *ignored)
 {
+	int status;
+
+	get_buffer();
+	dell_send_request(buffer, 17, 11);
+	status = buffer->output[1];
+	release_buffer();
+
+	/* if hardware rfkill is not supported, set it explicitly */
+	if (!(status & BIT(0))) {
+		if (wifi_rfkill)
+			dell_rfkill_set((void *)1, !((status & BIT(17)) >> 17));
+		if (bluetooth_rfkill)
+			dell_rfkill_set((void *)2, !((status & BIT(18)) >> 18));
+		if (wwan_rfkill)
+			dell_rfkill_set((void *)3, !((status & BIT(19)) >> 19));
+	}
+
 	if (wifi_rfkill)
 		dell_rfkill_query(wifi_rfkill, (void *)1);
 	if (bluetooth_rfkill)
@@ -416,7 +434,8 @@ static int __init dell_setup_rfkill(void)
 	int ret;
 
 	if (dmi_check_system(dell_blacklist)) {
-		pr_info("Blacklisted hardware detected - not enabling rfkill\n");
+		printk(KERN_INFO "dell-laptop: Blacklisted hardware detected - "
+				"not enabling rfkill\n");
 		return 0;
 	}
 
@@ -540,11 +559,11 @@ static int dell_get_intensity(struct backlight_device *bd)
 	else
 		dell_send_request(buffer, 0, 1);
 
-	ret = buffer->output[1];
-
 out:
 	release_buffer();
-	return ret;
+	if (ret)
+		return ret;
+	return buffer->output[1];
 }
 
 static const struct backlight_ops dell_ops = {
@@ -587,7 +606,7 @@ static int __init dell_init(void)
 	dmi_walk(find_tokens, NULL);
 
 	if (!da_tokens)  {
-		pr_info("Unable to find dmi tokens\n");
+		printk(KERN_INFO "dell-laptop: Unable to find dmi tokens\n");
 		return -ENODEV;
 	}
 
@@ -617,13 +636,14 @@ static int __init dell_init(void)
 	ret = dell_setup_rfkill();
 
 	if (ret) {
-		pr_warn("Unable to setup rfkill\n");
+		printk(KERN_WARNING "dell-laptop: Unable to setup rfkill\n");
 		goto fail_rfkill;
 	}
 
 	ret = i8042_install_filter(dell_laptop_i8042_filter);
 	if (ret) {
-		pr_warn("Unable to install key filter\n");
+		printk(KERN_WARNING
+		       "dell-laptop: Unable to install key filter\n");
 		goto fail_filter;
 	}
 
@@ -651,7 +671,6 @@ static int __init dell_init(void)
 	if (max_intensity) {
 		struct backlight_properties props;
 		memset(&props, 0, sizeof(struct backlight_properties));
-		props.type = BACKLIGHT_PLATFORM;
 		props.max_brightness = max_intensity;
 		dell_backlight_device = backlight_device_register("dell_backlight",
 								  &platform_device->dev,

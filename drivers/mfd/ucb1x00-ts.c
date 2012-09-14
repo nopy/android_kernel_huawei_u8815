@@ -60,7 +60,6 @@ static inline void ucb1x00_ts_evt_add(struct ucb1x00_ts *ts, u16 pressure, u16 x
 	input_report_abs(idev, ABS_X, x);
 	input_report_abs(idev, ABS_Y, y);
 	input_report_abs(idev, ABS_PRESSURE, pressure);
-	input_report_key(idev, BTN_TOUCH, 1);
 	input_sync(idev);
 }
 
@@ -69,7 +68,6 @@ static inline void ucb1x00_ts_event_release(struct ucb1x00_ts *ts)
 	struct input_dev *idev = ts->idev;
 
 	input_report_abs(idev, ABS_PRESSURE, 0);
-	input_report_key(idev, BTN_TOUCH, 0);
 	input_sync(idev);
 }
 
@@ -386,8 +384,7 @@ static int ucb1x00_ts_add(struct ucb1x00_dev *dev)
 	idev->open       = ucb1x00_ts_open;
 	idev->close      = ucb1x00_ts_close;
 
-	idev->evbit[0]   = BIT_MASK(EV_ABS) | BIT_MASK(EV_KEY);
-	idev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
+	__set_bit(EV_ABS, idev->evbit);
 
 	input_set_drvdata(idev, ts);
 

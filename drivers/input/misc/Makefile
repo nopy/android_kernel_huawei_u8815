@@ -42,16 +42,14 @@ obj-$(CONFIG_INPUT_SGI_BTNS)		+= sgi_btns.o
 obj-$(CONFIG_INPUT_SPARCSPKR)		+= sparcspkr.o
 obj-$(CONFIG_INPUT_TWL4030_PWRBUTTON)	+= twl4030-pwrbutton.o
 obj-$(CONFIG_INPUT_TWL4030_VIBRA)	+= twl4030-vibra.o
-obj-$(CONFIG_INPUT_TWL6040_VIBRA)	+= twl6040-vibra.o
 obj-$(CONFIG_INPUT_UINPUT)		+= uinput.o
 obj-$(CONFIG_INPUT_WISTRON_BTNS)	+= wistron_btns.o
 obj-$(CONFIG_INPUT_WM831X_ON)		+= wm831x-on.o
-obj-$(CONFIG_INPUT_XEN_KBDDEV_FRONTEND)	+= xen-kbdfront.o
 obj-$(CONFIG_INPUT_YEALINK)		+= yealink.o
+obj-$(CONFIG_PMIC8058_PWRKEY)           += pmic8058-pwrkey.o
 obj-$(CONFIG_PMIC8058_OTHC)             += pmic8058-othc.o
 obj-$(CONFIG_INPUT_PMIC8058_VIBRA_MEMLESS) += pmic8058-vib-memless.o
 obj-$(CONFIG_BOSCH_BMA150)              += bma150.o
-#/* <BU5D08118 zhangtao 20100419 begin */
-obj-$(CONFIG_HUAWEI_FEATURE_PROXIMITY_EVERLIGHT_APS_12D)  += aps-12d.o
-#/* BU5D08118 zhangtao 20100419 end> */
+obj-$(CONFIG_PROXIMITY_EVERLIGHT_APS_12D)  += aps-12d.o
 obj-$(CONFIG_HUAWEI_FEATURE_PROXIMITY_EVERLIGHT_APS_9900)  += aps-9900.o
+

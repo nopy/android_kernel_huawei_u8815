@@ -956,6 +956,8 @@ static const struct ethtool_ops fs_ethtool_ops = {
 	.get_link = ethtool_op_get_link,
 	.get_msglevel = fs_get_msglevel,
 	.set_msglevel = fs_set_msglevel,
+	.set_tx_csum = ethtool_op_set_tx_csum,	/* local! */
+	.set_sg = ethtool_op_set_sg,
 	.get_regs = fs_get_regs,
 };
 
@@ -996,20 +998,15 @@ static const struct net_device_ops fs_enet_netdev_ops = {
 #endif
 };
 
-static struct of_device_id fs_enet_match[];
-static int __devinit fs_enet_probe(struct platform_device *ofdev)
+static int __devinit fs_enet_probe(struct platform_device *ofdev,
+                                   const struct of_device_id *match)
 {
-	const struct of_device_id *match;
 	struct net_device *ndev;
 	struct fs_enet_private *fep;
 	struct fs_platform_info *fpi;
 	const u32 *data;
 	const u8 *mac_addr;
 	int privsize, len, ret = -ENODEV;
-
-	match = of_match_device(fs_enet_match, &ofdev->dev);
-	if (!match)
-		return -EINVAL;
 
 	fpi = kzalloc(sizeof(*fpi), GFP_KERNEL);
 	if (!fpi)
@@ -1159,7 +1156,7 @@ static struct of_device_id fs_enet_match[] = {
 };
 MODULE_DEVICE_TABLE(of, fs_enet_match);
 
-static struct platform_driver fs_enet_driver = {
+static struct of_platform_driver fs_enet_driver = {
 	.driver = {
 		.owner = THIS_MODULE,
 		.name = "fs_enet",
@@ -1171,12 +1168,12 @@ static struct platform_driver fs_enet_driver = {
 
 static int __init fs_init(void)
 {
-	return platform_driver_register(&fs_enet_driver);
+	return of_register_platform_driver(&fs_enet_driver);
 }
 
 static void __exit fs_cleanup(void)
 {
-	platform_driver_unregister(&fs_enet_driver);
+	of_unregister_platform_driver(&fs_enet_driver);
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER

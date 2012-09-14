@@ -136,8 +136,9 @@ xfs_qm_dquot_logitem_push(
 	 */
 	error = xfs_qm_dqflush(dqp, 0);
 	if (error)
-		xfs_warn(dqp->q_mount, "%s: push error %d on dqp %p",
-			__func__, error, dqp);
+		xfs_fs_cmn_err(CE_WARN, dqp->q_mount,
+			"xfs_qm_dquot_logitem_push: push error %d on dqp %p",
+			error, dqp);
 	xfs_dqunlock(dqp);
 }
 
@@ -183,14 +184,13 @@ xfs_qm_dqunpin_wait(
  * search the buffer cache can be a time consuming thing, and AIL lock is a
  * spinlock.
  */
-STATIC bool
+STATIC void
 xfs_qm_dquot_logitem_pushbuf(
 	struct xfs_log_item	*lip)
 {
 	struct xfs_dq_logitem	*qlip = DQUOT_ITEM(lip);
 	struct xfs_dquot	*dqp = qlip->qli_dquot;
 	struct xfs_buf		*bp;
-	bool			ret = true;
 
 	ASSERT(XFS_DQ_IS_LOCKED(dqp));
 
@@ -202,20 +202,17 @@ xfs_qm_dquot_logitem_pushbuf(
 	if (completion_done(&dqp->q_flush) ||
 	    !(lip->li_flags & XFS_LI_IN_AIL)) {
 		xfs_dqunlock(dqp);
-		return true;
+		return;
 	}
 
 	bp = xfs_incore(dqp->q_mount->m_ddev_targp, qlip->qli_format.qlf_blkno,
 			dqp->q_mount->m_quotainfo->qi_dqchunklen, XBF_TRYLOCK);
 	xfs_dqunlock(dqp);
 	if (!bp)
-		return true;
+		return;
 	if (XFS_BUF_ISDELAYWRITE(bp))
 		xfs_buf_delwri_promote(bp);
-	if (XFS_BUF_ISPINNED(bp))
-		ret = false;
 	xfs_buf_relse(bp);
-	return ret;
 }
 
 /*

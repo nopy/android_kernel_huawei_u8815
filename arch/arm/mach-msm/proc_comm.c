@@ -80,9 +80,7 @@ static int proc_comm_wait_for(unsigned addr, unsigned value)
    int long_wait = 0;
 
 	while (1) {
-		/* Barrier here prevents excessive spinning */
-		mb();
-		if (readl_relaxed(addr) == value) {
+		if (readl(addr) == value) {
 			if (long_wait)
 				pr_err("%s: total wait time %dus\n", __func__, ticks * 5);
 			return 0;
@@ -98,7 +96,8 @@ static int proc_comm_wait_for(unsigned addr, unsigned value)
 		udelay(5);
 		ticks++;
 		
-		if (ticks == 10000 /* 50 ms */) {
+        /* 50 ms: loop 10000 x 5us */
+		if (ticks == 10000) {
 			long_wait = 1;
 			pr_err("%s: excessive wait for PCOM\n",
 				__func__);

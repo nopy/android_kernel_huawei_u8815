@@ -29,7 +29,7 @@
 #include <linux/spinlock.h>
 #include <linux/jiffies.h>
 
-#include <video/omapdss.h>
+#include <plat/display.h>
 #include <plat/cpu.h>
 
 #include "dss.h"
@@ -393,7 +393,6 @@ struct overlay_cache_data {
 
 	u32 paddr;
 	void __iomem *vaddr;
-	u32 p_uv_addr; /* relevant for NV12 format only */
 	u16 screen_width;
 	u16 width;
 	u16 height;
@@ -516,8 +515,6 @@ static int dss_mgr_wait_for_vsync(struct omap_overlay_manager *mgr)
 
 	if (mgr->device->type == OMAP_DISPLAY_TYPE_VENC) {
 		irq = DISPC_IRQ_EVSYNC_ODD;
-	} else if (mgr->device->type == OMAP_DISPLAY_TYPE_HDMI) {
-		irq = DISPC_IRQ_EVSYNC_EVEN;
 	} else {
 		if (mgr->id == OMAP_DSS_CHANNEL_LCD)
 			irq = DISPC_IRQ_VSYNC;
@@ -539,8 +536,7 @@ static int dss_mgr_wait_for_go(struct omap_overlay_manager *mgr)
 	if (!dssdev || dssdev->state != OMAP_DSS_DISPLAY_ACTIVE)
 		return 0;
 
-	if (dssdev->type == OMAP_DISPLAY_TYPE_VENC
-			|| dssdev->type == OMAP_DISPLAY_TYPE_HDMI) {
+	if (dssdev->type == OMAP_DISPLAY_TYPE_VENC) {
 		irq = DISPC_IRQ_EVSYNC_ODD | DISPC_IRQ_EVSYNC_EVEN;
 	} else {
 		if (dssdev->caps & OMAP_DSS_DISPLAY_CAP_MANUAL_UPDATE) {
@@ -617,8 +613,7 @@ int dss_mgr_wait_for_go_ovl(struct omap_overlay *ovl)
 	if (!dssdev || dssdev->state != OMAP_DSS_DISPLAY_ACTIVE)
 		return 0;
 
-	if (dssdev->type == OMAP_DISPLAY_TYPE_VENC
-			|| dssdev->type == OMAP_DISPLAY_TYPE_HDMI) {
+	if (dssdev->type == OMAP_DISPLAY_TYPE_VENC) {
 		irq = DISPC_IRQ_EVSYNC_ODD | DISPC_IRQ_EVSYNC_EVEN;
 	} else {
 		if (dssdev->caps & OMAP_DSS_DISPLAY_CAP_MANUAL_UPDATE) {
@@ -776,17 +771,10 @@ static int configure_overlay(enum omap_plane plane)
 		}
 
 		switch (c->color_mode) {
-		case OMAP_DSS_COLOR_NV12:
-			bpp = 8;
-			break;
 		case OMAP_DSS_COLOR_RGB16:
 		case OMAP_DSS_COLOR_ARGB16:
 		case OMAP_DSS_COLOR_YUV2:
 		case OMAP_DSS_COLOR_UYVY:
-		case OMAP_DSS_COLOR_RGBA16:
-		case OMAP_DSS_COLOR_RGBX16:
-		case OMAP_DSS_COLOR_ARGB16_1555:
-		case OMAP_DSS_COLOR_XRGB16_1555:
 			bpp = 16;
 			break;
 
@@ -862,8 +850,7 @@ static int configure_overlay(enum omap_plane plane)
 			c->mirror,
 			c->global_alpha,
 			c->pre_mult_alpha,
-			c->channel,
-			c->p_uv_addr);
+			c->channel);
 
 	if (r) {
 		/* this shouldn't happen */
@@ -1278,7 +1265,6 @@ static int omap_dss_mgr_apply(struct omap_overlay_manager *mgr)
 
 		oc->paddr = ovl->info.paddr;
 		oc->vaddr = ovl->info.vaddr;
-		oc->p_uv_addr = ovl->info.p_uv_addr;
 		oc->screen_width = ovl->info.screen_width;
 		oc->width = ovl->info.width;
 		oc->height = ovl->info.height;
@@ -1391,7 +1377,6 @@ static int omap_dss_mgr_apply(struct omap_overlay_manager *mgr)
 		case OMAP_DISPLAY_TYPE_DBI:
 		case OMAP_DISPLAY_TYPE_SDI:
 		case OMAP_DISPLAY_TYPE_VENC:
-		case OMAP_DISPLAY_TYPE_HDMI:
 			default_get_overlay_fifo_thresholds(ovl->id, size,
 					&oc->burst_size, &oc->fifo_low,
 					&oc->fifo_high);
@@ -1409,7 +1394,7 @@ static int omap_dss_mgr_apply(struct omap_overlay_manager *mgr)
 	}
 
 	r = 0;
-	dss_clk_enable(DSS_CLK_ICK | DSS_CLK_FCK);
+	dss_clk_enable(DSS_CLK_ICK | DSS_CLK_FCK1);
 	if (!dss_cache.irq_enabled) {
 		u32 mask;
 
@@ -1422,7 +1407,7 @@ static int omap_dss_mgr_apply(struct omap_overlay_manager *mgr)
 		dss_cache.irq_enabled = true;
 	}
 	configure_dispc();
-	dss_clk_disable(DSS_CLK_ICK | DSS_CLK_FCK);
+	dss_clk_disable(DSS_CLK_ICK | DSS_CLK_FCK1);
 
 	spin_unlock_irqrestore(&dss_cache.lock, flags);
 

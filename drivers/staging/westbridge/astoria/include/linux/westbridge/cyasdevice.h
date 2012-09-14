@@ -119,7 +119,7 @@
 #define CY_AS_REQUEST_LIST_STATE_QUEUED (0x00)
 /* The request is sent, waiting for response */
 #define CY_AS_REQUEST_LIST_STATE_WAITING (0x01)
-/* The response has been received, processing response */
+/* The response has been received, processing reponse */
 #define CY_AS_REQUEST_LIST_STATE_RECEIVED (0x02)
 /* The request/response is being canceled */
 #define CY_AS_REQUEST_LIST_STATE_CANCELING (0x03)
@@ -517,7 +517,7 @@ typedef struct cy_as_context {
 	cy_as_ll_request_list_node *request_queue_p;
 	/* The list node in the request queue */
 	cy_as_ll_request_list_node *last_node_p;
-	/* Index up to which data is stored. */
+	/* Index upto which data is stored. */
 	uint16_t queue_index;
 	/* Index to the next request in the queue. */
 	uint16_t rqt_index;
@@ -768,7 +768,7 @@ struct cy_as_device {
 	uint32_t mtp_count;
 	/* The MTP event callback supplied by the client */
 	cy_as_mtp_event_callback mtp_event_cb;
-	/* The current block table to be transferred */
+	/* The current block table to be transfered */
 	cy_as_mtp_block_table *tp_blk_tbl;
 
 	cy_as_c_b_queue *func_cbs_mtp;

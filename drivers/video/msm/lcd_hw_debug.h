@@ -6,6 +6,7 @@
  * Copyright (C) 2010 HUAWEI Technology Co., ltd.
  * 
  * Date: 2010/12/10
+ * By genghua
  * 
  */
 
@@ -13,8 +14,8 @@
 #define __HW_LCD_DEBUG__
 
 #include <linux/syscalls.h>
-/* modify for 4125 baseline */
 #include <linux/slab.h>
+
 #ifndef TRUE
 #define TRUE 1
 #endif
@@ -37,4 +38,6 @@ bool lcd_debug_malloc_get_para(char *para_name, void **para_table,uint32_t *para
 bool lcd_debug_free_para(void *para_table);
 
 #endif 
+
+
 

@@ -29,7 +29,6 @@
 #include <trace/events/irq.h>
 
 #include <asm/irq.h>
-
 /* merge qcom DEBUG_CODE for RPC crashes */
 #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 #include <linux/kernel.h>  
@@ -54,8 +53,6 @@ struct softirqs_timestamp {
 static struct softirqs_timestamp softirq_ts[128];  
 static int softirq_idx = 0;  
 #endif
-
-
 /*
    - No shared variables, all the data are CPU local.
    - If a softirq needs serialization, let it serialize itself
@@ -81,11 +78,11 @@ EXPORT_SYMBOL(irq_stat);
 
 static struct softirq_action softirq_vec[NR_SOFTIRQS] __cacheline_aligned_in_smp;
 
-DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
+static DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
 
 char *softirq_to_name[NR_SOFTIRQS] = {
 	"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "BLOCK_IOPOLL",
-	"TASKLET", "SCHED", "HRTIMER", "RCU"
+	"TASKLET", "SCHED", "HRTIMER",	"RCU"
 };
 
 /*
@@ -237,12 +234,10 @@ asmlinkage void __do_softirq(void)
 	__u32 pending;
 	int max_restart = MAX_SOFTIRQ_RESTART;
 	int cpu;
-	
 	/* merge qcom DEBUG_CODE for RPC crashes */
-    #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
+#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 	uint32_t  timetick=0; 
-    #endif
-	
+#endif
 	pending = local_softirq_pending();
 	account_system_vtime(current);
 
@@ -268,18 +263,17 @@ restart:
 
 			trace_softirq_entry(vec_nr);
 			/* merge qcom DEBUG_CODE for RPC crashes */
-            #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
+#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 			timetick = softirq_read_timestamp();  
 			softirq_ts[softirq_idx].softirq=(unsigned int)h;
 			softirq_ts[softirq_idx].ts=timetick; 			
 			softirq_ts[softirq_idx].state=1; 
-            #endif
+#endif
 			h->action(h);
-            #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
+#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 			softirq_ts[softirq_idx].state=3;
 			softirq_idx = (softirq_idx + 1)%128;	
-            #endif
-
+#endif
 			trace_softirq_exit(vec_nr);
 			if (unlikely(prev_count != preempt_count())) {
 				printk(KERN_ERR "huh, entered softirq %u %s %p"
@@ -355,29 +349,9 @@ void irq_enter(void)
 }
 
 #ifdef __ARCH_IRQ_EXIT_IRQS_DISABLED
-static inline void invoke_softirq(void)
-{
-	if (!force_irqthreads)
-		__do_softirq();
-	else {
-		__local_bh_disable((unsigned long)__builtin_return_address(0),
-				SOFTIRQ_OFFSET);
-		wakeup_softirqd();
-		__local_bh_enable(SOFTIRQ_OFFSET);
-	}
-}
+# define invoke_softirq()	__do_softirq()
 #else
-static inline void invoke_softirq(void)
-{
-	if (!force_irqthreads)
-		do_softirq();
-	else {
-		__local_bh_disable((unsigned long)__builtin_return_address(0),
-				SOFTIRQ_OFFSET);
-		wakeup_softirqd();
-		__local_bh_enable(SOFTIRQ_OFFSET);
-	}
-}
+# define invoke_softirq()	do_softirq()
 #endif
 
 /*
@@ -619,7 +593,7 @@ static void __tasklet_hrtimer_trampoline(unsigned long data)
 /**
  * tasklet_hrtimer_init - Init a tasklet/hrtimer combo for softirq callbacks
  * @ttimer:	 tasklet_hrtimer which is initialized
- * @function:	 hrtimer callback function which gets called from softirq context
+ * @function:	 hrtimer callback funtion which gets called from softirq context
  * @which_clock: clock id (CLOCK_MONOTONIC/CLOCK_REALTIME)
  * @mode:	 hrtimer mode (HRTIMER_MODE_ABS/HRTIMER_MODE_REL)
  */
@@ -785,6 +759,7 @@ static int run_ksoftirqd(void * __bind_cpu)
 {
 	set_current_state(TASK_INTERRUPTIBLE);
 
+	current->flags |= PF_KSOFTIRQD;
 	while (!kthread_should_stop()) {
 		preempt_disable();
 		if (!local_softirq_pending()) {
@@ -801,10 +776,7 @@ static int run_ksoftirqd(void * __bind_cpu)
 			   don't process */
 			if (cpu_is_offline((long)__bind_cpu))
 				goto wait_to_die;
-			local_irq_disable();
-			if (local_softirq_pending())
-				__do_softirq();
-			local_irq_enable();
+			do_softirq();
 			preempt_enable_no_resched();
 			cond_resched();
 			preempt_disable();
@@ -897,10 +869,7 @@ static int __cpuinit cpu_callback(struct notifier_block *nfb,
 	switch (action) {
 	case CPU_UP_PREPARE:
 	case CPU_UP_PREPARE_FROZEN:
-		p = kthread_create_on_node(run_ksoftirqd,
-					   hcpu,
-					   cpu_to_node(hotcpu),
-					   "ksoftirqd/%d", hotcpu);
+		p = kthread_create(run_ksoftirqd, hcpu, "ksoftirqd/%d", hotcpu);
 		if (IS_ERR(p)) {
 			printk("ksoftirqd for %i failed\n", hotcpu);
 			return notifier_from_errno(PTR_ERR(p));

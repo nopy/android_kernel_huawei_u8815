@@ -444,9 +444,12 @@ static int mx1_camera_add_device(struct soc_camera_device *icd)
 {
 	struct soc_camera_host *ici = to_soc_camera_host(icd->dev.parent);
 	struct mx1_camera_dev *pcdev = ici->priv;
+	int ret;
 
-	if (pcdev->icd)
-		return -EBUSY;
+	if (pcdev->icd) {
+		ret = -EBUSY;
+		goto ebusy;
+	}
 
 	dev_info(icd->dev.parent, "MX1 Camera driver attached to camera %d\n",
 		 icd->devnum);
@@ -455,7 +458,8 @@ static int mx1_camera_add_device(struct soc_camera_device *icd)
 
 	pcdev->icd = icd;
 
-	return 0;
+ebusy:
+	return ret;
 }
 
 static void mx1_camera_remove_device(struct soc_camera_device *icd)

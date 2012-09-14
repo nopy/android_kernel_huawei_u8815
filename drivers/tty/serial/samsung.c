@@ -1,4 +1,5 @@
-/*
+/* linux/drivers/serial/samsuing.c
+ *
  * Driver core for Samsung SoC onboard UARTs.
  *
  * Ben Dooks, Copyright (c) 2003-2008 Simtec Electronics
@@ -63,7 +64,7 @@
 #define tx_enabled(port) ((port)->unused[0])
 #define rx_enabled(port) ((port)->unused[1])
 
-/* flag to ignore all characters coming in */
+/* flag to ignore all characters comming in */
 #define RXSTAT_DUMMY_READ (0x10000000)
 
 static inline struct s3c24xx_uart_port *to_ourport(struct uart_port *port)
@@ -290,7 +291,7 @@ static irqreturn_t s3c24xx_serial_tx_chars(int irq, void *id)
 		goto out;
 	}
 
-	/* if there isn't anything more to transmit, or the uart is now
+	/* if there isnt anything more to transmit, or the uart is now
 	 * stopped, disable the uart and exit
 	*/
 

@@ -452,7 +452,8 @@ ip6t_log_packet(u_int8_t pf,
 	       in ? in->name : "",
 	       out ? out->name : "");
 
-	if (in != NULL)
+	/* MAC logging for input path only. */
+	if (in && !out)
 		dump_mac_header(m, loginfo, skb);
 
 	dump_packet(m, loginfo, skb, skb_network_offset(skb), 1);

@@ -81,7 +81,7 @@ Defines a read-only address of the fuse ROM of the AK8975.*/
 #define ECS_IOCTL_APP_GET_DELAY		ECS_IOCTL_GET_DELAY
 #define ECS_IOCTL_APP_SET_MVFLAG	_IOW(AKMIO, 0x19, short)
 #define ECS_IOCTL_APP_GET_MVFLAG	_IOR(AKMIO, 0x1A, short)
-#define ECS_IOCTL_APP_GET_SLIDE 	_IOR(AKMIO, 0x1B, short)
+
 #define ECS_IOCTL_SET_CAL  	_IOR(AKMIO, 0x0C, short)
 #define ECS_IOCTL_APP_GET_CAL  	_IOR(AKMIO, 0x21, short)
 

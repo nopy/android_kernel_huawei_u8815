@@ -20,7 +20,6 @@
 #include <linux/types.h>	/* u32 */
 #include <linux/list.h>		/* list_head */
 #include <linux/kernel.h>	/* pr_info() */
-#include <linux/compiler.h>
 
 #include <mach/sps.h>
 
@@ -34,8 +33,6 @@
 #define BAM_ID(dev)       ((dev)->props.phys_addr)
 
 #ifdef CONFIG_DEBUG_FS
-extern u32 sps_debugfs_enabled;
-extern u32 detailed_debug_on;
 #define MAX_MSG_LEN 80
 #define SPS_DEBUGFS(msg, args...) do {					\
 			char buf[MAX_MSG_LEN];		\
@@ -44,21 +41,15 @@ extern u32 detailed_debug_on;
 		} while (0)
 #define SPS_ERR(msg, args...) do {					\
 			pr_err(msg, ##args);	\
-			if (unlikely(sps_debugfs_enabled))	\
-				SPS_DEBUGFS(msg, ##args);	\
+			SPS_DEBUGFS(msg, ##args);	\
 		} while (0)
 #define SPS_INFO(msg, args...) do {					\
 			pr_info(msg, ##args);	\
-			if (unlikely(sps_debugfs_enabled))	\
-				SPS_DEBUGFS(msg, ##args);	\
+			SPS_DEBUGFS(msg, ##args);	\
 		} while (0)
 #define SPS_DBG(msg, args...) do {					\
-			if (unlikely(detailed_debug_on))	\
-				pr_info(msg, ##args);	\
-			else	\
-				pr_debug(msg, ##args);	\
-			if (unlikely(sps_debugfs_enabled))	\
-				SPS_DEBUGFS(msg, ##args);	\
+			pr_debug(msg, ##args);	\
+			SPS_DEBUGFS(msg, ##args);	\
 		} while (0)
 #else
 #define	SPS_DBG(x...)		pr_debug(x)

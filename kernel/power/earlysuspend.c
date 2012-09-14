@@ -25,21 +25,19 @@
 enum {
 	DEBUG_USER_STATE = 1U << 0,
 	DEBUG_SUSPEND = 1U << 2,
-	DEBUG_VERBOSE = 1U << 3,
 };
 #ifdef CONFIG_HUAWEI_KERNEL
-/*<BU5D00025, jialin, 20091223, add log information, begin */
 static int debug_mask = DEBUG_USER_STATE | DEBUG_SUSPEND;
-/*BU5D00025, jialin, 20091223, add log information, end> */
 #else
 static int debug_mask = DEBUG_USER_STATE;
 #endif
 module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
-/* merge DTS2012011904179 */
+
 #ifdef CONFIG_HUAWEI_KERNEL
-void set_sampling_rate(int screen_on);
 void set_up_threshold(int screen_on);
 #endif
+
+
 
 static DEFINE_MUTEX(early_suspend_lock);
 static LIST_HEAD(early_suspend_handlers);
@@ -105,20 +103,21 @@ static void early_suspend(struct work_struct *work)
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("early_suspend: call handlers\n");
 	list_for_each_entry(pos, &early_suspend_handlers, link) {
-		if (pos->suspend != NULL) {
-			if (debug_mask & DEBUG_VERBOSE)
-				pr_info("early_suspend: calling %pf\n", pos->suspend);
-			pos->suspend(pos);
-		}
-	}
-
-	/* merge DTS2012011904179 */
-	/* set sample rate and up_threshold to the idle state value */
+    /*when early suspend print some log*/
 #ifdef CONFIG_HUAWEI_KERNEL
-	set_sampling_rate(0);
-	set_up_threshold(0);
+        if (pos->suspend != NULL) {
+            pos->suspend(pos);
+            printk("s: %x\n",(unsigned int)pos->suspend);
+        }
+#else
+		if (pos->suspend != NULL)
+			pos->suspend(pos);
 #endif
-
+	}
+#ifdef CONFIG_HUAWEI_KERNEL
+    /* Set up_threshold to MICRO_FREQUENCY_UP_THRESHOLD when screen is off */
+    set_up_threshold(false);
+#endif
 	mutex_unlock(&early_suspend_lock);
 
 	suspend_sys_sync_queue();
@@ -136,13 +135,10 @@ static void late_resume(struct work_struct *work)
 	int abort = 0;
 
 	mutex_lock(&early_suspend_lock);
-	/* merge DTS2012011904179 */
-	/* set sample rate and up_threshold to non-idle state value */
 #ifdef CONFIG_HUAWEI_KERNEL
-	set_sampling_rate(1);
-	set_up_threshold(1);
+    /* Set up_threshold to DEF_FREQUENCY_UP_THRESHOLD when screen is ready to on */
+    set_up_threshold(true);
 #endif
-    
 	spin_lock_irqsave(&state_lock, irqflags);
 	if (state == SUSPENDED)
 		state &= ~SUSPENDED;
@@ -157,14 +153,17 @@ static void late_resume(struct work_struct *work)
 	}
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: call handlers\n");
-	list_for_each_entry_reverse(pos, &early_suspend_handlers, link) {
-		if (pos->resume != NULL) {
-			if (debug_mask & DEBUG_VERBOSE)
-				pr_info("late_resume: calling %pf\n", pos->resume);
-
+	list_for_each_entry_reverse(pos, &early_suspend_handlers, link)
+    /*when late resume print some log*/    
+#ifdef CONFIG_HUAWEI_KERNEL
+        if (pos->resume != NULL) {
+            pos->resume(pos);
+            printk("r: %x\n",(unsigned int)pos->resume);
+        }
+#else
+		if (pos->resume != NULL)
 			pos->resume(pos);
-		}
-	}
+#endif
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: done\n");
 abort:

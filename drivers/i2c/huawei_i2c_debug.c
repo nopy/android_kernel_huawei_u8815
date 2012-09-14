@@ -15,7 +15,7 @@
 #include <linux/list.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
-/* del smp_lock.h for no kernel lock in kernel3.0 */
+#include <linux/smp_lock.h>
 #include <linux/jiffies.h>
 #include <asm/uaccess.h>
 #include <linux/cdev.h>
@@ -229,7 +229,7 @@ static int i2cdev_debug_open(struct inode *inode, struct file *file)
     int ret = 0;
 
     I2C_DEBUG_MACRO("%s entry\n", __FUNCTION__);
-	/* del lock_kernel for no kernel lock in kernel3.0 */
+    lock_kernel();
     i2c_dev = i2c_dev_get_by_minor(minor);
     if (!i2c_dev)
     {
@@ -241,7 +241,7 @@ static int i2cdev_debug_open(struct inode *inode, struct file *file)
 
     I2C_DEBUG_MACRO("%s\n",__FUNCTION__);
 out:
-	/* del unlock_kernel for no kernel lock in kernel3.0 */
+    unlock_kernel();
     return ret;
 }
 

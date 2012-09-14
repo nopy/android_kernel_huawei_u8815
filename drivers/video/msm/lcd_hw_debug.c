@@ -6,6 +6,7 @@
  * Copyright (C) 2010 HUAWEI Technology Co., ltd.
  * 
  * Date: 2010/12/10
+ * By genghua
  * 
  */
 
@@ -167,3 +168,4 @@ bool lcd_debug_free_para(void *para_table)
 	printk("The new LCD config region has been freed\n");
     return TRUE;
 }
+

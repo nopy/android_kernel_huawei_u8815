@@ -821,7 +821,7 @@ static int ni_pcidio_cmdtest(struct comedi_device *dev,
 			cmd->scan_begin_arg = MAX_SPEED;
 			err++;
 		}
-		/* no minimum speed */
+		/* no minumum speed */
 	} else {
 		/* TRIG_EXT */
 		/* should be level/edge, hi/lo specification here */

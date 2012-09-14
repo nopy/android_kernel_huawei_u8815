@@ -33,8 +33,12 @@ struct mt9t113_reg
 {
     const struct mt9t113_i2c_reg_conf * mt9t113_init_reg_config_sunny;
     const unsigned short               mt9t113_init_reg_config_sunny_size;
+    const struct mt9t113_i2c_reg_conf * mt9t113_init_reg_config_sunny_M660;
+    const unsigned short               mt9t113_init_reg_config_sunny_M660_size;
     const struct mt9t113_i2c_reg_conf * mt9t113_init_reg_config_sunny_2;
     const unsigned short               mt9t113_init_reg_config_sunny_2_size;
+    const struct mt9t113_i2c_reg_conf * mt9t113_init_reg_config_sunny_2_M660;
+    const unsigned short               mt9t113_init_reg_config_sunny_2_M660_size;
     const struct mt9t113_i2c_reg_conf * mt9t113_init_reg_config_sunny_3;
     const unsigned short               mt9t113_init_reg_config_sunny_3_size;
     const struct mt9t113_i2c_reg_conf * mt9t113_init_reg_sensor_start;

@@ -428,7 +428,7 @@ my_misc_callback(cy_as_device *dev_p, uint8_t context,
 				if (v & CY_AS_MEM_P0_VM_SET_CFGMODE)
 					cy_as_hal_print_message(
 					"initialization message "
-					"received, but config bit "
+					"recieved, but config bit "
 					"still set\n");
 
 				v = cy_as_hal_read_register(dev_p->tag,
@@ -436,7 +436,7 @@ my_misc_callback(cy_as_device *dev_p, uint8_t context,
 				if ((v & CY_AS_MEM_RST_RSTCMPT) == 0)
 					cy_as_hal_print_message(
 					"initialization message "
-					"received, but reset complete "
+					"recieved, but reset complete "
 					"bit still not set\n");
 			}
 			break;
@@ -926,8 +926,6 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_get_firmware_version);
-
 static cy_as_return_status_t
 my_handle_response_read_m_c_u_register(cy_as_device *dev_p,
 				cy_as_ll_request_response *req_p,
@@ -1117,7 +1115,7 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_read_m_c_u_register);
+
 
 cy_as_return_status_t
 cy_as_misc_write_m_c_u_register(cy_as_device_handle handle,
@@ -1338,7 +1336,6 @@ cy_as_misc_reset(cy_as_device_handle handle,
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_reset);
 
 static cy_as_return_status_t
 get_unallocated_resource(cy_as_device *dev_p, cy_as_resource_type resource)
@@ -1511,8 +1508,6 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_acquire_resource);
-
 cy_as_return_status_t
 cy_as_misc_release_resource(cy_as_device_handle handle,
 	cy_as_resource_type resource)
@@ -1565,7 +1560,6 @@ cy_as_misc_release_resource(cy_as_device_handle handle,
 
 	return CY_AS_ERROR_SUCCESS;
 }
-EXPORT_SYMBOL(cy_as_misc_release_resource);
 
 cy_as_return_status_t
 cy_as_misc_set_trace_level(cy_as_device_handle handle,
@@ -1724,7 +1718,6 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_heart_beat_control);
 
 static cy_as_return_status_t
 my_set_sd_clock_freq(
@@ -1812,7 +1805,6 @@ cy_as_misc_set_low_speed_sd_freq(
 
 	return my_set_sd_clock_freq(dev_p, 0, (uint8_t)setting, cb, client);
 }
-EXPORT_SYMBOL(cy_as_misc_set_low_speed_sd_freq);
 
 cy_as_return_status_t
 cy_as_misc_set_high_speed_sd_freq(
@@ -1838,7 +1830,6 @@ cy_as_misc_set_high_speed_sd_freq(
 
 	return my_set_sd_clock_freq(dev_p, 1, (uint8_t)setting, cb, client);
 }
-EXPORT_SYMBOL(cy_as_misc_set_high_speed_sd_freq);
 
 cy_as_return_status_t
 cy_as_misc_get_gpio_value(cy_as_device_handle handle,
@@ -1930,7 +1921,7 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_get_gpio_value);
+
 
 cy_as_return_status_t
 cy_as_misc_set_gpio_value(cy_as_device_handle handle,
@@ -2029,7 +2020,6 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_set_gpio_value);
 
 static cy_as_return_status_t
 my_enter_standby(cy_as_device *dev_p, cy_bool pin)
@@ -2223,7 +2213,6 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_enter_standby);
 
 cy_as_return_status_t
 cy_as_misc_enter_standby_e_x_u(cy_as_device_handle handle,
@@ -2381,7 +2370,7 @@ try_wakeup_again:
 	/*
 	 * release the west bridge micro-_controller from reset,
 	 * so that firmware initialization can complete. the attempt
-	 * to release antioch reset is made up to 8 times.
+	 * to release antioch reset is made upto 8 times.
 	 */
 	v = 0x03;
 	count = 0x08;
@@ -2436,7 +2425,6 @@ try_wakeup_again:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_leave_standby);
 
 cy_as_return_status_t
 cy_as_misc_register_callback(
@@ -2538,7 +2526,7 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_storage_changed);
+
 
 cy_as_return_status_t
 cy_as_misc_enter_suspend(
@@ -2646,7 +2634,6 @@ destroy:
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_enter_suspend);
 
 cy_as_return_status_t
 cy_as_misc_leave_suspend(
@@ -2717,7 +2704,6 @@ cy_as_misc_leave_suspend(
 
 	return ret;
 }
-EXPORT_SYMBOL(cy_as_misc_leave_suspend);
 
 cy_as_return_status_t
 cy_as_misc_reserve_l_n_a_boot_area(cy_as_device_handle handle,

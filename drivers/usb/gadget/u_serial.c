@@ -1092,7 +1092,7 @@ static int gs_break_ctl(struct tty_struct *tty, int duration)
 	return status;
 }
 
-static int gs_tiocmget(struct tty_struct *tty)
+static int gs_tiocmget(struct tty_struct *tty, struct file *file)
 {
 	struct gs_port	*port = tty->driver_data;
 	struct gserial	*gser;
@@ -1121,7 +1121,7 @@ fail:
 	return result;
 }
 
-static int gs_tiocmset(struct tty_struct *tty,
+static int gs_tiocmset(struct tty_struct *tty, struct file *file,
 	unsigned int set, unsigned int clear)
 {
 	struct gs_port	*port = tty->driver_data;
@@ -1181,7 +1181,7 @@ static const struct tty_operations gs_tty_ops = {
 
 static struct tty_driver *gs_tty_driver;
 
-static int
+static int __init
 gs_port_alloc(unsigned port_num, struct usb_cdc_line_coding *coding)
 {
 	struct gs_port	*port;
@@ -1285,19 +1285,19 @@ static ssize_t debug_write_reset(struct file *file, const char __user *buf,
 	return count;
 }
 
-static int serial_debug_open(struct inode *inode, struct file *file)
+static int debug_open(struct inode *inode, struct file *file)
 {
 	file->private_data = inode->i_private;
 	return 0;
 }
 
 const struct file_operations debug_rst_ops = {
-	.open = serial_debug_open,
+	.open = debug_open,
 	.write = debug_write_reset,
 };
 
 const struct file_operations debug_adb_ops = {
-	.open = serial_debug_open,
+	.open = debug_open,
 	.read = debug_read_status,
 };
 
@@ -1337,7 +1337,7 @@ static void usb_debugfs_init(struct gs_port *ui_dev) {}
  *
  * Returns negative errno or zero.
  */
-int gserial_setup(struct usb_gadget *g, unsigned count)
+int __init gserial_setup(struct usb_gadget *g, unsigned count)
 {
 	unsigned			i;
 	struct usb_cdc_line_coding	coding;
@@ -1423,8 +1423,7 @@ int gserial_setup(struct usb_gadget *g, unsigned count)
 fail:
 	while (count--)
 		kfree(ports[count].port);
-	if (gserial_wq)
-		destroy_workqueue(gserial_wq);
+	destroy_workqueue(gserial_wq);
 	put_tty_driver(gs_tty_driver);
 	gs_tty_driver = NULL;
 	return status;
@@ -1456,6 +1455,9 @@ void gserial_cleanup(void)
 {
 	unsigned	i;
 	struct gs_port	*port;
+#ifdef CONFIG_USB_AUTO_INSTALL
+	int ret;
+#endif
 
 	if (!gs_tty_driver)
 		return;
@@ -1474,7 +1476,17 @@ void gserial_cleanup(void)
 		cancel_work_sync(&port->push);
 
 		/* wait for old opens to finish */
+        /*
+         * port-bridge application will hold one file descriptor to gserial after usb mode switch sometimes 
+         * so wait_event will never get out ,further block kernel thread "suspend" and  block console_early_suspend 
+         * which makes the whole system hang.
+         */
+#ifndef CONFIG_USB_AUTO_INSTALL
 		wait_event(port->close_wait, gs_closed(port));
+#else
+		ret = wait_event_timeout(port->close_wait, gs_closed(port),HZ/10);
+		pr_debug("%s timeout %d  <\n",__func__,ret);
+#endif
 
 		WARN_ON(port->port_usb != NULL);
 

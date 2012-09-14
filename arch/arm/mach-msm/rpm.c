@@ -25,12 +25,9 @@
 #include <linux/mutex.h>
 #include <linux/semaphore.h>
 #include <linux/spinlock.h>
-#include <linux/device.h>
-#include <linux/platform_device.h>
 #include <asm/hardware/gic.h>
 #include <mach/msm_iomap.h>
 #include <mach/rpm.h>
-#include <mach/socinfo.h>
 
 /******************************************************************************
  * Data type and structure definitions
@@ -65,6 +62,7 @@ static struct msm_rpm_request msm_rpm_request_poll_mode;
 static LIST_HEAD(msm_rpm_notifications);
 static struct msm_rpm_notif_config msm_rpm_notif_cfgs[MSM_RPM_CTX_SET_COUNT];
 static bool msm_rpm_init_notif_done;
+
 /******************************************************************************
  * Internal functions
  *****************************************************************************/
@@ -264,7 +262,7 @@ static int msm_rpm_set_exclusive(int ctx,
 	DECLARE_COMPLETION_ONSTACK(ack);
 	unsigned long flags;
 	uint32_t ctx_mask = msm_rpm_get_ctx_mask(ctx);
-	uint32_t ctx_mask_ack = 0;
+	uint32_t ctx_mask_ack;
 	uint32_t sel_masks_ack[MSM_RPM_SEL_MASK_SIZE];
 	int i;
 
@@ -320,9 +318,8 @@ static int msm_rpm_set_exclusive_noirq(int ctx,
 	unsigned int irq = msm_rpm_platform->irq_ack;
 	unsigned long flags;
 	uint32_t ctx_mask = msm_rpm_get_ctx_mask(ctx);
-	uint32_t ctx_mask_ack = 0;
+	uint32_t ctx_mask_ack;
 	uint32_t sel_masks_ack[MSM_RPM_SEL_MASK_SIZE];
-	struct irq_chip *irq_chip = NULL;
 	int i;
 
 	msm_rpm_request_poll_mode.req = req;
@@ -332,12 +329,7 @@ static int msm_rpm_set_exclusive_noirq(int ctx,
 	msm_rpm_request_poll_mode.done = NULL;
 
 	spin_lock_irqsave(&msm_rpm_irq_lock, flags);
-	irq_chip = irq_get_chip(irq);
-	if (!irq_chip) {
-		spin_unlock_irqrestore(&msm_rpm_irq_lock, flags);
-		return -ENOSPC;
-	}
-	irq_chip->irq_mask(irq_get_irq_data(irq));
+	get_irq_chip(irq)->irq_mask(irq_get_irq_data(irq));
 
 	if (msm_rpm_request) {
 		msm_rpm_busy_wait_for_request_completion(true);
@@ -362,7 +354,7 @@ static int msm_rpm_set_exclusive_noirq(int ctx,
 	msm_rpm_busy_wait_for_request_completion(false);
 	BUG_ON(msm_rpm_request);
 
-	irq_chip->irq_unmask(irq_get_irq_data(irq));
+	get_irq_chip(irq)->irq_unmask(irq_get_irq_data(irq));
 	spin_unlock_irqrestore(&msm_rpm_irq_lock, flags);
 
 	BUG_ON((ctx_mask_ack & ~(msm_rpm_get_ctx_mask(MSM_RPM_CTX_REJECTED)))
@@ -380,20 +372,12 @@ static int msm_rpm_set_exclusive_noirq(int ctx,
  *   -EINTR: interrupted
  *   -EINVAL: invalid <ctx> or invalid id in <req> array
  *   -ENOSPC: request rejected
- *   -ENODEV: RPM driver not initialized
  */
 static int msm_rpm_set_common(
 	int ctx, struct msm_rpm_iv_pair *req, int count, bool noirq)
 {
 	uint32_t sel_masks[MSM_RPM_SEL_MASK_SIZE] = {};
 	int rc;
-
-	if (!msm_rpm_platform) {
-		if (cpu_is_apq8064())
-			return 0;
-		else
-			return -ENODEV;
-	}
 
 	if (ctx >= MSM_RPM_CTX_SET_COUNT) {
 		rc = -EINVAL;
@@ -428,7 +412,6 @@ set_common_exit:
  *   0: success
  *   -EINTR: interrupted
  *   -EINVAL: invalid <ctx> or invalid id in <req> array
- *   -ENODEV: RPM driver not initialized.
  */
 static int msm_rpm_clear_common(
 	int ctx, struct msm_rpm_iv_pair *req, int count, bool noirq)
@@ -437,13 +420,6 @@ static int msm_rpm_clear_common(
 	struct msm_rpm_iv_pair r[MSM_RPM_SEL_MASK_SIZE];
 	int rc;
 	int i;
-
-	if (!msm_rpm_platform) {
-		if (cpu_is_apq8064())
-			return 0;
-		else
-			return -ENODEV;
-	}
 
 	if (ctx >= MSM_RPM_CTX_SET_COUNT) {
 		rc = -EINVAL;
@@ -572,7 +548,6 @@ local_request_is_outstanding_exit:
  *   -EBUSY: RPM is updating the status page; values across different registers
  *           may not be consistent
  *   -EINVAL: invalid id in <status> array
- *   -ENODEV: RPM driver not initialized
  */
 int msm_rpm_get_status(struct msm_rpm_iv_pair *status, int count)
 {
@@ -580,13 +555,6 @@ int msm_rpm_get_status(struct msm_rpm_iv_pair *status, int count)
 	uint32_t seq_end;
 	int rc;
 	int i;
-
-	if (!msm_rpm_platform) {
-		if (cpu_is_apq8064())
-			return 0;
-		else
-			return -ENODEV;
-	}
 
 	seq_begin = msm_rpm_read(MSM_RPM_PAGE_STATUS,
 				MSM_RPM_STATUS_ID_SEQUENCE);
@@ -633,7 +601,6 @@ EXPORT_SYMBOL(msm_rpm_get_status);
  *   -EINTR: interrupted
  *   -EINVAL: invalid <ctx> or invalid id in <req> array
  *   -ENOSPC: request rejected
- *   -ENODEV: RPM driver not initialized
  */
 int msm_rpm_set(int ctx, struct msm_rpm_iv_pair *req, int count)
 {
@@ -718,7 +685,6 @@ EXPORT_SYMBOL(msm_rpm_clear_noirq);
  *   0: success
  *   -EINTR: interrupted
  *   -EINVAL: invalid id in <req> array
- *   -ENODEV: RPM driver not initialized
  */
 int msm_rpm_register_notification(struct msm_rpm_notification *n,
 	struct msm_rpm_iv_pair *req, int count)
@@ -728,13 +694,6 @@ int msm_rpm_register_notification(struct msm_rpm_notification *n,
 	struct msm_rpm_notif_config cfg;
 	int rc;
 	int i;
-
-	if (!msm_rpm_platform) {
-		if (cpu_is_apq8064())
-			return 0;
-		else
-			return -ENODEV;
-	}
 
 	INIT_LIST_HEAD(&n->list);
 	rc = msm_rpm_fill_sel_masks(n->sel_masks, req, count);
@@ -778,7 +737,6 @@ EXPORT_SYMBOL(msm_rpm_register_notification);
  * Return value:
  *   0: success
  *   -EINTR: interrupted
- *   -ENODEV: RPM driver not initialized
  */
 int msm_rpm_unregister_notification(struct msm_rpm_notification *n)
 {
@@ -787,13 +745,6 @@ int msm_rpm_unregister_notification(struct msm_rpm_notification *n)
 	struct msm_rpm_notif_config cfg;
 	int rc;
 	int i;
-
-	if (!msm_rpm_platform) {
-		if (cpu_is_apq8064())
-			return 0;
-		else
-			return -ENODEV;
-	}
 
 	rc = mutex_lock_interruptible(&msm_rpm_mutex);
 	if (rc)
@@ -820,55 +771,6 @@ unregister_notification_exit:
 }
 EXPORT_SYMBOL(msm_rpm_unregister_notification);
 
-static uint32_t fw_major, fw_minor, fw_build;
-
-static ssize_t driver_version_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%u.%u.%u\n",
-			RPM_MAJOR_VER, RPM_MINOR_VER, RPM_BUILD_VER);
-}
-
-static ssize_t fw_version_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%u.%u.%u\n",
-			fw_major, fw_minor, fw_build);
-}
-
-static struct kobj_attribute driver_version_attr = __ATTR_RO(driver_version);
-static struct kobj_attribute fw_version_attr = __ATTR_RO(fw_version);
-
-static struct attribute *driver_attributes[] = {
-	&driver_version_attr.attr,
-	&fw_version_attr.attr,
-	NULL
-};
-
-static struct attribute_group driver_attr_group = {
-	.attrs = driver_attributes,
-};
-
-static int __devinit msm_rpm_probe(struct platform_device *pdev)
-{
-	return sysfs_create_group(&pdev->dev.kobj, &driver_attr_group);
-}
-
-static int __devexit msm_rpm_remove(struct platform_device *pdev)
-{
-	sysfs_remove_group(&pdev->dev.kobj, &driver_attr_group);
-	return 0;
-}
-
-static struct platform_driver msm_rpm_platform_driver = {
-	.probe = msm_rpm_probe,
-	.remove = __devexit_p(msm_rpm_remove),
-	.driver = {
-		.name = "msm_rpm",
-		.owner = THIS_MODULE,
-	},
-};
-
 static void __init msm_rpm_populate_map(void)
 {
 	int i, k;
@@ -886,37 +788,25 @@ static void __init msm_rpm_populate_map(void)
 
 int __init msm_rpm_init(struct msm_rpm_platform_data *data)
 {
+	uint32_t major;
+	uint32_t minor;
+	uint32_t build;
 	unsigned int irq;
 	int rc;
 
-	if (cpu_is_apq8064())
-		return 0;
-
 	msm_rpm_platform = data;
 
-	fw_major = msm_rpm_read(MSM_RPM_PAGE_STATUS,
+	major = msm_rpm_read(MSM_RPM_PAGE_STATUS,
 					MSM_RPM_STATUS_ID_VERSION_MAJOR);
-	fw_minor = msm_rpm_read(MSM_RPM_PAGE_STATUS,
+	minor = msm_rpm_read(MSM_RPM_PAGE_STATUS,
 					MSM_RPM_STATUS_ID_VERSION_MINOR);
-	fw_build = msm_rpm_read(MSM_RPM_PAGE_STATUS,
+	build = msm_rpm_read(MSM_RPM_PAGE_STATUS,
 					MSM_RPM_STATUS_ID_VERSION_BUILD);
-	pr_info("%s: RPM firmware %u.%u.%u\n", __func__,
-			fw_major, fw_minor, fw_build);
+	pr_info("%s: RPM firmware %u.%u.%u\n", __func__, major, minor, build);
 
-	if (fw_major != RPM_MAJOR_VER) {
-		pr_err("%s: RPM version %u.%u.%u incompatible with "
-				"this driver version %u.%u.%u\n", __func__,
-				fw_major, fw_minor, fw_build,
-				RPM_MAJOR_VER, RPM_MINOR_VER, RPM_BUILD_VER);
-		return -EFAULT;
-	}
-
-	msm_rpm_write(MSM_RPM_PAGE_CTRL, MSM_RPM_CTRL_VERSION_MAJOR,
-			RPM_MAJOR_VER);
-	msm_rpm_write(MSM_RPM_PAGE_CTRL, MSM_RPM_CTRL_VERSION_MINOR,
-			RPM_MINOR_VER);
-	msm_rpm_write(MSM_RPM_PAGE_CTRL, MSM_RPM_CTRL_VERSION_BUILD,
-			RPM_BUILD_VER);
+	msm_rpm_write(MSM_RPM_PAGE_CTRL, MSM_RPM_CTRL_VERSION_MAJOR, 2);
+	msm_rpm_write(MSM_RPM_PAGE_CTRL, MSM_RPM_CTRL_VERSION_MINOR, 0);
+	msm_rpm_write(MSM_RPM_PAGE_CTRL, MSM_RPM_CTRL_VERSION_BUILD, 0);
 
 	irq = msm_rpm_platform->irq_ack;
 
@@ -929,7 +819,7 @@ int __init msm_rpm_init(struct msm_rpm_platform_data *data)
 		return rc;
 	}
 
-	rc = irq_set_irq_wake(irq, 1);
+	rc = set_irq_wake(irq, 1);
 	if (rc) {
 		pr_err("%s: failed to set wakeup irq %u: %d\n",
 			__func__, irq, rc);
@@ -937,6 +827,5 @@ int __init msm_rpm_init(struct msm_rpm_platform_data *data)
 	}
 
 	msm_rpm_populate_map();
-
-	return platform_driver_register(&msm_rpm_platform_driver);
+	return 0;
 }

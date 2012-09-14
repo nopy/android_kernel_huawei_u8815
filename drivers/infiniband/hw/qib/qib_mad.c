@@ -464,9 +464,8 @@ static int subn_get_portinfo(struct ib_smp *smp, struct ib_device *ibdev,
 	memset(smp->data, 0, sizeof(smp->data));
 
 	/* Only return the mkey if the protection field allows it. */
-	if (!(smp->method == IB_MGMT_METHOD_GET &&
-	      ibp->mkey != smp->mkey &&
-	      ibp->mkeyprot == 1))
+	if (smp->method == IB_MGMT_METHOD_SET || ibp->mkey == smp->mkey ||
+	    ibp->mkeyprot == 0)
 		pip->mkey = ibp->mkey;
 	pip->gid_prefix = ibp->gid_prefix;
 	lid = ppd->lid;
@@ -706,7 +705,7 @@ static int subn_set_portinfo(struct ib_smp *smp, struct ib_device *ibdev,
 	lwe = pip->link_width_enabled;
 	if (lwe) {
 		if (lwe == 0xFF)
-			set_link_width_enabled(ppd, ppd->link_width_supported);
+			lwe = ppd->link_width_supported;
 		else if (lwe >= 16 || (lwe & ~ppd->link_width_supported))
 			smp->status |= IB_SMP_INVALID_FIELD;
 		else if (lwe != ppd->link_width_enabled)
@@ -721,8 +720,7 @@ static int subn_set_portinfo(struct ib_smp *smp, struct ib_device *ibdev,
 		 * speeds.
 		 */
 		if (lse == 15)
-			set_link_speed_enabled(ppd,
-					       ppd->link_speed_supported);
+			lse = ppd->link_speed_supported;
 		else if (lse >= 8 || (lse & ~ppd->link_speed_supported))
 			smp->status |= IB_SMP_INVALID_FIELD;
 		else if (lse != ppd->link_speed_enabled)
@@ -851,7 +849,7 @@ static int subn_set_portinfo(struct ib_smp *smp, struct ib_device *ibdev,
 	if (clientrereg)
 		pip->clientrereg_resv_subnetto |= 0x80;
 
-	goto get_only;
+	goto done;
 
 err:
 	smp->status |= IB_SMP_INVALID_FIELD;

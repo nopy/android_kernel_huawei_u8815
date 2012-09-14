@@ -22,10 +22,10 @@
 #include "core.h"
 #include "sdio_cis.h"
 #include "bus.h"
-
 #ifdef CONFIG_HUAWEI_KERNEL
 #include "hw_extern_sdcard.h"
 #endif
+
 #define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
 
 static ssize_t mmc_type_show(struct device *dev,
@@ -266,9 +266,7 @@ int mmc_add_card(struct mmc_card *card)
 {
 	int ret;
 	const char *type;
-#ifdef CONFIG_HUAWEI_KERNEL
-	mdelay(100);
-#endif
+
 	dev_set_name(&card->dev, "%s:%04x", mmc_hostname(card->host), card->rca);
 
 	switch (card->type) {
@@ -291,7 +289,6 @@ int mmc_add_card(struct mmc_card *card)
 		type = "SD-combo";
 		if (mmc_card_blockaddr(card))
 			type = "SDHC-combo";
-		break;
 	default:
 		type = "?";
 		break;
@@ -318,6 +315,7 @@ int mmc_add_card(struct mmc_card *card)
         hw_extern_sdcard_insert();
     }
 #endif
+
 #ifdef CONFIG_DEBUG_FS
 	mmc_add_card_debugfs(card);
 #endif
@@ -350,12 +348,12 @@ void mmc_remove_card(struct mmc_card *card)
 				mmc_hostname(card->host), card->rca);
 		}
         
-        #ifdef CONFIG_HUAWEI_KERNEL
+#ifdef CONFIG_HUAWEI_KERNEL
         if(MMC_TYPE_SD  == card->type)
         {
             hw_extern_sdcard_remove();
         }
-        #endif
+#endif
 
 		device_del(&card->dev);
 	}

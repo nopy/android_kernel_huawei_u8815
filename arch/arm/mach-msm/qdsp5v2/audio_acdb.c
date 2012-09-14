@@ -31,7 +31,6 @@
 #include <mach/msm_subsystem_map.h>
 #include <mach/qdsp5v2/audio_dev_ctl.h>
 #include <mach/qdsp5v2/audpp.h>
-#include <mach/socinfo.h>
 #include <mach/qdsp5v2/audpreproc.h>
 #include <mach/qdsp5v2/qdsp5audppcmdi.h>
 #include <mach/qdsp5v2/qdsp5audpreproccmdi.h>
@@ -131,7 +130,6 @@ struct acdb_data {
 	unsigned long	get_blk_paddr;
 	u8		*get_blk_kvaddr;
 	struct msm_mapped_buffer *map_v_get_blk;
-	char *build_id;
 };
 
 static struct acdb_data		acdb_data;
@@ -1111,26 +1109,23 @@ static bool rtc_acdb_init(void)
 	rtc_acdb.set_iid = 0;
 	rtc_acdb.valid_abid = false;
 	rtc_acdb.tx_rx_ctl = 0;
-	if (acdb_data.build_id[17] == '1') {
-		snprintf(name, sizeof name, "get_set_abid");
-		get_set_abid_dentry = debugfs_create_file(name,
+	snprintf(name, sizeof name, "get_set_abid");
+	get_set_abid_dentry = debugfs_create_file(name,
 					S_IFREG | S_IRUGO | S_IWUGO,
 					NULL, NULL, &rtc_acdb_debug_fops);
-		if (IS_ERR(get_set_abid_dentry)) {
-			MM_ERR("SET GET ABID debugfs_create_file failed\n");
-			return false;
-		}
+	if (IS_ERR(get_set_abid_dentry)) {
+		MM_ERR("SET GET ABID debugfs_create_file failed\n");
+		return false;
+	}
 
-		snprintf(name1, sizeof name1, "get_set_abid_data");
-		get_set_abid_data_dentry = debugfs_create_file(name1,
-						S_IFREG | S_IRUGO | S_IWUGO,
-						NULL, NULL,
-						&rtc_acdb_data_debug_fops);
-		if (IS_ERR(get_set_abid_data_dentry)) {
-			MM_ERR("SET GET ABID DATA"
-					" debugfs_create_file failed\n");
-			return false;
-		}
+    snprintf(name1, sizeof name1, "get_set_abid_data");
+	get_set_abid_data_dentry = debugfs_create_file(name1,
+					S_IFREG | S_IRUGO | S_IWUGO,
+					NULL, NULL,
+					&rtc_acdb_data_debug_fops);
+	if (IS_ERR(get_set_abid_data_dentry)) {
+		MM_ERR("SET GET ABID DATA debugfs_create_file failed\n");
+		return false;
 	}
 
 	rtc_read->phys = allocate_contiguous_ebi_nomap(PMEM_RTC_ACDB_QUERY_MEM,
@@ -1368,11 +1363,7 @@ static s32 acdb_get_calibration(void)
 
 	acdb_cmd.command_id = ACDB_GET_DEVICE_TABLE;
 	acdb_cmd.device_id = acdb_data.device_info->acdb_id;
-    #ifdef CONFIG_HUAWEI_KERNEL
-	acdb_cmd.network_id = ACDB_GSM_NB; //0x0108b155
-    #else
-    acdb_cmd.network_id = 0x0108B153;
-    #endif
+	acdb_cmd.network_id = 0x0108B153;
 	acdb_cmd.sample_rate_id = acdb_data.device_info->sample_rate;
 	acdb_cmd.total_bytes = ACDB_BUF_SIZE;
 	acdb_cmd.phys_buf = (u32 *)acdb_data.phys_addr;
@@ -1483,7 +1474,7 @@ static u8 check_device_info_already_present(
 		acdb values are not cleaned from node so update node status
 		with acdb value filled*/
 		if ((acdb_cache_free_node->node_status != ACDB_VALUES_FILLED) &&
-			((audcal_info.dev_type & RX_DEVICE) == 1)) {
+			((acdb_data.device_info->dev_type & RX_DEVICE) == 1)) {
 			MM_DBG("device was released earlier\n");
 			acdb_cache_free_node->node_status = ACDB_VALUES_FILLED;
 			return 2; /*node is presnet but status as not filled*/
@@ -2341,20 +2332,18 @@ s32 acdb_calibrate_audpreproc(void)
 			MM_DBG("AUDPREPROC is calibrated"
 				" with calib_gain_tx\n");
 	}
-	if (acdb_data.build_id[17] != '0') {
-		acdb_rmc = get_rmc_blk();
-		if (acdb_rmc != NULL) {
-			result = afe_config_rmc_block(acdb_rmc);
-			if (result) {
-				MM_ERR("ACDB=> Failed to send rmc"
-					" data to afe\n");
-				result = -EINVAL;
-				goto done;
-			} else
-				MM_DBG("AFE is calibrated with rmc params\n");
+	acdb_rmc = get_rmc_blk();
+	if (acdb_rmc != NULL) {
+		result = afe_config_rmc_block(acdb_rmc);
+		if (result) {
+			MM_ERR("ACDB=> Failed to send rmc"
+				" data to afe\n");
+			result = -EINVAL;
+			goto done;
 		} else
-			MM_DBG("RMC block was not found\n");
-	}
+			MM_DBG("AFE is calibrated with rmc params\n");
+	} else
+		MM_DBG("RMC block was not found\n");
 	if (!acdb_data.fleuce_feature_status[acdb_data.preproc_stream_id]) {
 		result = acdb_fill_audpreproc_fluence();
 		if (!(IS_ERR_VALUE(result))) {
@@ -2875,10 +2864,13 @@ static u32 free_acdb_cache_node(union auddev_evt_data *evt)
 		acdb_cache_tx[session_id].
 			node_status = ACDB_VALUES_NOT_FILLED;
 	} else {
+		if (--(acdb_cache_rx[evt->audcal_info.dev_id].stream_id) <= 0) {
 			MM_DBG("freeing rx cache node %d\n",
 						evt->audcal_info.dev_id);
 			acdb_cache_rx[evt->audcal_info.dev_id].
 				node_status = ACDB_VALUES_NOT_FILLED;
+			acdb_cache_rx[evt->audcal_info.dev_id].stream_id = 0;
+		}
 	}
 	return 0;
 }
@@ -3028,13 +3020,8 @@ static void audpp_cb(void *private, u32 id, u16 *msg)
 		goto done;
 
 	if (msg[0] == AUDPP_MSG_ENA_DIS) {
-		if (--acdb_cache_rx[acdb_data.\
-				device_info->dev_id].stream_id <= 0) {
-			acdb_data.acdb_state &= ~AUDPP_READY;
-			acdb_cache_rx[acdb_data.device_info->dev_id]\
-					.stream_id = 0;
-			MM_DBG("AUDPP_MSG_ENA_DIS\n");
-		}
+		acdb_data.acdb_state &= ~AUDPP_READY;
+		MM_DBG("AUDPP_MSG_ENA_DIS\n");
 		goto done;
 	}
 
@@ -3061,11 +3048,9 @@ static s8 handle_audpreproc_cb(void)
 		MM_INFO("audpreproc is routed to pseudo device\n");
 		return result;
 	}
-	if (acdb_data.build_id[17] == '1') {
-		if (session_info[stream_id].sampling_freq)
-			acdb_data.device_info->sample_rate =
+	if (session_info[stream_id].sampling_freq)
+		acdb_data.device_info->sample_rate =
 					session_info[stream_id].sampling_freq;
-	}
 	if (!(acdb_data.acdb_state & CAL_DATA_READY)) {
 		result = check_tx_acdb_values_cached();
 		if (result) {
@@ -3123,19 +3108,17 @@ static void audpreproc_cb(void *private, u32 id, void *msg)
 	  callback at this scenario we should not access
 	  device information
 	 */
-	if (acdb_data.build_id[17] != '0') {
-		if (acdb_data.device_info &&
-			session_info[stream_id].sampling_freq) {
-			acdb_data.device_info->sample_rate =
+	if (acdb_data.device_info &&
+		session_info[stream_id].sampling_freq) {
+		acdb_data.device_info->sample_rate =
 					session_info[stream_id].sampling_freq;
-			result = check_tx_acdb_values_cached();
-			if (!result) {
-				MM_INFO("acdb values for the stream is" \
-							" querried from modem");
-				acdb_data.acdb_state |= CAL_DATA_READY;
-			} else {
-				acdb_data.acdb_state &= ~CAL_DATA_READY;
-			}
+		result = check_tx_acdb_values_cached();
+		if (!result) {
+			MM_INFO("acdb values for the stream is" \
+						" querried from modem");
+			acdb_data.acdb_state |= CAL_DATA_READY;
+		} else {
+			acdb_data.acdb_state &= ~CAL_DATA_READY;
 		}
 	}
 	if (acdb_data.preproc_stream_id == 0)
@@ -3209,7 +3192,6 @@ static s32 acdb_initialize_data(void)
 	result = register_audpreproc_cb();
 	if (result)
 		goto err4;
-
 
 	return result;
 
@@ -3292,11 +3274,10 @@ static s32 acdb_calibrate_device(void *data)
 	result = acdb_initialize_data();
 	if (result)
 		goto done;
-	if (acdb_data.build_id[17] != '0') {
-		result = initialize_modem_acdb();
-		if (result < 0)
-			MM_ERR("failed to initialize modem ACDB\n");
-	}
+
+	result = initialize_modem_acdb();
+	if (result < 0)
+		MM_ERR("failed to initialize modem ACDB\n");
 
 	while (!kthread_should_stop()) {
 		MM_DBG("Waiting for call back events\n");
@@ -3392,10 +3373,6 @@ static int __init acdb_init(void)
 		result = -ENODEV;
 		goto err;
 	}
-
-	acdb_data.build_id = socinfo_get_build_id();
-	MM_INFO("build id used is = %s\n", acdb_data.build_id);
-
 #ifdef CONFIG_DEBUG_FS
 	/*This is RTC specific INIT used only with debugfs*/
 	if (!rtc_acdb_init())

@@ -187,8 +187,10 @@ static int __init lcdc_chimei_lvds_panel_init(void)
 	int ret;
 	struct msm_panel_info *pinfo;
 
-	if (msm_fb_detect_client("lcdc_chimei_wxga"))
+#ifdef CONFIG_FB_MSM_MIPI_PANEL_DETECT
+	if (msm_fb_detect_client("lcdc_chimei_lvds_wxga"))
 		return 0;
+#endif
 
 	ret = platform_driver_register(&this_driver);
 	if (ret)

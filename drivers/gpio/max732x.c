@@ -470,14 +470,14 @@ static int max732x_irq_setup(struct max732x_chip *chip,
 			if (!(chip->dir_input & (1 << lvl)))
 				continue;
 
-			irq_set_chip_data(irq, chip);
-			irq_set_chip_and_handler(irq, &max732x_irq_chip,
+			set_irq_chip_data(irq, chip);
+			set_irq_chip_and_handler(irq, &max732x_irq_chip,
 						 handle_edge_irq);
-			irq_set_nested_thread(irq, 1);
+			set_irq_nested_thread(irq, 1);
 #ifdef CONFIG_ARM
 			set_irq_flags(irq, IRQF_VALID);
 #else
-			irq_set_noprobe(irq);
+			set_irq_noprobe(irq);
 #endif
 		}
 

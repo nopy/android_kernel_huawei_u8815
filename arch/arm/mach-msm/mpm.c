@@ -20,10 +20,8 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
-#include <asm/hardware/gic.h>
 #include <linux/spinlock.h>
 #include <mach/msm_iomap.h>
-#include <mach/gpio.h>
 
 #include "mpm.h"
 
@@ -260,9 +258,6 @@ static int msm_mpm_set_irq_type_exclusive(
 		uint32_t index = MSM_MPM_IRQ_INDEX(mpm_irq);
 		uint32_t mask = MSM_MPM_IRQ_MASK(mpm_irq);
 
-		if (index >= MSM_MPM_REG_WIDTH)
-			return -EFAULT;
-
 		if (flow_type & IRQ_TYPE_EDGE_BOTH)
 			msm_mpm_detect_ctl[index] |= mask;
 		else
@@ -277,7 +272,11 @@ static int msm_mpm_set_irq_type_exclusive(
 	return 0;
 }
 
-static int __msm_mpm_enable_irq(unsigned int irq, unsigned int enable)
+/******************************************************************************
+ * Public functions
+ *****************************************************************************/
+
+int msm_mpm_enable_irq(unsigned int irq, unsigned int enable)
 {
 	unsigned long flags;
 	int rc;
@@ -289,43 +288,30 @@ static int __msm_mpm_enable_irq(unsigned int irq, unsigned int enable)
 	return rc;
 }
 
-static void msm_mpm_enable_irq(struct irq_data *d)
-{
-	__msm_mpm_enable_irq(d->irq, 1);
-}
-
-static void msm_mpm_disable_irq(struct irq_data *d)
-{
-	__msm_mpm_enable_irq(d->irq, 0);
-}
-
-static int msm_mpm_set_irq_wake(struct irq_data *d, unsigned int on)
+int msm_mpm_set_irq_wake(unsigned int irq, unsigned int on)
 {
 	unsigned long flags;
 	int rc;
 
 	spin_lock_irqsave(&msm_mpm_lock, flags);
-	rc = msm_mpm_enable_irq_exclusive(d->irq, (bool)on, true);
+	rc = msm_mpm_enable_irq_exclusive(irq, (bool)on, true);
 	spin_unlock_irqrestore(&msm_mpm_lock, flags);
 
 	return rc;
 }
 
-static int msm_mpm_set_irq_type(struct irq_data *d, unsigned int flow_type)
+int msm_mpm_set_irq_type(unsigned int irq, unsigned int flow_type)
 {
 	unsigned long flags;
 	int rc;
 
 	spin_lock_irqsave(&msm_mpm_lock, flags);
-	rc = msm_mpm_set_irq_type_exclusive(d->irq, flow_type);
+	rc = msm_mpm_set_irq_type_exclusive(irq, flow_type);
 	spin_unlock_irqrestore(&msm_mpm_lock, flags);
 
 	return rc;
 }
 
-/******************************************************************************
- * Public functions
- *****************************************************************************/
 int msm_mpm_enable_pin(enum msm_mpm_pin pin, unsigned int enable)
 {
 	uint32_t index = MSM_MPM_IRQ_INDEX(pin);
@@ -435,17 +421,22 @@ void msm_mpm_exit_sleep(bool from_idle)
 
 		if (MSM_MPM_DEBUG_PENDING_IRQ & msm_mpm_debug_mask)
 			pr_info("%s: pending.%d: 0x%08lx", __func__,
-					i, pending);
+				i, pending);
 
 		k = find_first_bit(&pending, 32);
 		while (k < 32) {
 			unsigned int mpm_irq = 32 * i + k;
 			unsigned int apps_irq = msm_mpm_get_irq_m2a(mpm_irq);
 			struct irq_desc *desc = apps_irq ?
-				irq_to_desc(apps_irq) : NULL;
+						irq_to_desc(apps_irq) : NULL;
 
-			if (desc && !irqd_is_level_type(&desc->irq_data)) {
-				irq_set_pending(apps_irq);
+			/*
+			 * This function is called when only CPU 0 is
+			 * running and when both preemption and irqs
+			 * are disabled.  There is no need to lock desc.
+			 */
+			if (desc && (desc->status & IRQ_TYPE_EDGE_BOTH)) {
+				desc->status |= IRQ_PENDING;
 				if (from_idle)
 					check_irq_resend(desc, apps_irq);
 			}
@@ -472,27 +463,13 @@ static int __init msm_mpm_early_init(void)
 }
 core_initcall(msm_mpm_early_init);
 
-void msm_mpm_irq_extn_init(void)
-{
-	gic_arch_extn.irq_mask = msm_mpm_disable_irq;
-	gic_arch_extn.irq_unmask = msm_mpm_enable_irq;
-	gic_arch_extn.irq_disable = msm_mpm_disable_irq;
-	gic_arch_extn.irq_set_type = msm_mpm_set_irq_type;
-	gic_arch_extn.irq_set_wake = msm_mpm_set_irq_wake;
-
-	msm_gpio_irq_extn.irq_mask = msm_mpm_disable_irq;
-	msm_gpio_irq_extn.irq_unmask = msm_mpm_enable_irq;
-	msm_gpio_irq_extn.irq_disable = msm_mpm_disable_irq;
-	msm_gpio_irq_extn.irq_set_type = msm_mpm_set_irq_type;
-	msm_gpio_irq_extn.irq_set_wake = msm_mpm_set_irq_wake;
-
-	bitmap_set(msm_mpm_gpio_irqs_mask, NR_MSM_IRQS, NR_GPIO_IRQS);
-}
-
 static int __init msm_mpm_init(void)
 {
 	unsigned int irq = msm_mpm_dev_data.mpm_ipc_irq;
 	int rc;
+
+	bitmap_set(msm_mpm_gpio_irqs_mask, NR_MSM_IRQS,
+			MSM_MPM_NR_APPS_IRQS - 1);
 
 	rc = request_irq(irq, msm_mpm_irq,
 			IRQF_TRIGGER_RISING, "mpm_drv", msm_mpm_irq);
@@ -503,7 +480,7 @@ static int __init msm_mpm_init(void)
 		goto init_bail;
 	}
 
-	rc = irq_set_irq_wake(irq, 1);
+	rc = set_irq_wake(irq, 1);
 	if (rc) {
 		pr_err("%s: failed to set wakeup irq %u: %d\n",
 			__func__, irq, rc);

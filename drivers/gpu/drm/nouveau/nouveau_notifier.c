@@ -35,22 +35,20 @@ nouveau_notifier_init_channel(struct nouveau_channel *chan)
 {
 	struct drm_device *dev = chan->dev;
 	struct nouveau_bo *ntfy = NULL;
-	uint32_t flags, ttmpl;
+	uint32_t flags;
 	int ret;
 
-	if (nouveau_vram_notify) {
-		flags = NOUVEAU_GEM_DOMAIN_VRAM;
-		ttmpl = TTM_PL_FLAG_VRAM;
-	} else {
-		flags = NOUVEAU_GEM_DOMAIN_GART;
-		ttmpl = TTM_PL_FLAG_TT;
-	}
+	if (nouveau_vram_notify)
+		flags = TTM_PL_FLAG_VRAM;
+	else
+		flags = TTM_PL_FLAG_TT;
 
-	ret = nouveau_gem_new(dev, NULL, PAGE_SIZE, 0, flags, 0, 0, &ntfy);
+	ret = nouveau_gem_new(dev, NULL, PAGE_SIZE, 0, flags,
+			      0, 0x0000, false, true, &ntfy);
 	if (ret)
 		return ret;
 
-	ret = nouveau_bo_pin(ntfy, ttmpl);
+	ret = nouveau_bo_pin(ntfy, flags);
 	if (ret)
 		goto out_err;
 
@@ -102,7 +100,6 @@ nouveau_notifier_alloc(struct nouveau_channel *chan, uint32_t handle,
 		       uint32_t *b_offset)
 {
 	struct drm_device *dev = chan->dev;
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct nouveau_gpuobj *nobj = NULL;
 	struct drm_mm_node *mem;
 	uint32_t offset;
@@ -117,16 +114,11 @@ nouveau_notifier_alloc(struct nouveau_channel *chan, uint32_t handle,
 		return -ENOMEM;
 	}
 
-	if (dev_priv->card_type < NV_50) {
-		if (chan->notifier_bo->bo.mem.mem_type == TTM_PL_VRAM)
-			target = NV_MEM_TARGET_VRAM;
-		else
-			target = NV_MEM_TARGET_GART;
-		offset  = chan->notifier_bo->bo.mem.start << PAGE_SHIFT;
-	} else {
-		target = NV_MEM_TARGET_VM;
-		offset = chan->notifier_bo->vma.offset;
-	}
+	if (chan->notifier_bo->bo.mem.mem_type == TTM_PL_VRAM)
+		target = NV_MEM_TARGET_VRAM;
+	else
+		target = NV_MEM_TARGET_GART;
+	offset  = chan->notifier_bo->bo.mem.start << PAGE_SHIFT;
 	offset += mem->start;
 
 	ret = nouveau_gpuobj_dma_new(chan, NV_CLASS_DMA_IN_MEMORY, offset,

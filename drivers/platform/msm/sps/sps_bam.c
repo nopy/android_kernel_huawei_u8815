@@ -128,13 +128,12 @@ static irqreturn_t bam_isr(int irq, void *ctxt)
 	u32 source;
 	unsigned long flags = 0;
 
-
 	spin_lock_irqsave(&dev->isr_lock, flags);
 
 	/* Get BAM interrupt source(s) */
 	if ((dev->state & BAM_STATE_MTI) == 0) {
 		u32 mask = dev->pipe_active_mask;
-		source = bam_check_irq_source(dev->base,
+		source = bam_get_irq_status(dev->base,
 							  dev->props.ee,
 							  mask);
 
@@ -217,18 +216,6 @@ int sps_bam_enable(struct sps_bam *dev)
 		/* Enable the BAM interrupt */
 		irq_mask = BAM_IRQ_ALL;
 		dev->state |= BAM_STATE_IRQ;
-
-		/* Register BAM IRQ for apps wakeup */
-		if (dev->props.options & SPS_BAM_OPT_IRQ_WAKEUP) {
-			result = enable_irq_wake(dev->props.irq);
-
-			if (result) {
-				SPS_ERR("Failed to enable wakeup irq "
-					"BAM 0x%x IRQ %d",
-					BAM_ID(dev), dev->props.irq);
-				return SPS_ERROR;
-			}
-		}
 	}
 
 	/* Is global BAM control managed by the local processor? */
@@ -456,8 +443,6 @@ int sps_bam_device_init(struct sps_bam *dev)
 
 	spin_lock_init(&dev->isr_lock);
 
-	spin_lock_init(&dev->connection_lock);
-
 	if ((dev->props.options & SPS_BAM_OPT_ENABLE_AT_BOOT))
 		if (sps_bam_enable(dev))
 			return SPS_ERROR;
@@ -634,16 +619,9 @@ void sps_bam_pipe_free(struct sps_bam *dev, u32 pipe_index)
 		SPS_ERR("Disconnect BAM 0x%x pipe %d with events pending",
 			BAM_ID(dev), pipe_index);
 
-		sps_event = list_entry((&pipe->sys.events_q)->next,
-				typeof(*sps_event), list);
-
-		while (&sps_event->list != (&pipe->sys.events_q)) {
-			struct sps_q_event *sps_event_delete = sps_event;
-
+		list_for_each_entry(sps_event, &pipe->sys.events_q, list) {
 			list_del(&sps_event->list);
-			sps_event = list_entry(sps_event->list.next,
-					typeof(*sps_event), list);
-			kfree(sps_event_delete);
+			kfree(sps_event);
 		}
 	}
 
@@ -1093,17 +1071,11 @@ int sps_bam_pipe_reg_event(struct sps_bam *dev,
 			continue;	/* No */
 
 		index = SPS_EVENT_INDEX(opt_event_table[n].event_id);
-		if (index < 0)
-			SPS_ERR("Negative event index: "
-			"BAM 0x%x pipe %d mode %d",
-			BAM_ID(dev), pipe_index, reg->mode);
-		else {
-			event_reg = &pipe->sys.event_regs[index];
-			event_reg->xfer_done = reg->xfer_done;
-			event_reg->callback = reg->callback;
-			event_reg->mode = reg->mode;
-			event_reg->user = reg->user;
-		}
+		event_reg = &pipe->sys.event_regs[index];
+		event_reg->xfer_done = reg->xfer_done;
+		event_reg->callback = reg->callback;
+		event_reg->mode = reg->mode;
+		event_reg->user = reg->user;
 	}
 
 	return 0;

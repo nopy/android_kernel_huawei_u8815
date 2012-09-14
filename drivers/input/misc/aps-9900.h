@@ -27,7 +27,7 @@
 
 #define VREG_GP4_NAME	"gp4"
 #define VREG_GP4_VOLTAGE_VALUE	2700
-
+/*code unitary*/
 #define CMD_BYTE      0x80
 #define CMD_WORD      0xA0
 #define CMD_SPECIAL   0xE0
@@ -64,6 +64,7 @@
 #define APDS9900_POWER_OFF 0    /* set the APDS9900_ENABLE_REG's PON=1,Writing a 0 disables the APDS9900 */
 /*reconfig reg after resume*/
 #define APDS9900_ENABLE 0x3F    /* set the APDS9900_ENABLE_REG's*/
+
 #define APDS9900_POWER_MASK (1<<0)
 #define APDS9900_STATUS_PROXIMITY_BIT (1<<5)
 #define APDS9900_STATUS_ALS_BIT (1<<4)
@@ -88,11 +89,10 @@
 #define U8815_WAVE  150
 #define U8815_WINDOW 150
 #define C8655_WAVE  40
-#define C8655_WINDOW 225
+#define C8655_WINDOW 90
 
 #define M660_WAVE  25
 #define M660_WINDOW 90
-/* delete this part */
 
 static uint16_t lsensor_adc_table_u8655[LSENSOR_MAX_LEVEL] = {
 	30, 48, 72, 134, 245, 360, 500
@@ -105,19 +105,5 @@ static uint16_t lsensor_adc_table_c8655[LSENSOR_MAX_LEVEL] = {
 };
 static uint16_t lsensor_adc_table_m660[LSENSOR_MAX_LEVEL] = {
 	33, 100, 150, 332, 400, 480, 553
-};
-/* the values below are all experience value and provide by wenjuan*/
-static uint16_t lsensor_adc_table_c8812[LSENSOR_MAX_LEVEL] = {
-	8, 80, 470, 900, 1200, 1500, 2200
-};
-static uint16_t lsensor_adc_table_u8680[LSENSOR_MAX_LEVEL] = {
-	10, 26, 210, 560, 860, 1200, 1500
-};
-/*u8730's value,provided by wenjuan*/
-static uint16_t lsensor_adc_table_u8730[LSENSOR_MAX_LEVEL] = {
-	25, 55, 210, 600, 860, 1000, 1300
-};
-static uint16_t lsensor_adc_table_u8667[LSENSOR_MAX_LEVEL] = {
-	25, 55, 210, 600, 860, 1000, 1300
 };
 #endif /* _LINUX_APS_9900_H */

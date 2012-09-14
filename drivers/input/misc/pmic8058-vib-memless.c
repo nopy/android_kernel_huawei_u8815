@@ -164,7 +164,7 @@ static int __devinit pmic8058_vib_probe(struct platform_device *pdev)
 
 	struct pm8058_chip	*pm_chip;
 
-	pm_chip = dev_get_drvdata(pdev->parent.dev);
+	pm_chip = platform_get_drvdata(pdev);
 	if (pm_chip == NULL) {
 		dev_err(&pdev->dev, "no parent data passed in\n");
 		return -EFAULT;

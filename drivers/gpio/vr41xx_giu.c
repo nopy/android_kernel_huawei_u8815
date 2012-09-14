@@ -238,13 +238,13 @@ void vr41xx_set_irq_trigger(unsigned int pin, irq_trigger_t trigger,
 					break;
 				}
 			}
-			irq_set_chip_and_handler(GIU_IRQ(pin),
+			set_irq_chip_and_handler(GIU_IRQ(pin),
 						 &giuint_low_irq_chip,
 						 handle_edge_irq);
 		} else {
 			giu_clear(GIUINTTYPL, mask);
 			giu_clear(GIUINTHTSELL, mask);
-			irq_set_chip_and_handler(GIU_IRQ(pin),
+			set_irq_chip_and_handler(GIU_IRQ(pin),
 						 &giuint_low_irq_chip,
 						 handle_level_irq);
 		}
@@ -273,13 +273,13 @@ void vr41xx_set_irq_trigger(unsigned int pin, irq_trigger_t trigger,
 					break;
 				}
 			}
-			irq_set_chip_and_handler(GIU_IRQ(pin),
+			set_irq_chip_and_handler(GIU_IRQ(pin),
 						 &giuint_high_irq_chip,
 						 handle_edge_irq);
 		} else {
 			giu_clear(GIUINTTYPH, mask);
 			giu_clear(GIUINTHTSELH, mask);
-			irq_set_chip_and_handler(GIU_IRQ(pin),
+			set_irq_chip_and_handler(GIU_IRQ(pin),
 						 &giuint_high_irq_chip,
 						 handle_level_irq);
 		}
@@ -539,9 +539,9 @@ static int __devinit giu_probe(struct platform_device *pdev)
 			chip = &giuint_high_irq_chip;
 
 		if (trigger & (1 << pin))
-			irq_set_chip_and_handler(i, chip, handle_edge_irq);
+			set_irq_chip_and_handler(i, chip, handle_edge_irq);
 		else
-			irq_set_chip_and_handler(i, chip, handle_level_irq);
+			set_irq_chip_and_handler(i, chip, handle_level_irq);
 
 	}
 

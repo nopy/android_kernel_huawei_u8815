@@ -20,6 +20,8 @@
 
 #include <linux/sched.h>
 
+#include <linux/debug_locks.h>
+
 #include "rsm_find_func_addr.h"
 
 /*
@@ -168,7 +170,8 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
      * "sched_show_task" this function is not an export symbol in kernel.
 	 */		
 	sched_show_task_macro(t);
-	__debug_show_held_locks(t);
+	/* __debug_show_held_locks(t); */
+	debug_show_held_locks(t);
 
 	touch_nmi_watchdog();
 

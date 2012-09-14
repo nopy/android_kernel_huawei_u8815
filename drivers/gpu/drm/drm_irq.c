@@ -74,13 +74,23 @@ int drm_irq_by_busid(struct drm_device *dev, void *data,
 {
 	struct drm_irq_busid *p = data;
 
-	if (!dev->driver->bus->irq_by_busid)
+	if (drm_core_check_feature(dev, DRIVER_USE_PLATFORM_DEVICE))
 		return -EINVAL;
 
 	if (!drm_core_check_feature(dev, DRIVER_HAVE_IRQ))
 		return -EINVAL;
 
-	return dev->driver->bus->irq_by_busid(dev, p);
+	if ((p->busnum >> 8) != drm_get_pci_domain(dev) ||
+	    (p->busnum & 0xff) != dev->pdev->bus->number ||
+	    p->devnum != PCI_SLOT(dev->pdev->devfn) || p->funcnum != PCI_FUNC(dev->pdev->devfn))
+		return -EINVAL;
+
+	p->irq = dev->pdev->irq;
+
+	DRM_DEBUG("%d:%d:%d => IRQ %d\n", p->busnum, p->devnum, p->funcnum,
+		  p->irq);
+
+	return 0;
 }
 
 /*
@@ -684,11 +694,10 @@ int drm_calc_vbltimestamp_from_scanoutpos(struct drm_device *dev, int crtc,
 	 */
 	*vblank_time = ns_to_timeval(timeval_to_ns(&raw_time) - delta_ns);
 
-	DRM_DEBUG("crtc %d : v %d p(%d,%d)@ %ld.%ld -> %ld.%ld [e %d us, %d rep]\n",
-		  crtc, (int)vbl_status, hpos, vpos,
-		  (long)raw_time.tv_sec, (long)raw_time.tv_usec,
-		  (long)vblank_time->tv_sec, (long)vblank_time->tv_usec,
-		  (int)duration_ns/1000, i);
+	DRM_DEBUG("crtc %d : v %d p(%d,%d)@ %d.%d -> %d.%d [e %d us, %d rep]\n",
+		  crtc, (int) vbl_status, hpos, vpos, raw_time.tv_sec,
+		  raw_time.tv_usec, vblank_time->tv_sec, vblank_time->tv_usec,
+		  (int) duration_ns/1000, i);
 
 	vbl_status = DRM_VBLANKTIME_SCANOUTPOS_METHOD;
 	if (invbl)
@@ -933,34 +942,11 @@ EXPORT_SYMBOL(drm_vblank_put);
 
 void drm_vblank_off(struct drm_device *dev, int crtc)
 {
-	struct drm_pending_vblank_event *e, *t;
-	struct timeval now;
 	unsigned long irqflags;
-	unsigned int seq;
 
 	spin_lock_irqsave(&dev->vbl_lock, irqflags);
 	vblank_disable_and_save(dev, crtc);
 	DRM_WAKEUP(&dev->vbl_queue[crtc]);
-
-	/* Send any queued vblank events, lest the natives grow disquiet */
-	seq = drm_vblank_count_and_time(dev, crtc, &now);
-	list_for_each_entry_safe(e, t, &dev->vblank_event_list, base.link) {
-		if (e->pipe != crtc)
-			continue;
-		DRM_DEBUG("Sending premature vblank event on disable: \
-			  wanted %d, current %d\n",
-			  e->event.sequence, seq);
-
-		e->event.sequence = seq;
-		e->event.tv_sec = now.tv_sec;
-		e->event.tv_usec = now.tv_usec;
-		drm_vblank_put(dev, e->pipe);
-		list_move_tail(&e->base.link, &e->base.file_priv->event_list);
-		wake_up_interruptible(&e->base.file_priv->event_wait);
-		trace_drm_vblank_event_delivered(e->base.pid, e->pipe,
-						 e->event.sequence);
-	}
-
 	spin_unlock_irqrestore(&dev->vbl_lock, irqflags);
 }
 EXPORT_SYMBOL(drm_vblank_off);
@@ -1149,7 +1135,7 @@ int drm_wait_vblank(struct drm_device *dev, void *data,
 {
 	union drm_wait_vblank *vblwait = data;
 	int ret = 0;
-	unsigned int flags, seq, crtc, high_crtc;
+	unsigned int flags, seq, crtc;
 
 	if ((!drm_dev_to_irq(dev)) || (!dev->irq_enabled))
 		return -EINVAL;
@@ -1158,21 +1144,16 @@ int drm_wait_vblank(struct drm_device *dev, void *data,
 		return -EINVAL;
 
 	if (vblwait->request.type &
-	    ~(_DRM_VBLANK_TYPES_MASK | _DRM_VBLANK_FLAGS_MASK |
-	      _DRM_VBLANK_HIGH_CRTC_MASK)) {
+	    ~(_DRM_VBLANK_TYPES_MASK | _DRM_VBLANK_FLAGS_MASK)) {
 		DRM_ERROR("Unsupported type value 0x%x, supported mask 0x%x\n",
 			  vblwait->request.type,
-			  (_DRM_VBLANK_TYPES_MASK | _DRM_VBLANK_FLAGS_MASK |
-			   _DRM_VBLANK_HIGH_CRTC_MASK));
+			  (_DRM_VBLANK_TYPES_MASK | _DRM_VBLANK_FLAGS_MASK));
 		return -EINVAL;
 	}
 
 	flags = vblwait->request.type & _DRM_VBLANK_FLAGS_MASK;
-	high_crtc = (vblwait->request.type & _DRM_VBLANK_HIGH_CRTC_MASK);
-	if (high_crtc)
-		crtc = high_crtc >> _DRM_VBLANK_HIGH_CRTC_SHIFT;
-	else
-		crtc = flags & _DRM_VBLANK_SECONDARY ? 1 : 0;
+	crtc = flags & _DRM_VBLANK_SECONDARY ? 1 : 0;
+
 	if (crtc >= dev->num_crtcs)
 		return -EINVAL;
 

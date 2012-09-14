@@ -1,5 +1,4 @@
 
-/*BK4D00074, add gs_st reg code, dingxifeng KF14049, 2009-4-1 begin */
 
 #ifndef _LINUX_GS_ADI_H
 #define _LINUX_GS_ADI_H
@@ -47,35 +46,26 @@ enum gs_adi_reg {
 #define     GPIO_INT1                         19
 #define     GPIO_INT2                         20
 
-/*BK4D01075, add delay time, dingxifeng KF14049, 2009-6-10  begin*/
 
 #define     GS_ADI_TIMRER                   (1000*1000000)    /*1s*/
 
-/*BK4D01075, add delay time, dingxifeng KF14049, 2009-6-10 end*/
 
 
-/*BK4D00263, add  ioctl command, dingxifeng KF14049, 2009-5-20 begin */
 
 #define  ECS_IOCTL_READ_ACCEL_XYZ     _IOR(0xA1, 0x06, char[3])
-/*BK4D00263, add  ioctl command, dingxifeng KF14049, 2009-5-20 end */
-/*BK4D01075, add  delay ioctl command, dingxifeng KF14049, 2009-6-10  begin*/
 
 #define ECS_IOCTL_APP_SET_DELAY		   _IOW(0xA1, 0x18, short)
 #define ECS_IOCTL_APP_GET_DELAY                _IOR(0xA1, 0x30, short)
-/*BK4D01898, add  control AFLAG for control G-sensor status, dingxifeng KF14049, 2009-7-2  begin*/
 
 #define ECS_IOCTL_APP_SET_AFLAG		         _IOW(0xA1, 0x13, short)
 #define ECS_IOCTL_APP_GET_AFLAG		         _IOR(0xA1, 0x14, short)
-/*BK4D01898, add  control AFLAG for control G-sensor status, dingxifeng KF14049, 2009-7-2  end*/
 
-/*BK4D01075, add  delay ioctl command, dingxifeng KF14049, 2009-6-10 end*/
 
 
 #endif /* _LINUX_GS_ADI_H */
 
 
 
-/*BK4D00074, add gs_st reg code, dingxifeng KF14049, 2009-4-1 end */
 
 
 

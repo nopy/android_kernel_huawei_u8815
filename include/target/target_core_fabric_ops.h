@@ -8,7 +8,7 @@ struct target_core_fabric_ops {
 	 * for scatterlist chaining using transport_do_task_sg_link(),
 	 * disabled by default
 	 */
-	bool task_sg_chaining;
+	int task_sg_chaining:1;
 	char *(*get_fabric_name)(void);
 	u8 (*get_fabric_proto_ident)(struct se_portal_group *);
 	char *(*tpg_get_wwn)(struct se_portal_group *);
@@ -35,7 +35,7 @@ struct target_core_fabric_ops {
 	/*
 	 * Optional function pointer for TCM to perform command map
 	 * from TCM processing thread context, for those struct se_cmd
-	 * initially allocated in interrupt context.
+	 * initally allocated in interrupt context.
 	 */
 	int (*new_cmd_map)(struct se_cmd *);
 	/*
@@ -77,6 +77,7 @@ struct target_core_fabric_ops {
 	u16 (*set_fabric_sense_len)(struct se_cmd *, u32);
 	u16 (*get_fabric_sense_len)(void);
 	int (*is_state_remove)(struct se_cmd *);
+	u64 (*pack_lun)(unsigned int);
 	/*
 	 * fabric module calls for target_core_fabric_configfs.c
 	 */

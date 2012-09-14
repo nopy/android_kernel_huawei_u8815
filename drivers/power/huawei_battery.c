@@ -22,7 +22,6 @@
  */
 #define DEBUG  1
 
-/* modify for 4125 baseline */
 #include <linux/slab.h>
 #include <linux/earlysuspend.h>
 #include <linux/err.h>
@@ -40,10 +39,13 @@
 #include <mach/msm_rpcrouter.h>
 #include <mach/msm_battery.h>
 
-#include <linux/hardware_self_adapt.h>
 #define BATTERY_RPC_PROG	0x30000089
 #define BATTERY_RPC_VER_1_1	0x00010001
-#define BATTERY_RPC_VER_2_1	0x00020001
+#ifdef CONFIG_HUAWEI_KERNEL
+#define BATTERY_RPC_VER_2_1	  0X00010003
+#else
+#define BATTERY_RPC_VER_2_1	  0x00020001
+#endif
 #define BATTERY_RPC_VER_4_1     0x00040001
 #define BATTERY_RPC_VER_5_1     0x00050001
 
@@ -52,49 +54,35 @@
 #define CHG_RPC_PROG		0x3000001a
 #define CHG_RPC_VER_1_1		0x00010001
 #define CHG_RPC_VER_1_3		0x00010003
+#ifdef CONFIG_HUAWEI_KERNEL
+#define CHG_RPC_VER_2_2		0x00010003
+#else
 #define CHG_RPC_VER_2_2		0x00020002
+#endif
 #define CHG_RPC_VER_3_1         0x00030001
 #define CHG_RPC_VER_4_1         0x00040001
-
-
-#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
-#define PM_LIB_RPC_PROG					0x30000061
-#define PM_LIB_RPC_VERS					0x00030005 /* 0x00030005 */
-
-/* dele the rpc id ,set it at  hardware_self_adapt.h  */
-#endif
-
 
 #define BATTERY_REGISTER_PROC                          	2
 #define BATTERY_MODIFY_CLIENT_PROC                     	4
 #define BATTERY_DEREGISTER_CLIENT_PROC			5
 #define BATTERY_READ_MV_PROC 				12
 #define BATTERY_ENABLE_DISABLE_FILTER_PROC 		14
-#ifdef CONFIG_HUAWEI_KERNEL 
-/* delete for the 7x27a and  8x55  use the same code in  hardware_self_adapt.h   */
-
-/* the battery delta to determine when to *
- * notify app to update battery status    */
-#define VBATT_DELTA			1
-#endif
 #define HEALTH_TEMP_MAX 60       /* define temperature max,and decide whether it's overheat  */
 #define HEALTH_TEMP_MIN (-20)       /* define temperature min,and decide whether it's over cold */
-/* the temp reported from modem had been multiplied by 10*/
-#define TEMP_MULTIPLE   10
-#define HEALTH_VOLT_MAX 4250
 #define NO_BATT_TEMPERATURE (-30)
-
+#define HUAWEI_BAT_DISP_FULL_LEVEL_VALUE    90
+#define HUAWEI_BATT_FULL_LEVEL_VALUE	100
 #define VBATT_FILTER			2
 
-#define BATTERY_CB_TYPE_PROC		1
-#define BATTERY_CB_ID_ALL_ACTIV		1
+#define BATTERY_CB_TYPE_PROC 		1
+#define BATTERY_CB_ID_ALL_ACTIV       	1
 #define BATTERY_CB_ID_LOW_VOL		2
 
 #define BATTERY_LOW		3200
 #define BATTERY_HIGH		4300
 
-#define ONCRPC_CHG_GET_GENERAL_STATUS_PROC	12
-#define ONCRPC_CHARGER_API_VERSIONS_PROC	0xffffffff
+#define ONCRPC_CHG_GET_GENERAL_STATUS_PROC 	12
+#define ONCRPC_CHARGER_API_VERSIONS_PROC 	0xffffffff
 
 #define BATT_RPC_TIMEOUT    5000	/* 5 sec */
 
@@ -104,8 +92,25 @@
 #define RPC_TYPE_REPLY   1
 #define RPC_REQ_REPLY_COMMON_HEADER_SIZE   (3 * sizeof(uint32_t))
 
+#undef CONFIG_HAS_EARLYSUSPEND
 
-/*  delete for the 7x27a and  8x55  use the same code in  hardware_self_adapt.h*/
+#ifdef CONFIG_HUAWEI_KERNEL
+#define TEMP_MULTIPLE   10
+#endif
+
+#ifdef CONFIG_HUAWEI_KERNEL
+/* the RPC id of get battery level and set delta level */
+#define BATTERY_LEVEL_PROC 119
+#define BATTERY_SET_BATT_DELTA_PROC 120
+/* the suspend and resume delta level, according to the delta report the level or not */
+#define SUSPEND_DELTA_LEVEL 20
+#define RESUME_DELTA_LEVEL  1
+#endif
+
+#define BATTERY_GET_CHARGE_STAET_PROC   121
+#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION
+#define HUAWEI_PROCEDURE_CONSUEM_CURRENT_NTIFY 100
+#endif
 static int batt_debug_mask = 0;
 module_param_named(debug_mask, batt_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 
@@ -118,26 +123,13 @@ module_param_named(debug_mask, batt_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
 #define DBG_LIMIT(x...) do {} while (0)
 #endif
 #endif
-/*delete the macro "CONFIG_HAS_EARLYSUSPEND", it will conduce to the charge staus can't update in time*/
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#undef CONFIG_HAS_EARLYSUSPEND
-#endif
-/*the report threshold in mV*/
-#define SUSPEND_DELTA_LEVEL 20
-static int msm_batt_set_delta(u32 batt_delta);
-/*get battery level rpc function id*/
-/*  delete for the 7x27a and  8x55  use the same code in  hardware_self_adapt.h  */
-/*delete some lines*/
-#define HUAWEI_BAT_DISP_FULL_LEVEL_VALUE 90
+
 enum {
 	BATTERY_REGISTRATION_SUCCESSFUL = 0,
 	BATTERY_DEREGISTRATION_SUCCESSFUL = BATTERY_REGISTRATION_SUCCESSFUL,
 	BATTERY_MODIFICATION_SUCCESSFUL = BATTERY_REGISTRATION_SUCCESSFUL,
 	BATTERY_INTERROGATION_SUCCESSFUL = BATTERY_REGISTRATION_SUCCESSFUL,
-#ifdef CONFIG_HUAWEI_KERNEL 
-    BATTERY_SETDELTA_SUCCESSFUL = BATTERY_REGISTRATION_SUCCESSFUL,
-#endif
-    BATTERY_CLIENT_TABLE_FULL = 1,
+	BATTERY_CLIENT_TABLE_FULL = 1,
 	BATTERY_REG_PARAMS_WRONG = 2,
 	BATTERY_DEREGISTRATION_FAILED = 4,
 	BATTERY_MODIFICATION_FAILED = 8,
@@ -225,16 +217,6 @@ enum chg_battery_level_type {
 	/* Invalid battery voltage level. */
 	BATTERY_LEVEL_INVALID
 };
-
-/*delete some lines*/
-/* charge client for rpc */
-struct msm_rpc_endpoint *chg_client;
-/* RPC client for charging */
-
-#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
-static struct msm_rpc_endpoint *pm_lib_endpoint;
-#endif
-
 
 #ifndef CONFIG_BATTERY_MSM_FAKE
 struct rpc_reply_batt_chg_v1 {
@@ -381,11 +363,38 @@ static enum power_supply_property msm_batt_power_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
-#ifdef CONFIG_HUAWEI_KERNEL    
-	POWER_SUPPLY_PROP_TEMP,
-#endif
+    #ifdef CONFIG_HUAWEI_KERNEL
+    POWER_SUPPLY_PROP_TEMP,
+    #endif
 };
+#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION
+int huawei_rpc_current_consuem_notify(device_current_consume_type device_event, __u32 device_state)
+{
+	struct set_consume_notify_req {
+		struct rpc_request_hdr hdr;
+		uint32_t device_event;
+		uint32_t device_state;
+	} req;
 
+  int rc = 0;
+  
+
+  req.device_event = cpu_to_be32(device_event);
+  req.device_state = cpu_to_be32(device_state);
+  
+  rc = msm_rpc_call(msm_batt_info.chg_ep, HUAWEI_PROCEDURE_CONSUEM_CURRENT_NTIFY,
+                    &req, sizeof(req), 5 * HZ);
+
+	if (rc < 0) {
+		pr_err("%s: FAIL: msm_rpc_write. proc=0x%08x, rc=%d\n",
+		       __func__, HUAWEI_PROCEDURE_CONSUEM_CURRENT_NTIFY, rc);
+		return rc;
+	}
+
+	return rc;
+}
+
+#endif
 static int msm_batt_power_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
 				       union power_supply_propval *val)
@@ -415,11 +424,11 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY:
 		val->intval = msm_batt_info.batt_capacity;
 		break;
-#ifdef CONFIG_HUAWEI_KERNEL
-	case POWER_SUPPLY_PROP_TEMP:
-		val->intval = msm_batt_info.battery_temp;
-		break;
-#endif        
+    #ifdef CONFIG_HUAWEI_KERNEL
+    case POWER_SUPPLY_PROP_TEMP:
+        val->intval = msm_batt_info.battery_temp;
+        break;
+    #endif
 	default:
 		return -EINVAL;
 	}
@@ -433,130 +442,6 @@ static struct power_supply msm_psy_batt = {
 	.num_properties = ARRAY_SIZE(msm_batt_power_props),
 	.get_property = msm_batt_power_get_property,
 };
-/*the get battery level RPC function*/
-#ifdef CONFIG_HUAWEI_KERNEL
-struct msm_batt_get_battery_level_ret_data {
-	u32 battery_level;
-};
-
-/* delete func msm_batt_get_battery_level_ret_func */
-
-/* the RPC function to get the battery level from modem side for MSM7X27A  */
-struct msm_batt_get_level_ret_data {
-	u32 battery_level;
-};
-
-static int msm_batt_get_level_ret_func(struct msm_rpc_client *batt_client,
-				       void *buf, void *data)
-{
-	struct msm_batt_get_level_ret_data *data_ptr, *buf_ptr;
-
-	data_ptr = (struct msm_batt_get_level_ret_data *)data;
-	buf_ptr = (struct msm_batt_get_level_ret_data *)buf;
-
-	data_ptr->battery_level = be32_to_cpu(buf_ptr->battery_level);
-
-	return 0;
-}
-
-static u32 msm_batt_get_battery_level(void)
-{
-	int rc;
-#ifdef CONFIG_ARCH_MSM7X27A
-	struct msm_batt_get_level_ret_data rep;
-
-	rc = msm_rpc_client_req(msm_batt_info.batt_client,
-			BATTERY_LEVEL_PROC,
-			NULL, NULL,
-			msm_batt_get_level_ret_func, &rep,
-			msecs_to_jiffies(BATT_RPC_TIMEOUT));
-
-	if (rc < 0) {
-		pr_err("%s: FAIL: vbatt get volt. rc=%d\n", __func__, rc);
-		return 0;
-	}
-
-	return rep.battery_level;
-
-#else
-    /* get battery level by rpc */
-	struct set_vib_on_off_req {
-		struct rpc_request_hdr hdr;
-	} req;
-
-	struct hw_get_batt_info_rep {
-		struct rpc_reply_hdr hdr;
-		u32 battery_level;
-	} rep;
-	
-	rc = msm_rpc_call_reply(chg_client, BATTERY_LEVEL_PROC,
-				&req, sizeof(req),
-				&rep, sizeof(rep),
-				5 * HZ);
-
-	rep.battery_level = be32_to_cpu(rep.battery_level);
-
-    /* when rpc call failed, it can't return 0 * 
-     * if level=0, phone will shutdown         */
-	if (rc < 0) {
-		pr_err("%s: FAIL: vbatt get batt level. rc=%d\n", __func__, rc);
-		return msm_batt_info.batt_capacity;
-	}
-
-	return rep.battery_level;
-#endif
-}
-#endif
-/*delete some lines*/
-
-#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
-/* notify modem sides to calculate consume */
-int huawei_rpc_current_consuem_notify(device_current_consume_type device_event, __u32 device_state)
-{
-/* for 7x27a, the rpc call modem is different */
-#ifdef CONFIG_ARCH_MSM7X27A
-	struct set_consume_notify_req {
-		struct rpc_request_hdr hdr;
-		uint32_t device_event;
-		uint32_t device_state;
-	} req;
-
-  int rc = 0;
-  req.device_event = cpu_to_be32(device_event);
-  req.device_state = cpu_to_be32(device_state);
-  
-  rc = msm_rpc_call(msm_batt_info.chg_ep, PM_CURRENT_CONSUME_NOTIFY_PROC,
-                    &req, sizeof(req), 5 * HZ);
-
-	if (rc < 0) {
-		pr_err("%s: FAIL: msm_rpc_write. proc=0x%08x, rc=%d\n",
-		       __func__, PM_CURRENT_CONSUME_NOTIFY_PROC, rc);
-		return rc;
-	}
-
-	return rc;
-#else
-	struct set_consume_notify_req {
-		struct rpc_request_hdr hdr;
-		uint32_t device_event;
-		uint32_t device_state;
-	} req;
-	req.device_event = cpu_to_be32(device_event);
-    req.device_state = cpu_to_be32(device_state);
-	if (IS_ERR(pm_lib_endpoint)) {
-        printk(KERN_ERR "%s: rpc not initilized! rc = %ld\n",
-               __FUNCTION__, PTR_ERR(pm_lib_endpoint));
-        return 0;
-    }
-    /* delete a line */
-    /*reduce the rpc timeout to 0.1s,the original value is 5s*/
-    return msm_rpc_call(pm_lib_endpoint, PM_CURRENT_CONSUME_NOTIFY_PROC,
-			    &req, sizeof(req), HZ/10);
-#endif
-}
-
-#endif
-
 
 #ifndef CONFIG_BATTERY_MSM_FAKE
 struct msm_batt_get_volt_ret_data {
@@ -595,7 +480,85 @@ static u32 msm_batt_get_vbatt_voltage(void)
 
 	return rep.battery_voltage;
 }
+#ifdef CONFIG_HUAWEI_KERNEL
+/* the RPC function to get the battery level from modem side */
+struct msm_batt_get_level_ret_data {
+	u32 battery_level;
+};
 
+static int msm_batt_get_level_ret_func(struct msm_rpc_client *batt_client,
+				       void *buf, void *data)
+{
+	struct msm_batt_get_level_ret_data *data_ptr, *buf_ptr;
+
+	data_ptr = (struct msm_batt_get_level_ret_data *)data;
+	buf_ptr = (struct msm_batt_get_level_ret_data *)buf;
+
+	data_ptr->battery_level = be32_to_cpu(buf_ptr->battery_level);
+
+	return 0;
+}
+
+static u32 msm_batt_get_vbatt_level(void)
+{
+	int rc;
+
+	struct msm_batt_get_level_ret_data rep;
+
+	rc = msm_rpc_client_req(msm_batt_info.batt_client,
+			BATTERY_LEVEL_PROC,
+			NULL, NULL,
+			msm_batt_get_level_ret_func, &rep,
+			msecs_to_jiffies(BATT_RPC_TIMEOUT));
+
+	if (rc < 0) {
+		pr_err("%s: FAIL: vbatt get volt. rc=%d\n", __func__, rc);
+		return 0;
+	}
+
+	return rep.battery_level;
+}
+/* the RPC function to set the delta level */
+struct msm_batt_set_delta_req {
+	u32 batt_delta;
+};
+
+static int msm_batt_set_delta_arg_func(struct msm_rpc_client *batt_client,
+				       void *buf, void *data)
+{
+	struct msm_batt_set_delta_req *filter_delta_req =
+		(struct  msm_batt_set_delta_req *)data;
+	u32 *req = (u32 *)buf;
+	int size = 0;
+
+	*req = cpu_to_be32(filter_delta_req->batt_delta);
+	size += sizeof(u32);
+
+	return size;
+}
+
+/* RPC call-back function for set delta */
+static int msm_batt_set_delta_level(u32 batt_delta)
+{
+	int rc;
+	struct msm_batt_set_delta_req req;
+
+	req.batt_delta = batt_delta;
+
+	rc = msm_rpc_client_req(msm_batt_info.batt_client,
+			BATTERY_SET_BATT_DELTA_PROC,
+			msm_batt_set_delta_arg_func, &req,
+			NULL, NULL,
+			msecs_to_jiffies(BATT_RPC_TIMEOUT));
+
+	if (rc < 0) {
+		pr_err("%s: FAIL: vbatt set filter delta. rc=%d\n", __func__, rc);
+		return rc;
+	}
+	return 0;
+}
+
+#endif
 /* the RPC function to get the charge state from modem side */
 struct msm_batt_get_charge_state_ret_data {
 	u32 chg_state;
@@ -637,8 +600,7 @@ static u32 msm_batt_get_charge_state(void)
 
 static int msm_batt_get_batt_chg_status(void)
 {
-	int rc;
-
+	int rc ;
 	struct rpc_req_batt_chg {
 		struct rpc_request_hdr hdr;
 		u32 more_data;
@@ -666,9 +628,10 @@ static int msm_batt_get_batt_chg_status(void)
 		be32_to_cpu_self(v1p->battery_level);
 		be32_to_cpu_self(v1p->battery_voltage);
 		be32_to_cpu_self(v1p->battery_temp);
-#ifdef CONFIG_HUAWEI_KERNEL
-        v1p->battery_temp   = (v1p->battery_temp)*10;
-#endif
+        /* the temp will devided by 10 in app, so multiplied by 10 before report it*/
+        #ifdef CONFIG_HUAWEI_KERNEL
+        v1p->battery_temp   = (v1p->battery_temp) * TEMP_MULTIPLE;
+        #endif
 	} else {
 		pr_err("%s: No battery/charger data in RPC reply\n", __func__);
 		return -EIO;
@@ -684,17 +647,13 @@ static void msm_batt_update_psy_status(void)
 	u32	charger_type;
 	u32	battery_status;
 	u32	battery_level;
-	u32     battery_voltage;
-	s32	battery_temp;    
+	u32 battery_voltage;
+	s32	battery_temp;   
+    u32 batt_capacity;
 	struct	power_supply	*supp;
 
-    u32	battery_capacity;
- 
 	if (msm_batt_get_batt_chg_status())
 		return;
-
-    /* update capacity from modem sides */
-    battery_capacity = msm_batt_get_battery_level();
 
 	charger_status = rep_batt_chg.v1.charger_status;
 	charger_type = rep_batt_chg.v1.charger_type;
@@ -702,7 +661,7 @@ static void msm_batt_update_psy_status(void)
 	battery_level = rep_batt_chg.v1.battery_level;
 	battery_voltage = rep_batt_chg.v1.battery_voltage;
 	battery_temp = rep_batt_chg.v1.battery_temp;
-
+    batt_capacity = msm_batt_get_vbatt_level();
 	/* Make correction for battery status */
 	if (battery_status == BATTERY_STATUS_INVALID_v1) {
 		if (msm_batt_info.chg_api_version < CHG_RPC_VER_3_1)
@@ -714,8 +673,8 @@ static void msm_batt_update_psy_status(void)
 	    battery_status == msm_batt_info.battery_status &&
 	    battery_level == msm_batt_info.battery_level &&
 	    battery_voltage == msm_batt_info.battery_voltage &&
-	    battery_capacity == msm_batt_info.batt_capacity &&
-	    battery_temp == msm_batt_info.battery_temp) {
+	    battery_temp == msm_batt_info.battery_temp &&
+	    batt_capacity == msm_batt_info.batt_capacity) {
 		/* Got unnecessary event from Modem PMIC VBATT driver.
 		 * Nothing changed in Battery or charger status.
 		 */
@@ -730,8 +689,6 @@ static void msm_batt_update_psy_status(void)
 	DBG_LIMIT("BATT: rcvd: %d, %d, %d, %d; %d, %d, %d\n",
 		 charger_status, charger_type, battery_status,
 		 battery_level, battery_voltage, battery_temp, msm_batt_get_charge_state());
-/*delete some lines*/
-
 
 	if (battery_status == BATTERY_STATUS_INVALID &&
 	    battery_level != BATTERY_LEVEL_INVALID) {
@@ -765,7 +722,6 @@ static void msm_batt_update_psy_status(void)
 			if (charger_status != CHARGER_STATUS_INVALID) {
 				DBG_LIMIT("BATT: No charging!\n");
 				charger_status = CHARGER_STATUS_INVALID;
-			    /* delete some lines */
 			}
             /* power source is battery so batt_status must be discharging */
 			msm_batt_info.batt_status =
@@ -818,7 +774,6 @@ static void msm_batt_update_psy_status(void)
 		/* Correct charger status */
 		if (charger_type != CHARGER_TYPE_INVALID &&
 		    charger_status == CHARGER_STATUS_GOOD) {
-            /*make judgement for battery status*/
             if(BATTERY_STATUS_GOOD == battery_status)
             {
                 if(BATTERY_LEVEL_FULL == battery_level)
@@ -864,12 +819,11 @@ static void msm_batt_update_psy_status(void)
 				DBG_LIMIT("BATT: Battery bad.\n");
 				msm_batt_info.batt_health =
 					POWER_SUPPLY_HEALTH_DEAD;
-            /* the pm irq isn't accurate, delete it */
-			} else if(battery_status == BATTERY_STATUS_REMOVED){
-			    msm_batt_info.batt_health = 
-                    POWER_SUPPLY_HEALTH_DEAD;
-                    
-            } else  {
+			} else if (battery_status == BATTERY_STATUS_BAD_TEMP) {
+				DBG_LIMIT("BATT: Battery overheat.\n");
+				msm_batt_info.batt_health =
+					POWER_SUPPLY_HEALTH_OVERHEAT;
+			} else {
 				DBG_LIMIT("BATT: Battery good.\n");
 				msm_batt_info.batt_health =
 					POWER_SUPPLY_HEALTH_GOOD;
@@ -885,7 +839,6 @@ static void msm_batt_update_psy_status(void)
 				DBG_LIMIT("BATT: Battery -> unknown\n");
 				msm_batt_info.batt_status =
 					POWER_SUPPLY_STATUS_UNKNOWN;
-            /* delete some lines */    
 			} 
 		}
 
@@ -899,19 +852,18 @@ static void msm_batt_update_psy_status(void)
 				supp = &msm_psy_batt;
 		}
 	}
+    
     /* the battery is too hot/cold or over voltage*/
     if(battery_temp/TEMP_MULTIPLE > HEALTH_TEMP_MAX)
     {
         msm_batt_info.batt_health = POWER_SUPPLY_HEALTH_OVERHEAT;
+        DBG_LIMIT("BATT: overheat!\n");
     } 
     else if((battery_temp/TEMP_MULTIPLE < HEALTH_TEMP_MIN) && 
         (battery_temp/TEMP_MULTIPLE > NO_BATT_TEMPERATURE))
     {
-        msm_batt_info.batt_health = POWER_SUPPLY_HEALTH_COLD;        
-    }
-    else if(battery_voltage > HEALTH_VOLT_MAX)
-    {
-        msm_batt_info.batt_health = POWER_SUPPLY_HEALTH_OVERVOLTAGE; 
+        msm_batt_info.batt_health = POWER_SUPPLY_HEALTH_COLD;     
+        DBG_LIMIT("BATT: cold!\n");
     }
     /* update the batt health when battery removed or bad */
     else if((BATTERY_STATUS_REMOVED == battery_status) ||
@@ -919,29 +871,33 @@ static void msm_batt_update_psy_status(void)
     {
     	msm_batt_info.batt_health = POWER_SUPPLY_HEALTH_DEAD;
     }
-	/* set the default batt health */
     else
     {
-        msm_batt_info.batt_health = POWER_SUPPLY_HEALTH_GOOD;
+        msm_batt_info.batt_health = POWER_SUPPLY_HEALTH_GOOD; 
     }
+
 	msm_batt_info.charger_status 	= charger_status;
 	msm_batt_info.charger_type 	= charger_type;
 	msm_batt_info.battery_status 	= battery_status;
 	msm_batt_info.battery_level 	= battery_level;
 	msm_batt_info.battery_temp 	= battery_temp;
-
-    /* update capacity */
-    msm_batt_info.batt_capacity = battery_capacity;
     
-	if (msm_batt_info.battery_voltage != battery_voltage) {
+	if (msm_batt_info.battery_voltage != battery_voltage ||
+        msm_batt_info.batt_capacity != batt_capacity) 
+    {
 		msm_batt_info.battery_voltage  	= battery_voltage;
+        msm_batt_info.batt_capacity = batt_capacity;
+        
+        DBG_LIMIT("BATT: voltage = %u mV [capacity = %d%%]\n",
+             battery_voltage, msm_batt_info.batt_capacity);
+   
 		if (!supp)
 			supp = msm_batt_info.current_ps;
 	}
     /* when charging, synchronization capacity and batt_status */
     if( POWER_SUPPLY_STATUS_CHARGING == msm_batt_info.batt_status )
     {
-        if( 100 == msm_batt_info.batt_capacity )
+        if( HUAWEI_BATT_FULL_LEVEL_VALUE == msm_batt_info.batt_capacity )
         {
             msm_batt_info.batt_status = POWER_SUPPLY_STATUS_FULL;
         } 
@@ -949,7 +905,7 @@ static void msm_batt_update_psy_status(void)
     }else if( (POWER_SUPPLY_STATUS_FULL == msm_batt_info.batt_status) &&
               (msm_batt_info.batt_capacity >= HUAWEI_BAT_DISP_FULL_LEVEL_VALUE) ) 
     {
-        msm_batt_info.batt_capacity = 100;
+        msm_batt_info.batt_capacity = HUAWEI_BATT_FULL_LEVEL_VALUE;
     }
 
 	if (supp) {
@@ -1107,33 +1063,38 @@ void msm_batt_late_resume(struct early_suspend *h)
 	pr_debug("%s: exit\n", __func__);
 }
 #endif
-/*add suspend and resume function*/
-static int  huawei_battery_suspend(struct platform_device* pdev, pm_message_t mesg)
+#ifdef CONFIG_HUAWEI_KERNEL
+/* modify the level delta,the value is 20 in suspend */
+static int msm_batt_suspend(struct platform_device* pdev, pm_message_t mesg)
 {
     int rc;
-    rc = msm_batt_set_delta(SUSPEND_DELTA_LEVEL);   
+    
+	pr_debug("%s: enter\n", __func__);
+    rc = msm_batt_set_delta_level(SUSPEND_DELTA_LEVEL);   
     if (rc < 0) 
     {
         printk(KERN_ERR "%s(): set delta failed rc=%d\n", __func__, rc);
 	}
     return 0;
 }
-
-static int  huawei_battery_resume(struct platform_device *pdev)
+/* modify the level delta, the value is 1 when the handset resume */
+static int msm_batt_resume(struct platform_device *pdev)
 {
  
     int rc;
-    rc = msm_batt_set_delta(VBATT_DELTA);  
+    
+	pr_debug("%s: enter\n", __func__);
+    rc = msm_batt_set_delta_level(RESUME_DELTA_LEVEL);  
     if (rc < 0) 
     {
 	    printk(KERN_ERR "%s(): set delta failed rc=%d\n", __func__, rc);
 	}
 
-    /* update battery status when apps resume */
-    msm_batt_update_psy_status();
-    
+    msm_batt_update_psy_status();    
+
     return 0;
 }
+#endif
 struct msm_batt_vbatt_filter_req {
 	u32 batt_handle;
 	u32 enable_filter;
@@ -1259,7 +1220,6 @@ static int msm_batt_register_arg_func(struct msm_rpc_client *batt_client,
 {
 	struct batt_client_registration_req *batt_reg_req =
 		(struct batt_client_registration_req *)data;
-
 	u32 *req = (u32 *)buf;
 	int size = 0;
 
@@ -1290,27 +1250,27 @@ static int msm_batt_register_arg_func(struct msm_rpc_client *batt_client,
 		size += sizeof(u32);
 		req++;
 
-		*req = cpu_to_be32(batt_reg_req->voltage_direction);
-		size += sizeof(u32);
-		req++;
+	*req = cpu_to_be32(batt_reg_req->voltage_direction);
+	size += sizeof(u32);
+	req++;
 
-		*req = cpu_to_be32(batt_reg_req->batt_cb_id);
-		size += sizeof(u32);
-		req++;
+	*req = cpu_to_be32(batt_reg_req->batt_cb_id);
+	size += sizeof(u32);
+	req++;
 
-		*req = cpu_to_be32(batt_reg_req->cb_data);
-		size += sizeof(u32);
-		req++;
+	*req = cpu_to_be32(batt_reg_req->cb_data);
+	size += sizeof(u32);
+	req++;
 
-		*req = cpu_to_be32(batt_reg_req->more_data);
-		size += sizeof(u32);
-		req++;
+	*req = cpu_to_be32(batt_reg_req->more_data);
+	size += sizeof(u32);
+	req++;
 
-		*req = cpu_to_be32(batt_reg_req->batt_error);
-		size += sizeof(u32);
+	*req = cpu_to_be32(batt_reg_req->batt_error);
+	size += sizeof(u32);
 
-		return size;
-	}
+	return size;
+}
 
 }
 
@@ -1334,8 +1294,9 @@ static int msm_batt_register_ret_func(struct msm_rpc_client *batt_client,
 		data_ptr = (struct batt_client_registration_rep *)data;
 		buf_ptr = (struct batt_client_registration_rep *)buf;
 
-		data_ptr->batt_handle = be32_to_cpu(buf_ptr->batt_handle);
-		return 0;
+	data_ptr->batt_handle = be32_to_cpu(buf_ptr->batt_handle);
+
+	return 0;
 	}
 }
 
@@ -1460,73 +1421,6 @@ static int msm_batt_deregister(u32 batt_handle)
 
 	return 0;
 }
-
-#ifdef CONFIG_HUAWEI_KERNEL 
-struct msm_batt_set_delta_req {
-	u32 batt_delta;
-};
-
-struct msm_batt_set_delta_rep {
-	u32 batt_result;
-};
-
-static int msm_batt_set_delta_arg_func(struct msm_rpc_client *batt_client,
-				       void *buf, void *data)
-{
-	struct msm_batt_set_delta_req *filter_delta_req =
-		(struct  msm_batt_set_delta_req *)data;
-	u32 *req = (u32 *)buf;
-	int size = 0;
-
-	*req = cpu_to_be32(filter_delta_req->batt_delta);
-	size += sizeof(u32);
-
-	return size;
-}
-
-static int msm_batt_set_delta_ret_func(struct msm_rpc_client *batt_client,
-				       void *buf, void *data)
-{
-	struct msm_batt_set_delta_rep *data_ptr, *buf_ptr;
-
-	data_ptr = (struct msm_batt_set_delta_rep *)data;
-	buf_ptr = (struct msm_batt_set_delta_rep *)buf;
-
-	data_ptr->batt_result = be32_to_cpu(buf_ptr->batt_result);
-
-	return 0;
-}
-
-/* RPC call-back function for set delta */
-static int msm_batt_set_delta(u32 batt_delta)
-{
-	int rc;
-	struct msm_batt_set_delta_req req;
-	struct msm_batt_set_delta_rep rep;
-
-	req.batt_delta = batt_delta;
-
-	rc = msm_rpc_client_req(msm_batt_info.batt_client,
-			BATTERY_SET_BATT_DELTA_PROC,
-			msm_batt_set_delta_arg_func, &req,
-			msm_batt_set_delta_ret_func, &rep,
-			msecs_to_jiffies(BATT_RPC_TIMEOUT));
-
-	if (rc < 0) {
-		pr_err("%s: FAIL: vbatt set filter delta. rc=%d\n", __func__, rc);
-		return rc;
-	}
-
-	if (rep.batt_result != BATTERY_SETDELTA_SUCCESSFUL) {
-		pr_err("%s: vbatt set delta. error=%d",
-		       __func__, rep.batt_result);
-		return -EIO;
-	}
-
-	return 0;
-}
-
-#endif
 #endif  /* CONFIG_BATTERY_MSM_FAKE */
 
 static int msm_batt_cleanup(void)
@@ -1816,13 +1710,6 @@ static int __devinit msm_batt_probe(struct platform_device *pdev)
 		return rc;
 	}
 
-#ifdef CONFIG_HUAWEI_KERNEL 
-    rc =  msm_batt_set_delta(VBATT_DELTA);
-	if (rc < 0) {
-       pr_err("%s: set battery delta failed!\n", __func__); 
-	}
-#endif
-
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	msm_batt_info.early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN;
 	msm_batt_info.early_suspend.suspend = msm_batt_early_suspend;
@@ -1853,8 +1740,10 @@ static int __devexit msm_batt_remove(struct platform_device *pdev)
 
 static struct platform_driver msm_batt_driver = {
 	.probe = msm_batt_probe,
-    .suspend = huawei_battery_suspend,
-    .resume = huawei_battery_resume,
+    #ifdef CONFIG_HUAWEI_KERNEL
+    .suspend = msm_batt_suspend,
+    .resume = msm_batt_resume,
+    #endif
 	.remove = __devexit_p(msm_batt_remove),
 	.driver = {
 		   .name = "msm-battery",
@@ -1864,12 +1753,11 @@ static struct platform_driver msm_batt_driver = {
 
 static int __devinit msm_batt_init_rpc(void)
 {
-	int rc = 0;
+	int rc;
 
 #ifdef CONFIG_BATTERY_MSM_FAKE
 	pr_info("Faking MSM battery\n");
 #else
-
 	msm_batt_info.chg_ep =
 		msm_rpc_connect_compatible(CHG_RPC_PROG, CHG_RPC_VER_4_1, 0);
 	msm_batt_info.chg_api_version =  CHG_RPC_VER_4_1;
@@ -1954,34 +1842,6 @@ static int __devinit msm_batt_init_rpc(void)
 		msm_batt_info.batt_client = NULL;
 		return rc;
 	}
-
-/*delete some lines*/
-#ifdef CONFIG_HUAWEI_KERNEL 
-    chg_client   =   msm_rpc_connect(CHG_RPC_PROG, CHG_RPC_VER_4_1, 0);
-    if (chg_client == NULL) 
-    {
-		pr_err("%s: FAIL: rpc_register_client. chg_client=NULL\n",
-		       __func__);
-		return -ENODEV;
-    }
-
-    /* delete some lines */
-#endif
-
-#ifdef CONFIG_HUAWEI_EVALUATE_POWER_CONSUMPTION 
-/* for 7x27a  must close  */
-#ifndef CONFIG_ARCH_MSM7X27A
-    /* connect to RPC service pm_lib */
-	pm_lib_endpoint = msm_rpc_connect(PM_LIB_RPC_PROG, PM_LIB_RPC_VERS, 0);
-	if (IS_ERR(pm_lib_endpoint)) {
-		printk(KERN_ERR "%s: init rpc failed! rc = %ld\n",
-		       __FUNCTION__, PTR_ERR(pm_lib_endpoint));
-		return rc;
-	}
-#endif
-#endif
-
-
 #endif  /* CONFIG_BATTERY_MSM_FAKE */
 
 	rc = platform_driver_register(&msm_batt_driver);
@@ -1995,7 +1855,7 @@ static int __devinit msm_batt_init_rpc(void)
 
 static int __init msm_batt_init(void)
 {
-	int rc = 0;
+	int rc;
 
 	pr_debug("%s: enter\n", __func__);
 

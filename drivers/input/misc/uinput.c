@@ -302,14 +302,10 @@ static int uinput_validate_absbits(struct input_dev *dev)
 	int retval = 0;
 
 	for (cnt = 0; cnt < ABS_CNT; cnt++) {
-		int min, max;
 		if (!test_bit(cnt, dev->absbit))
 			continue;
 
-		min = input_abs_get_min(dev, cnt);
-		max = input_abs_get_max(dev, cnt);
-
-		if ((min != 0 || max != 0) && max <= min) {
+		if (input_abs_get_max(dev, cnt) <= input_abs_get_min(dev, cnt)) {
 			printk(KERN_DEBUG
 				"%s: invalid abs[%02x] min:%d max:%d\n",
 				UINPUT_NAME, cnt,
@@ -351,7 +347,8 @@ static int uinput_setup_device(struct uinput_device *udev, const char __user *bu
 {
 	struct uinput_user_dev	*user_dev;
 	struct input_dev	*dev;
-	int			i;
+	char			*name;
+	int			i, size;
 	int			retval;
 
 	if (count != sizeof(struct uinput_user_dev))
@@ -365,25 +362,30 @@ static int uinput_setup_device(struct uinput_device *udev, const char __user *bu
 
 	dev = udev->dev;
 
-	user_dev = memdup_user(buffer, sizeof(struct uinput_user_dev));
-	if (IS_ERR(user_dev))
-		return PTR_ERR(user_dev);
+	user_dev = kmalloc(sizeof(struct uinput_user_dev), GFP_KERNEL);
+	if (!user_dev)
+		return -ENOMEM;
+
+	if (copy_from_user(user_dev, buffer, sizeof(struct uinput_user_dev))) {
+		retval = -EFAULT;
+		goto exit;
+	}
 
 	udev->ff_effects_max = user_dev->ff_effects_max;
 
-	/* Ensure name is filled in */
-	if (!user_dev->name[0]) {
+	size = strnlen(user_dev->name, UINPUT_MAX_NAME_SIZE) + 1;
+	if (!size) {
 		retval = -EINVAL;
 		goto exit;
 	}
 
 	kfree(dev->name);
-	dev->name = kstrndup(user_dev->name, UINPUT_MAX_NAME_SIZE,
-			     GFP_KERNEL);
-	if (!dev->name) {
+	dev->name = name = kmalloc(size, GFP_KERNEL);
+	if (!name) {
 		retval = -ENOMEM;
 		goto exit;
 	}
+	strlcpy(name, user_dev->name, size);
 
 	dev->id.bustype	= user_dev->id.bustype;
 	dev->id.vendor	= user_dev->id.vendor;
@@ -620,6 +622,7 @@ static long uinput_ioctl_handler(struct file *file, unsigned int cmd,
 	struct uinput_ff_upload ff_up;
 	struct uinput_ff_erase  ff_erase;
 	struct uinput_request   *req;
+	int                     length;
 	char			*phys;
 
 	retval = mutex_lock_interruptible(&udev->mutex);
@@ -686,15 +689,24 @@ static long uinput_ioctl_handler(struct file *file, unsigned int cmd,
 				retval = -EINVAL;
 				goto out;
 			}
-
-			phys = strndup_user(p, 1024);
-			if (IS_ERR(phys)) {
-				retval = PTR_ERR(phys);
-				goto out;
+			length = strnlen_user(p, 1024);
+			if (length <= 0) {
+				retval = -EFAULT;
+				break;
 			}
-
 			kfree(udev->dev->phys);
-			udev->dev->phys = phys;
+			udev->dev->phys = phys = kmalloc(length, GFP_KERNEL);
+			if (!phys) {
+				retval = -ENOMEM;
+				break;
+			}
+			if (copy_from_user(phys, p, length)) {
+				udev->dev->phys = NULL;
+				kfree(phys);
+				retval = -EFAULT;
+				break;
+			}
+			phys[length - 1] = '\0';
 			break;
 
 		case UI_BEGIN_FF_UPLOAD:

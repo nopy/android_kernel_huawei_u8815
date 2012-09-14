@@ -24,7 +24,7 @@
  *
  * RPIPE
  *
- *   Targeted at different downstream endpoints
+ *   Targetted at different downstream endpoints
  *
  *   Descriptor: use to config the remote pipe.
  *

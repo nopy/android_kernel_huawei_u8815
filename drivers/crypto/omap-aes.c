@@ -839,9 +839,9 @@ static int omap_aes_probe(struct platform_device *pdev)
 
 	/* Initializing the clock */
 	dd->iclk = clk_get(dev, "ick");
-	if (IS_ERR(dd->iclk)) {
+	if (!dd->iclk) {
 		dev_err(dev, "clock intialization failed.\n");
-		err = PTR_ERR(dd->iclk);
+		err = -ENODEV;
 		goto err_res;
 	}
 

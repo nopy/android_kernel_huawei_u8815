@@ -20,7 +20,6 @@
 #include <linux/screen_info.h>
 #include <linux/init.h>
 #include <linux/kexec.h>
-#include <linux/of_fdt.h>
 #include <linux/crash_dump.h>
 #include <linux/root_dev.h>
 #include <linux/cpu.h>
@@ -43,7 +42,6 @@
 #include <asm/cachetype.h>
 #include <asm/tlbflush.h>
 
-#include <asm/prom.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/irq.h>
 #include <asm/mach/time.h>
@@ -73,7 +71,6 @@ __setup("fpe=", fpe_setup);
 #endif
 
 extern void paging_init(struct machine_desc *desc);
-extern void sanity_check_meminfo(void);
 extern void reboot_setup(char *str);
 
 unsigned int processor_id;
@@ -313,22 +310,7 @@ static void __init cacheid_init(void)
  * already provide the required functionality.
  */
 extern struct proc_info_list *lookup_processor_type(unsigned int);
-
-void __init early_print(const char *str, ...)
-{
-	extern void printascii(const char *);
-	char buf[256];
-	va_list ap;
-
-	va_start(ap, str);
-	vsnprintf(buf, sizeof(buf), str, ap);
-	va_end(ap);
-
-#ifdef CONFIG_DEBUG_LL
-	printascii(buf);
-#endif
-	printk("%s", buf);
-}
+extern struct machine_desc *lookup_machine_type(unsigned int);
 
 static void __init feat_v6_fixup(void)
 {
@@ -444,27 +426,32 @@ void cpu_init(void)
 	    : "r14");
 }
 
-void __init dump_machine_table(void)
+static struct machine_desc * __init setup_machine(unsigned int nr)
 {
-	struct machine_desc *p;
+	struct machine_desc *list;
 
-	early_print("Available machine support:\n\nID (hex)\tNAME\n");
-	for_each_machine_desc(p)
-		early_print("%08x\t%s\n", p->nr, p->name);
+	/*
+	 * locate machine in the list of supported machines.
+	 */
+	list = lookup_machine_type(nr);
+	if (!list) {
+		printk("Machine configuration botched (nr %d), unable "
+		       "to continue.\n", nr);
+		while (1);
+	}
 
-	early_print("\nPlease check your kernel config and/or bootloader.\n");
+	printk("Machine: %s\n", list->name);
 
-	while (true)
-		/* can't use cpu_relax() here as it may require MMU setup */;
+	return list;
 }
 
-int __init arm_add_memory(phys_addr_t start, unsigned long size)
+static int __init arm_add_memory(unsigned long start, unsigned long size)
 {
 	struct membank *bank = &meminfo.bank[meminfo.nr_banks];
 
 	if (meminfo.nr_banks >= NR_BANKS) {
 		printk(KERN_CRIT "NR_BANKS too low, "
-			"ignoring memory at 0x%08llx\n", (long long)start);
+			"ignoring memory at %#lx\n", start);
 		return -EINVAL;
 	}
 
@@ -494,8 +481,7 @@ int __init arm_add_memory(phys_addr_t start, unsigned long size)
 static int __init early_mem(char *p)
 {
 	static int usermem __initdata = 0;
-	unsigned long size;
-	phys_addr_t start;
+	unsigned long size, start;
 	char *endp;
 
 	/*
@@ -667,16 +653,11 @@ __tagtable(ATAG_REVISION, parse_tag_revision);
 
 static int __init parse_tag_cmdline(const struct tag *tag)
 {
-#if defined(CONFIG_CMDLINE_EXTEND)
-	strlcat(default_command_line, " ", COMMAND_LINE_SIZE);
-	strlcat(default_command_line, tag->u.cmdline.cmdline,
-		COMMAND_LINE_SIZE);
-#elif defined(CONFIG_CMDLINE_FORCE)
-	pr_warning("Ignoring tag cmdline (using the default kernel command line)\n");
+#ifndef CONFIG_CMDLINE_FORCE
+	strlcpy(default_command_line, tag->u.cmdline.cmdline, COMMAND_LINE_SIZE);
 #else
-	strlcpy(default_command_line, tag->u.cmdline.cmdline,
-		COMMAND_LINE_SIZE);
-#endif
+	pr_warning("Ignoring tag cmdline (using the default kernel command line)\n");
+#endif /* CONFIG_CMDLINE_FORCE */
 	return 0;
 }
 
@@ -727,7 +708,7 @@ static struct init_tags {
 	{ tag_size(tag_core), ATAG_CORE },
 	{ 1, PAGE_SIZE, 0xff },
 	{ tag_size(tag_mem32), ATAG_MEM },
-	{ MEM_SIZE },
+	{ MEM_SIZE, PHYS_OFFSET },
 	{ 0, ATAG_NONE }
 };
 
@@ -789,6 +770,30 @@ static void __init reserve_crashkernel(void)
 static inline void reserve_crashkernel(void) {}
 #endif /* CONFIG_KEXEC */
 
+/*
+ * Note: elfcorehdr_addr is not just limited to vmcore. It is also used by
+ * is_kdump_kernel() to determine if we are booting after a panic. Hence
+ * ifdef it under CONFIG_CRASH_DUMP and not CONFIG_PROC_VMCORE.
+ */
+
+#ifdef CONFIG_CRASH_DUMP
+/*
+ * elfcorehdr= specifies the location of elf core header stored by the crashed
+ * kernel. This option will be passed by kexec loader to the capture kernel.
+ */
+static int __init setup_elfcorehdr(char *arg)
+{
+	char *end;
+
+	if (!arg)
+		return -EINVAL;
+
+	elfcorehdr_addr = memparse(arg, &end);
+	return end > arg ? 0 : -EINVAL;
+}
+early_param("elfcorehdr", setup_elfcorehdr);
+#endif /* CONFIG_CRASH_DUMP */
+
 static void __init squash_mem_tags(struct tag *tag)
 {
 	for (; tag->hdr.size; tag = tag_next(tag))
@@ -796,51 +801,26 @@ static void __init squash_mem_tags(struct tag *tag)
 			tag->hdr.tag = ATAG_NONE;
 }
 
-static struct machine_desc * __init setup_machine_tags(unsigned int nr)
+void __init setup_arch(char **cmdline_p)
 {
 	struct tag *tags = (struct tag *)&init_tags;
-	struct machine_desc *mdesc = NULL, *p;
+	struct machine_desc *mdesc;
 	char *from = default_command_line;
 
-	init_tags.mem.start = PHYS_OFFSET;
+	unwind_init();
 
-	/*
-	 * locate machine in the list of supported machines.
-	 */
-	for_each_machine_desc(p)
-		if (nr == p->nr) {
-			printk("Machine: %s\n", p->name);
-			mdesc = p;
-			break;
-		}
+	setup_processor();
+	mdesc = setup_machine(machine_arch_type);
+	machine_desc = mdesc;
+	machine_name = mdesc->name;
 
-	if (!mdesc) {
-		early_print("\nError: unrecognized/unsupported machine ID"
-			" (r1 = 0x%08x).\n\n", nr);
-		dump_machine_table(); /* does not return */
-	}
+	if (mdesc->soft_reboot)
+		reboot_setup("s");
 
 	if (__atags_pointer)
 		tags = phys_to_virt(__atags_pointer);
-	else if (mdesc->boot_params) {
-#ifdef CONFIG_MMU
-		/*
-		 * We still are executing with a minimal MMU mapping created
-		 * with the presumption that the machine default for this
-		 * is located in the first MB of RAM.  Anything else will
-		 * fault and silently hang the kernel at this point.
-		 */
-		if (mdesc->boot_params < PHYS_OFFSET ||
-		    mdesc->boot_params >= PHYS_OFFSET + SZ_1M) {
-			printk(KERN_WARNING
-			       "Default boot params at physical 0x%08lx out of reach\n",
-			       mdesc->boot_params);
-		} else
-#endif
-		{
-			tags = phys_to_virt(mdesc->boot_params);
-		}
-	}
+	else if (mdesc->boot_params)
+		tags = phys_to_virt(mdesc->boot_params);
 
 #if defined(CONFIG_DEPRECATED_PARAM_STRUCT)
 	/*
@@ -850,17 +830,8 @@ static struct machine_desc * __init setup_machine_tags(unsigned int nr)
 	if (tags->hdr.tag != ATAG_CORE)
 		convert_to_tag_list(tags);
 #endif
-
-	if (tags->hdr.tag != ATAG_CORE) {
-#if defined(CONFIG_OF)
-		/*
-		 * If CONFIG_OF is set, then assume this is a reasonably
-		 * modern system that should pass boot parameters
-		 */
-		early_print("Warning: Neither atags nor dtb found\n");
-#endif
+	if (tags->hdr.tag != ATAG_CORE)
 		tags = (struct tag *)&init_tags;
-	}
 
 	if (mdesc->fixup)
 		mdesc->fixup(mdesc, tags, &from, &meminfo);
@@ -872,33 +843,13 @@ static struct machine_desc * __init setup_machine_tags(unsigned int nr)
 		parse_tags(tags);
 	}
 
-	/* parse_early_param needs a boot_command_line */
-	strlcpy(boot_command_line, from, COMMAND_LINE_SIZE);
-
-	return mdesc;
-}
-
-
-void __init setup_arch(char **cmdline_p)
-{
-	struct machine_desc *mdesc;
-
-	unwind_init();
-
-	setup_processor();
-	mdesc = setup_machine_fdt(__atags_pointer);
-	if (!mdesc)
-		mdesc = setup_machine_tags(machine_arch_type);
-	machine_desc = mdesc;
-	machine_name = mdesc->name;
-
-	if (mdesc->soft_reboot)
-		reboot_setup("s");
-
 	init_mm.start_code = (unsigned long) _text;
 	init_mm.end_code   = (unsigned long) _etext;
 	init_mm.end_data   = (unsigned long) _edata;
 	init_mm.brk	   = (unsigned long) _end;
+
+	/* parse_early_param needs a boot_command_line */
+	strlcpy(boot_command_line, from, COMMAND_LINE_SIZE);
 
 	/* populate cmd_line too for later use, preserving boot_command_line */
 	strlcpy(cmd_line, boot_command_line, COMMAND_LINE_SIZE);
@@ -906,16 +857,10 @@ void __init setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
-	if (mdesc->init_very_early)
-		mdesc->init_very_early();
-
-	sanity_check_meminfo();
 	arm_memblock_init(&meminfo, mdesc);
 
 	paging_init(mdesc);
 	request_standard_resources(mdesc);
-
-	unflatten_device_tree();
 
 #ifdef CONFIG_SMP
 	if (is_smp())
@@ -987,10 +932,6 @@ static const char *hwcap_str[] = {
 	"neon",
 	"vfpv3",
 	"vfpv3d16",
-	"tls",
-	"vfpv4",
-	"idiva",
-	"idivt",
 	NULL
 };
 

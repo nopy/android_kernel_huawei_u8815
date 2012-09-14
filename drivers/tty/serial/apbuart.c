@@ -553,11 +553,13 @@ static struct uart_driver grlib_apbuart_driver = {
 /* OF Platform Driver                                                       */
 /* ======================================================================== */
 
-static int __devinit apbuart_probe(struct platform_device *op)
+static int __devinit apbuart_probe(struct platform_device *op,
+				   const struct of_device_id *match)
 {
-	int i;
+	int i = -1;
 	struct uart_port *port = NULL;
 
+	i = 0;
 	for (i = 0; i < grlib_apbuart_port_nr; i++) {
 		if (op->dev.of_node == grlib_apbuart_nodes[i])
 			break;
@@ -565,7 +567,6 @@ static int __devinit apbuart_probe(struct platform_device *op)
 
 	port = &grlib_apbuart_ports[i];
 	port->dev = &op->dev;
-	port->irq = op->archdata.irqs[0];
 
 	uart_add_one_port(&grlib_apbuart_driver, (struct uart_port *) port);
 
@@ -586,7 +587,7 @@ static struct of_device_id __initdata apbuart_match[] = {
 	{},
 };
 
-static struct platform_driver grlib_apbuart_of_driver = {
+static struct of_platform_driver grlib_apbuart_of_driver = {
 	.probe = apbuart_probe,
 	.driver = {
 		.owner = THIS_MODULE,
@@ -598,12 +599,24 @@ static struct platform_driver grlib_apbuart_of_driver = {
 
 static int grlib_apbuart_configure(void)
 {
-	struct device_node *np;
-	int line = 0;
+	struct device_node *np, *rp;
+	const u32 *prop;
+	int freq_khz, line = 0;
+
+	/* Get bus frequency */
+	rp = of_find_node_by_path("/");
+	if (!rp)
+		return -ENODEV;
+	rp = of_get_next_child(rp, NULL);
+	if (!rp)
+		return -ENODEV;
+	prop = of_get_property(rp, "clock-frequency", NULL);
+	if (!prop)
+		return -ENODEV;
+	freq_khz = *prop;
 
 	for_each_matching_node(np, apbuart_match) {
-		const int *ampopts;
-		const u32 *freq_hz;
+		const int *irqs, *ampopts;
 		const struct amba_prom_registers *regs;
 		struct uart_port *port;
 		unsigned long addr;
@@ -611,11 +624,11 @@ static int grlib_apbuart_configure(void)
 		ampopts = of_get_property(np, "ampopts", NULL);
 		if (ampopts && (*ampopts == 0))
 			continue; /* Ignore if used by another OS instance */
-		regs = of_get_property(np, "reg", NULL);
-		/* Frequency of APB Bus is frequency of UART */
-		freq_hz = of_get_property(np, "freq", NULL);
 
-		if (!regs || !freq_hz || (*freq_hz == 0))
+		irqs = of_get_property(np, "interrupts", NULL);
+		regs = of_get_property(np, "reg", NULL);
+
+		if (!irqs || !regs)
 			continue;
 
 		grlib_apbuart_nodes[line] = np;
@@ -626,12 +639,12 @@ static int grlib_apbuart_configure(void)
 
 		port->mapbase = addr;
 		port->membase = ioremap(addr, sizeof(struct grlib_apbuart_regs_map));
-		port->irq = 0;
+		port->irq = *irqs;
 		port->iotype = UPIO_MEM;
 		port->ops = &grlib_apbuart_ops;
 		port->flags = UPF_BOOT_AUTOCONF;
 		port->line = line;
-		port->uartclk = *freq_hz;
+		port->uartclk = freq_khz * 1000;
 		port->fifosize = apbuart_scan_fifo_size((struct uart_port *) port, line);
 		line++;
 
@@ -663,10 +676,10 @@ static int __init grlib_apbuart_init(void)
 		return ret;
 	}
 
-	ret = platform_driver_register(&grlib_apbuart_of_driver);
+	ret = of_register_platform_driver(&grlib_apbuart_of_driver);
 	if (ret) {
 		printk(KERN_ERR
-		       "%s: platform_driver_register failed (%i)\n",
+		       "%s: of_register_platform_driver failed (%i)\n",
 		       __FILE__, ret);
 		uart_unregister_driver(&grlib_apbuart_driver);
 		return ret;
@@ -684,7 +697,7 @@ static void __exit grlib_apbuart_exit(void)
 				     &grlib_apbuart_ports[i]);
 
 	uart_unregister_driver(&grlib_apbuart_driver);
-	platform_driver_unregister(&grlib_apbuart_of_driver);
+	of_unregister_platform_driver(&grlib_apbuart_of_driver);
 }
 
 module_init(grlib_apbuart_init);

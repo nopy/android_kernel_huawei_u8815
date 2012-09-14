@@ -14,6 +14,9 @@
 
 #include <asm/mach-types.h>
 #include "linux/hardware_self_adapt.h"
+#ifdef CONFIG_HUAWEI_SYNAPTICS_RMI_TOUCH
+#include "linux/rmi.h"
+#endif
 
 static unsigned int lcd_id = 0;
 static unsigned int sub_board_id = 0;
@@ -146,16 +149,10 @@ char *get_wifi_device_name(void)
                                                              
   wifi_device_model = get_hw_wifi_device_model();        
   printk("wifi_device_id = %d\n",wifi_device_model);    
-  if(WIFI_BROADCOM_4329 == wifi_device_model)                 
-  {                                                  
-	wifi_device_id = "1.1";
-  }
-  
-  else if(WIFI_BROADCOM_4330 == wifi_device_model)
+  if(WIFI_BROADCOM_4330 == wifi_device_model)                 
   {                                                  
 	wifi_device_id = "1.2";
-  }
-                                                 
+  }                                                  
   else if(WIFI_QUALCOMM_6005 == wifi_device_model)            
   { 
     wifi_device_id = "2.1"; 
@@ -210,135 +207,29 @@ unsigned char bootimage_is_recovery(void)
 {
   return recovery_boot_mode;
 }
-/*  FUNCTION  get_hw_lcd_interface_type
- *  DEPENDENCIES 
- *      get lcd interface type
- *      affect nfc.
- *  RETURN VALUE
- *      lcd interface type:LCD_IS_MIPI or LCD_IS_RGB
+
+/*
+ *brief: get lcd control backlight type
  */
-hw_lcd_interface_type get_hw_lcd_interface_type(void)
-{
-	hw_lcd_interface_type lcd_interface_type;
-	lcd_panel_type  hw_lcd_panel = LCD_NONE;
-	
-	hw_lcd_panel = get_lcd_panel_type();	
-
-	if (machine_is_msm7x30_u8800())
-	{
-		lcd_interface_type = LCD_IS_MDDI_TYPE1;
-	}	
-	/* U8820 board version A is MMDI type1, so config it type1 
-	 * Version B and other is MDDI type2, so config it according to LCD
-	 */
-	else if(machine_is_msm7x30_u8820())
-	{
-		if(HW_VER_SUB_VA == get_hw_sub_board_id())
-		{
-			lcd_interface_type = LCD_IS_MDDI_TYPE1;
-		}
-		else
-		{
-			switch(hw_lcd_panel)
-			{
-				case LCD_NT35582_BYD_WVGA:
-				case LCD_NT35582_TRULY_WVGA:
-					lcd_interface_type = LCD_IS_MDDI_TYPE1;
-					break;
-				case LCD_NT35510_ALPHA_SI_WVGA:
-					lcd_interface_type = LCD_IS_MDDI_TYPE1;
-					break;
-				case LCD_NT35510_ALPHA_SI_WVGA_TYPE2:
-					lcd_interface_type = LCD_IS_MDDI_TYPE2;
-					break;
-				default:
-					lcd_interface_type = LCD_IS_MDDI_TYPE1;
-					break;
-			}
-		}
-	}
-	else if (machine_is_msm7x30_u8800_51() 
-		|| machine_is_msm8255_u8800_pro())
-	{
-		switch(hw_lcd_panel)
-		{
-			case LCD_NT35582_BYD_WVGA:
-			case LCD_NT35582_TRULY_WVGA:
-				lcd_interface_type = LCD_IS_MDDI_TYPE1;
-				break;
-			case LCD_NT35510_ALPHA_SI_WVGA:
-				lcd_interface_type = LCD_IS_MDDI_TYPE1;
-				break;
-			case LCD_NT35510_ALPHA_SI_WVGA_TYPE2:
-				lcd_interface_type = LCD_IS_MDDI_TYPE2;
-				break;
-			default:
-				lcd_interface_type = LCD_IS_MDDI_TYPE1;
-				break;
-		}
-	}
-    else if (machine_is_msm8255_u8860() 
-		|| machine_is_msm8255_c8860() 
-		|| machine_is_msm8255_u8860lp()
-        || machine_is_msm8255_u8860_r()
-		|| machine_is_msm8255_u8860_92()
-		|| machine_is_msm8255_u8680()
-		|| machine_is_msm8255_u8860_51()
-		|| machine_is_msm8255_u8730())
-	{
-		lcd_interface_type = LCD_IS_MDDI_TYPE2;
-	}
-
-	else if (machine_is_msm8255_u8667())
-	{
-		lcd_interface_type = LCD_IS_MDDI_TYPE1;
-	}
-	else if(machine_is_msm7x27a_U8185()
-		||machine_is_msm7x27a_M660())
-	{
-		lcd_interface_type = LCD_IS_RGB;
-	}
-	else
-	{
-		lcd_interface_type = LCD_IS_MIPI_CMD;
-	}
-	return lcd_interface_type;
-}
-/* C8820VC uses PM pwm. */
 hw_lcd_ctrl_bl_type get_hw_lcd_ctrl_bl_type(void)
 {
     hw_lcd_ctrl_bl_type ctrl_bl_type = CTRL_BL_BY_UNKNOW;
 	/*control backlight by MSM pwm*/
-	/* C8668D uses PM pwm. */
-	if (machine_is_msm7x27a_umts() 
-		|| machine_is_msm7x27a_cdma()
-		|| machine_is_msm7x27a_U8815() 
-		|| machine_is_msm7x27a_U8655_EMMC()
-		|| machine_is_msm7x27a_U8185() 
-		|| machine_is_msm7x27a_U8655()
-		|| machine_is_msm7x27a_M660()
-		|| machine_is_msm7x30_u8800()
-		|| machine_is_msm7x30_u8820() 
-		|| machine_is_msm7x30_u8800_51() 
-		|| machine_is_msm8255_u8800_pro()
-		|| machine_is_msm8255_u8860() 
-		|| machine_is_msm8255_c8860()
-		|| machine_is_msm8255_u8860_92()
+	/* U8661 uses PM pwm. */
+	/* C8820VC uses PM pwm. */
+	if (machine_is_msm7x27a_umts() || machine_is_msm7x27a_cdma()
+		|| machine_is_msm7x27a_U8815() || machine_is_msm7x27a_U8655_EMMC()
+		|| machine_is_msm7x27a_U8185() || machine_is_msm7x27a_U8655()
+		|| machine_is_msm7x27a_M660()  || machine_is_msm7x27a_U8661()
 		|| (machine_is_msm7x27a_C8820() && (HW_VER_SUB_VC <= get_hw_sub_board_id()))
-		||machine_is_msm7x27a_U8661()
-		|| machine_is_msm7x27a_C8668D() 
 		)
 	{
 		ctrl_bl_type = CTRL_BL_BY_MSM;
 	}
 	/*control backlight by LCD output pwm*/
 	else if(machine_is_msm7x27a_C8655_NAND()
-		|| (machine_is_msm7x27a_C8820() && (HW_VER_SUB_VA == get_hw_sub_board_id()))
-		|| machine_is_msm7x27a_C8825D()
-        || machine_is_msm8255_u8860_r()
-		|| machine_is_msm8255_u8860lp()
-		|| machine_is_msm8255_u8860_51()
-		|| machine_is_msm8255_u8667())
+	        || (machine_is_msm7x27a_C8820() && (HW_VER_SUB_VA == get_hw_sub_board_id()))
+		    || machine_is_msm7x27a_C8825D())
 	{
 		ctrl_bl_type = CTRL_BL_BY_LCD;
 	}
@@ -346,8 +237,10 @@ hw_lcd_ctrl_bl_type get_hw_lcd_ctrl_bl_type(void)
 	{
 		ctrl_bl_type = CTRL_BL_BY_LCD;
 	}
+
     return ctrl_bl_type;
 }
+
 /*
  *brief: get lcd panel resolution
  */
@@ -355,36 +248,15 @@ lcd_type get_hw_lcd_resolution_type(void)
 {
     lcd_type lcd_resolution = LCD_IS_HVGA;
 
-/* add 8x55 paltform products */
-	if ( machine_is_msm7x27a_U8815() 
-		|| machine_is_msm7x27a_C8820()
-		|| machine_is_msm7x27a_C8825D()
-		|| machine_is_msm7x30_u8800()
-		|| machine_is_msm7x30_u8820() 
-		|| machine_is_msm7x30_u8800_51() 
-		|| machine_is_msm8255_u8800_pro()
-		|| machine_is_msm8255_u8680()
-		|| machine_is_msm8255_u8730())
+	if ( machine_is_msm7x27a_U8815() || machine_is_msm7x27a_C8820()
+		|| machine_is_msm7x27a_C8825D() )
 	{
 		lcd_resolution = LCD_IS_WVGA;
 	}
-	else if (machine_is_msm8255_u8860() 
-		|| machine_is_msm8255_c8860() 
-		|| machine_is_msm8255_u8860lp()
-        || machine_is_msm8255_u8860_r()
-		|| machine_is_msm8255_u8860_92()
-		|| machine_is_msm8255_u8860_51())
-	{
-		lcd_resolution = LCD_IS_FWVGA;
-	}
-	/* C8668D uses HVGA. */
-	else if ( machine_is_msm7x27a_M660() 
-		|| machine_is_msm7x27a_U8655()	
-		|| machine_is_msm7x27a_U8655_EMMC()
-		|| machine_is_msm7x27a_C8655_NAND()
-		|| machine_is_msm8255_u8667()
-		|| machine_is_msm7x27a_U8661()
-		|| machine_is_msm7x27a_C8668D())
+	/* U8661 uses HVGA */
+	else if ( machine_is_msm7x27a_M660() || machine_is_msm7x27a_U8655()	
+		|| machine_is_msm7x27a_U8655_EMMC()|| machine_is_msm7x27a_C8655_NAND()
+		|| machine_is_msm7x27a_U8661())
 	{
 		lcd_resolution = LCD_IS_HVGA;
 	}
@@ -396,271 +268,122 @@ lcd_type get_hw_lcd_resolution_type(void)
 	{
 		lcd_resolution = LCD_IS_HVGA;
 	}
-
+   
     return lcd_resolution;
 }
 
 lcd_panel_type get_lcd_panel_type(void)
 {
-	lcd_panel_type hw_lcd_panel = LCD_NONE;
+	 lcd_panel_type hw_lcd_panel = LCD_NONE;
+	 unsigned int lcd_id = LCD_NONE;
 
-	if ( machine_is_msm7x30_u8800()
-		|| machine_is_msm7x30_u8820() 
-		|| machine_is_msm7x30_u8800_51() 
-		|| machine_is_msm8255_u8800_pro())
-	{
-		switch (lcd_id)
-		{
-			case LCD_HW_ID0:  
-				hw_lcd_panel = LCD_NT35582_BYD_WVGA;
-				break;
-			case LCD_HW_ID1:  
-				hw_lcd_panel = LCD_NT35582_TRULY_WVGA;
-				break;
-			case LCD_HW_ID2:  
-				hw_lcd_panel = LCD_NT35510_ALPHA_SI_WVGA;
-				break;
-			case LCD_HW_ID3:  
-				hw_lcd_panel = LCD_NT35510_ALPHA_SI_WVGA_TYPE2;
-				break;
-			default : 
-				hw_lcd_panel = LCD_NT35510_ALPHA_SI_WVGA;
-				break;					  
-		}
-	}
-	else if (machine_is_msm8255_u8860() 
-		|| machine_is_msm8255_c8860() 
-		|| machine_is_msm8255_u8860lp()
-        || machine_is_msm8255_u8860_r()
-		|| machine_is_msm8255_u8860_92()
-		|| machine_is_msm8255_u8860_51())
-	{
-		switch (lcd_id)
-		{
-			case LCD_HW_ID0:
-				hw_lcd_panel = LCD_NT35560_TOSHIBA_FWVGA;
-				break;
-			default : 
-				hw_lcd_panel = LCD_NT35560_TOSHIBA_FWVGA;
-				break;					  
-		}
-	}
-	else if( machine_is_msm8255_u8680()
-		|| machine_is_msm8255_u8730())
+	 lcd_id = get_hw_lcd_id();
 
-	{
-		switch (lcd_id)
-		{
-			case LCD_HW_ID0:
-				hw_lcd_panel = MDDI_RSP61408_CHIMEI_WVGA;
-				break;
-			case LCD_HW_ID1:
-				hw_lcd_panel = MDDI_HX8369A_TIANMA_WVGA;
-				break;
-			case LCD_HW_ID2:
-				hw_lcd_panel = MDDI_RSP61408_BYD_WVGA;
-				break;
-			default : 
-				hw_lcd_panel = MDDI_RSP61408_CHIMEI_WVGA;
-				break;
-		}
-	}
-	else if( machine_is_msm8255_u8667())
-	{
-		switch (lcd_id)
-		{
-			case LCD_HW_ID0:
-				hw_lcd_panel = MDDI_HX8357C_CHIMEI_HVGA;
-				break;
-			case LCD_HW_ID2:
-				hw_lcd_panel = MDDI_HX8357C_CHIMEI_IPS_HVGA;
-				break;
-			case LCD_HW_ID3:
-				hw_lcd_panel = MDDI_HX8357C_TIANMA_HVGA;
-				break;
-			default:
-				hw_lcd_panel = MDDI_HX8357C_CHIMEI_HVGA;
-				break;		
-		}
-	}
-	else if( machine_is_msm7x27a_umts()
-		|| machine_is_msm7x27a_cdma())
-	{
-		switch (lcd_id)
-		{
-			case LCD_HW_ID0:
+	 if( machine_is_msm7x27a_umts()||machine_is_msm7x27a_cdma())
+	 {
+		 switch (lcd_id)
+		 {
+			case 0:
 				hw_lcd_panel = MIPI_NT35560_TOSHIBA_FWVGA;
 				break;
-			case LCD_HW_ID1:
+			case 1:
 				hw_lcd_panel = LCD_HX8357B_TIANMA_HVGA;
 				break;
-			default:
-				/*no mipi LCD lead to block, so default lcd RGB */
+
+			default: 
 				hw_lcd_panel = LCD_HX8357B_TIANMA_HVGA;
 				break;
-		}
-
-	}
-	else if( machine_is_msm7x27a_U8815() 
-		|| machine_is_msm7x27a_C8820()
-		|| machine_is_msm7x27a_C8825D() )
-
-	{
-		switch (lcd_id)
-		{
-			case LCD_HW_ID0:
+		 }
+	 }
+    else if( machine_is_msm7x27a_U8815() ||
+             machine_is_msm7x27a_C8820() ||
+             machine_is_msm7x27a_C8825D() )
+	 {
+		 switch (lcd_id)
+		 {
+			case 0:
 				hw_lcd_panel = MIPI_RSP61408_CHIMEI_WVGA;
 				break;
-			case LCD_HW_ID1:
+			case 1:
 				hw_lcd_panel = MIPI_HX8369A_TIANMA_WVGA;
-				break;
-			case LCD_HW_ID2:
+				break;			
+			case 2:
 				hw_lcd_panel = MIPI_RSP61408_BYD_WVGA;
 				break;
-			case LCD_HW_ID3:
+			case 3:
 				hw_lcd_panel = MIPI_RSP61408_TRULY_WVGA;
 				break;
-			default:
-				/*no mipi LCD lead to block, so default lcd RGB */
-				hw_lcd_panel = LCD_HX8357B_TIANMA_HVGA;
-				break;
-		}
-	}
 
-	else if( machine_is_msm7x27a_U8655() 
-		|| machine_is_msm7x27a_U8655_EMMC() 
-		|| machine_is_msm7x27a_C8655_NAND()
-		|| machine_is_msm7x27a_U8661()
-		|| machine_is_msm7x27a_C8668D())
-	{
-		switch (lcd_id)
-		{
-			case LCD_HW_ID0:
-				hw_lcd_panel = MIPI_HX8357C_CHIMEI_HVGA;
-				break;
-			case LCD_HW_ID1:
-			    hw_lcd_panel = MIPI_HX8357C_TIANMA_IPS_HVGA;
-				break;
-			case LCD_HW_ID2:
-				hw_lcd_panel = MIPI_HX8357C_CHIMEI_IPS_HVGA;
-				break;
-			case LCD_HW_ID3:
-				hw_lcd_panel = MIPI_HX8357C_TIANMA_HVGA;
-				break;
 			default: 
 				/*no mipi LCD lead to block, so default lcd RGB */
 				hw_lcd_panel = LCD_HX8357B_TIANMA_HVGA;
 				break;
-		}
-	}
-	else if( machine_is_msm7x27a_U8185())
-	{
-		switch(lcd_id)
+		 }
+	 }
+	 /* add U8655_EMMC, use the u8655 configuration */
+	 else if( machine_is_msm7x27a_U8655() || machine_is_msm7x27a_U8655_EMMC() || machine_is_msm7x27a_C8655_NAND()||
+	          machine_is_msm7x27a_U8661())
+	 {
+		 switch (lcd_id)
+		 {
+			/*this IC stand id number 0 and 3,temp add*/
+			case 0:
+				hw_lcd_panel = MIPI_HX8357C_CHIMEI_HVGA;
+				break;
+			case 1:
+			    hw_lcd_panel = MIPI_HX8357C_TIANMA_IPS_HVGA;
+				break;
+			case 2:
+				hw_lcd_panel = MIPI_HX8357C_CHIMEI_IPS_HVGA;
+				break;
+			case 3:
+				hw_lcd_panel = MIPI_HX8357C_TIANMA_HVGA;
+				break;
+
+			default: 
+				/*no mipi LCD lead to block, so default lcd RGB */
+				hw_lcd_panel = LCD_HX8357B_TIANMA_HVGA;
+				break;
+		 }
+	 }
+	 else if( machine_is_msm7x27a_U8185())
+	 {
+	 	switch(lcd_id)
 		{
-			case LCD_HW_ID0:
+			case 0:
 				hw_lcd_panel = LCD_HX8347D_TRULY_QVGA;
 				break;
-			case LCD_HW_ID2:
+			case 2:
 				hw_lcd_panel = LCD_HX8347G_TIANMA_QVGA;
 				break;
-			case LCD_HW_ID3:
+			case 3:
 				hw_lcd_panel = LCD_HX8347D_CHIMEI_QVGA;
 				break;
 			default:
 				hw_lcd_panel = LCD_HX8347G_TIANMA_QVGA;
 				break;
-		}
-	}
-	else if(machine_is_msm7x27a_M660())
-	{
-		switch(lcd_id)
-		{
-			case LCD_HW_ID0:
+	 	}
+	 }
+	 else if(machine_is_msm7x27a_M660())
+ 	 {
+ 	 	switch(lcd_id)
+ 	 	{
+ 	 		case 0:
 				hw_lcd_panel = LCD_HX8357C_TIANMA_HVGA;
 				break;
-			case LCD_HW_ID1:
+			case 1:
 				hw_lcd_panel = LCD_HX8357B_TIANMA_HVGA;
-				break;
+				break;		
 			default:
 				hw_lcd_panel = LCD_HX8357C_TIANMA_HVGA;
 				break;
-		}
-	}
-	else
-	{
+ 	 	}
+ 	 }	 
+	 else 
+	 {
 		hw_lcd_panel = LCD_HX8357B_TIANMA_HVGA;
-	}
-	return hw_lcd_panel;
-}
-/*===========================================================================
-
-
-FUNCTION     get_compass_gs_position
-
-DESCRIPTION
-  This function probe which G-sensor & Campass status type should be used
-
-DEPENDENCIES
-  
-RETURN VALUE
-  None
-
-SIDE EFFECTS
-  None
-===========================================================================*/
-compass_gs_position_type  get_compass_gs_position(void)
-{
-	compass_gs_position_type compass_gs_position=COMPASS_TOP_GS_TOP;
-	/* modify compass and gs position by board id */
-    //move C8820\25D define from TOP to BOTTOM
-	if (machine_is_msm7x27a_surf() 
-	 || machine_is_msm7x27a_ffa() 
-	 || machine_is_msm7x27a_umts() 
-	 || machine_is_msm7x27a_cdma()
-	 || machine_is_msm7x27a_U8815()) 
-	{
-		compass_gs_position=COMPASS_TOP_GS_TOP;
-	}
-	/*version A and version B has compass, since version C don't have compass*/
-	else if(machine_is_msm7x27a_C8820() && (HW_VER_SUB_VC <= get_hw_sub_board_id()))
-	{
-		compass_gs_position=COMPASS_NONE_GS_BOTTOM;
-	}
-	/* add U8655_EMMC, use the u8655 configuration */
-	else if (machine_is_msm7x27a_U8655() 
-		  || machine_is_msm7x27a_U8655_EMMC()  
-		  || machine_is_msm7x27a_C8655_NAND()  
-		  || machine_is_msm7x27a_M660()  
-		  || machine_is_msm7x27a_U8661()    
-		  || machine_is_msm7x27a_C8820()   
-		  || machine_is_msm7x27a_C8825D()
-		  || machine_is_msm7x30_u8800()
-		  || machine_is_msm7x30_u8820() 
-		  || machine_is_msm7x30_u8800_51()
-		  || machine_is_msm8255_u8800_pro()
-		  || machine_is_msm8255_u8860() 
-		  || machine_is_msm8255_c8860() 
-		  || machine_is_msm8255_u8860lp()
-          || machine_is_msm8255_u8860_r()
-		  || machine_is_msm8255_u8860_92()            
-		  || machine_is_msm8255_u8860_51())
-	{
-		compass_gs_position=COMPASS_BOTTOM_GS_BOTTOM;
-	}
-	else if (machine_is_msm7x27a_U8185())	
-	{
-		compass_gs_position=COMPASS_NONE_GS_TOP;
-	}
-	else if(machine_is_msm8255_u8680() 
-	     || machine_is_msm8255_u8730())
-	{
-	    compass_gs_position=COMPASS_TOP_GS_TOP;
-	}
-    else if (machine_is_msm7x27a_C8668D() )	
-	{
-		compass_gs_position = COMPASS_BOTTOM_GS_TOP;
-	}
-	return compass_gs_position;
+	 }
+	 return hw_lcd_panel;
 }
 
 /*===========================================================================
@@ -685,9 +408,7 @@ lcd_align_type get_lcd_align_type (void)
     lcd_align_type  lcd_align    = LCD_PANEL_ALIGN_LSB;
      
 	hw_lcd_panel = get_lcd_panel_type();
-
-	if ((hw_lcd_panel == LCD_ILI9481DS_TIANMA_HVGA) 
-		||(hw_lcd_panel == LCD_ILI9481D_INNOLUX_HVGA))
+	if ((hw_lcd_panel == LCD_ILI9481DS_TIANMA_HVGA) ||(hw_lcd_panel == LCD_ILI9481D_INNOLUX_HVGA))
 	{
 		lcd_align = LCD_PANEL_ALIGN_MSB;
 	}
@@ -700,112 +421,97 @@ lcd_align_type get_lcd_align_type (void)
 }
 char *get_lcd_panel_name(void)
 {
-	lcd_panel_type hw_lcd_panel = LCD_NONE;
-	char *pname = NULL;	 
+	 lcd_panel_type hw_lcd_panel = LCD_NONE;
+	 char *pname = NULL;
+	 
+	 hw_lcd_panel = get_lcd_panel_type();
+	 
+	 switch (hw_lcd_panel)
+	 {
+		 case LCD_S6D74A0_SAMSUNG_HVGA:
+			 pname = "SAMSUNG S6D74A0";
+			 break;
+			 
+		 case LCD_ILI9325_INNOLUX_QVGA:
+			 pname = "INNOLUX ILI9325";
+			 break;
 
-	hw_lcd_panel = get_lcd_panel_type();
+		 case LCD_ILI9331B_TIANMA_QVGA:
+			 pname = "TIANMA ILI9331B";
+			 break;
 
-	switch (hw_lcd_panel)
-	{
-		case LCD_S6D74A0_SAMSUNG_HVGA:
-			pname = "SAMSUNG S6D74A0";
-			break;
+		 case LCD_ILI9325_BYD_QVGA:
+			 pname = "BYD ILI9325";
+			 break;
 
-		case LCD_ILI9325_INNOLUX_QVGA:
-			pname = "INNOLUX ILI9325";
-			break;
+		 case LCD_ILI9325_WINTEK_QVGA:
+			 pname = "WINTEK ILI9325";
+			 break;
 
-		case LCD_ILI9325_BYD_QVGA:
-			pname = "BYD ILI9325";
-			break;
+		 case LCD_SPFD5408B_KGM_QVGA:
+			 pname = "KGM SPFD5408B";
+			 break;
 
-		case LCD_ILI9325_WINTEK_QVGA:
-			pname = "WINTEK ILI9325";
-			break;
+		 case LCD_HX8368A_TRULY_QVGA:
+			 pname = "TRULY HX8368A";
+			 break;
 
-		case LCD_SPFD5408B_KGM_QVGA:
-			pname = "KGM SPFD5408B";
-			break;
+		 case LCD_HX8368A_SEIKO_QVGA:
+			 pname = "SEIKO HX8368A";
+			 break;
 
-		case LCD_HX8357A_BYD_QVGA:
-			pname = "BYD HX8357A";
-			break;
+		 case LCD_HX8347D_TRULY_QVGA:
+			 pname = "TRULY HX8347D";
+			 break;
 
-		case LCD_HX8368A_SEIKO_QVGA:
-			pname = "SEIKO HX8368A";
-			break;
+		 case LCD_HX8347D_INNOLUX_QVGA:
+			 pname = "INNOLUX HX8347D";
+			 break;
+		 case LCD_HX8347D_CHIMEI_QVGA:
+			 pname = "CHIMEI HX8347D";
+		 	 break;
+		 case LCD_HX8347G_TIANMA_QVGA:
+			 pname = "TIANMA HX8347G";
+		 	 break;
+		 case LCD_ILI9325C_WINTEK_QVGA:
+			 pname = "WINTEK ILI9325C";
+			 break;
 
-		case LCD_HX8347D_TRULY_QVGA:
-			pname = "TRULY HX8347D";
-			break;
+		 case LCD_HX8357A_TRULY_HVGA:
+			 pname = "TRULY HX8357A";
+			 break;
 
-		case LCD_ILI9325C_WINTEK_QVGA:
-			pname = "WINTEK ILI9325C";
-			break;
+		 case LCD_HX8357A_WINTEK_HVGA:
+			 pname = "WIMTEK HX8357A";
+			 break;
+             
+         case LCD_HX8357B_TIANMA_HVGA:
+             pname = "TIANMA HX8357B";
+             break;  
+ 		case LCD_HX8357C_TIANMA_HVGA:
+			 pname = "TIANMA HX8357C";
+			 break;
 
-		case LCD_NT35582_BYD_WVGA:
+		 case LCD_R61529_TRULY_HVGA:
+			 pname = "TRULY R61529";
+			 break;                        
+
+        case LCD_S6D05A0_INNOLUX_HVGA:
+            pname = "INNOLUX S6D05A0";
+			 break;
+
+		case LCD_MDDI_NT35582_BYD_WVGA:
 			pname = "BYD NT35582";
 			break;
 
-		case LCD_NT35582_TRULY_WVGA:
+		case LCD_MDDI_NT35582_TRULY_WVGA:
 			pname = "TRULY NT35582";
 			break;
 
-		case LCD_NT35560_TOSHIBA_FWVGA:
-			pname = "TOSHIBA NT35560";
+		case LCD_MDDI_NT35510_ALPHA_SI_WVGA:
+			pname =  "TRULY NT35510";
 			break;
 
-		case LCD_NT35510_ALPHA_SI_WVGA:
-			pname = "TRULY NT35510";
-			break;
-
-		case LCD_NT35510_ALPHA_SI_WVGA_TYPE2:
-			pname = "SUCCESS NT35510";
-			break;
-		case MDDI_RSP61408_CHIMEI_WVGA:
-			pname = "CHIMEI RSP61408";
-			break;
-		case MDDI_RSP61408_BYD_WVGA:
-			pname = "BYD RSP61408";
-			break;
-		case MDDI_HX8369A_TIANMA_WVGA:
-			pname = "TIANMA HX8369A";
-			break;
-		case MDDI_HX8357C_TIANMA_HVGA:
-			pname = "TIANMA HX8357C";
-			break;
-			
-		case MDDI_HX8357C_CHIMEI_HVGA:
-			pname = "CHIMEI HX8357C";
-			break;
-		case MDDI_HX8357C_CHIMEI_IPS_HVGA:
-			pname = "CHIMEI IPS HX8357C";
-			break;
-
-		case LCD_HX8368A_TRULY_QVGA:
-			pname = "TRULY HX8368A";
-			break;
-
-		case LCD_HX8347D_CHIMEI_QVGA:
-			pname = "CHIMEI HX8347D";
-			break;
-
-		case LCD_HX8347G_TIANMA_QVGA:
-			pname = "TIANMA HX8347G";
-			break;
-
-		case LCD_HX8357B_TIANMA_HVGA:
-			pname = "TIANMA HX8357B";
-			break;  
-
-		case LCD_HX8357C_TIANMA_HVGA:
-			pname = "TIANMA HX8357C";
-			break;
-
-		case LCD_R61529_TRULY_HVGA:
-			pname = "TRULY R61529";
-			break; 
-			
 		case LCD_ILI9481DS_TIANMA_HVGA:
 			pname = "TIANMA ILI9481";
 			break;
@@ -814,48 +520,40 @@ char *get_lcd_panel_name(void)
 			pname = "INNOLUX ILI9481";
 			break;
 
-		case LCD_NT35410_CHIMEI_HVGA:
-			pname = "CHIMEI NT35410";
-			break;
-			
-		case MIPI_RSP61408_CHIMEI_WVGA:
-			pname = "CHIMEI RSP61408";
-			break;
-			
-		case MIPI_RSP61408_BYD_WVGA:
-			pname = "BYD RSP61408";
-			break;
-
-		case MIPI_RSP61408_TRULY_WVGA: 
-			pname = "TRULY RSP61408";
-			break;
-
+        case LCD_NT35410_CHIMEI_HVGA:
+            pname = "CHIMEI NT35410";
+            break;
+        case MIPI_RSP61408_CHIMEI_WVGA:
+            pname = "CHIMEI RSP61408";
+            break;
+        case MIPI_RSP61408_BYD_WVGA:
+            pname = "BYD RSP61408";
+            break;
+        case MIPI_HX8357C_CHIMEI_HVGA:
+            pname = "CHIMEI HX8357C";
+            break;
+        case MIPI_HX8357C_TIANMA_HVGA:
+            pname = "TIANMA HX8357C";
+            break;
+        case MIPI_HX8369A_TIANMA_WVGA:
+            pname = "TIANMA HX8369A";
+            break;
+        case MIPI_HX8357C_CHIMEI_IPS_HVGA:
+            pname = "CHIMEI IPS HX8357C";
+            break;
 		case MIPI_HX8357C_TIANMA_IPS_HVGA:
 		    pname = "TIANMA IPS HX8357C";
 		    break;
-		
-		case MIPI_HX8357C_CHIMEI_HVGA:
-			pname = "CHIMEI HX8357C";
+		case MIPI_RSP61408_TRULY_WVGA:
+			pname = "TRULY RSP61408";
 			break;
-			
-		case MIPI_HX8357C_TIANMA_HVGA:
-			pname = "TIANMA HX8357C";
-			break;
-			
-		case MIPI_HX8369A_TIANMA_WVGA:
-			pname = "TIANMA HX8369A";
-			break;
-			
-		case MIPI_HX8357C_CHIMEI_IPS_HVGA:
-			pname = "CHIMEI IPS HX8357C";
-			break;
-			
-		default:
-			pname = "UNKNOWN LCD";
-			break;
-	}
 
-	return pname;
+		 default:
+			 pname = "UNKNOWN LCD";
+			 break;
+	 }
+
+     return pname;
 }
 
 int board_surport_fingers(bool * is_surport_fingers)
@@ -944,44 +642,25 @@ bool qwerty_is_supported(void)
 /* get sensors list by product */
 static int get_sensors_list(void)
 {
-	/*add 7x30's list*/
 	int sensors_list = G_SENSOR + L_SENSOR + P_SENSOR + M_SENSOR;
-    if(machine_is_msm8255_u8860()
-	|| machine_is_msm8255_u8860_92()
-	|| machine_is_msm8255_u8860_51()
-    || machine_is_msm8255_u8860_r()
-	|| machine_is_msm8255_u8860lp())
-	{
-	    sensors_list = G_SENSOR + L_SENSOR + P_SENSOR + M_SENSOR + GY_SENSOR;
-	}
-	
 	/*version A and version B has compass, since version C don't have compass*/
-	else if( ( machine_is_msm7x27a_C8820() && (HW_VER_SUB_VC <= get_hw_sub_board_id()) )
-	         ||  machine_is_msm7x27a_U8661()
-	       )
+	/*add M866*/
+	if( machine_is_msm7x27a_U8661() || ( machine_is_msm7x27a_C8820() && (HW_VER_SUB_VC <= get_hw_sub_board_id()))
+		  || ( machine_is_msm7x27a_C8655_NAND() && (HW_VER_SUB_VE > get_hw_sub_board_id())) )
 	{
 	    sensors_list = G_SENSOR + L_SENSOR + P_SENSOR;
 	}
-	else if (machine_is_msm7x27a_U8655()
-	||  machine_is_msm7x27a_U8655_EMMC()
-	||  machine_is_msm7x27a_C8655_NAND()
-	||  machine_is_msm7x27a_M660()
-	|| 	machine_is_msm7x27a_U8815()	
-	|| 	machine_is_msm7x27a_C8820()	
-	|| 	machine_is_msm7x27a_C8825D()
-	||  machine_is_msm7x27a_C8668D()
-	|| 	machine_is_msm7x30_u8800()	
-	|| 	machine_is_msm7x30_u8820()	
-	|| 	machine_is_msm7x30_u8800_51()
-	|| 	machine_is_msm8255_u8800_pro()
-	||	machine_is_msm8255_c8860()
-	||	machine_is_msm8255_u8667()
-	||	machine_is_msm8255_u8680()
-	||	machine_is_msm8255_u8730())
+	else if (machine_is_msm7x27a_U8655() ||
+	    machine_is_msm7x27a_U8655_EMMC()||
+	    machine_is_msm7x27a_C8655_NAND() ||
+	    machine_is_msm7x27a_M660()||
+	    machine_is_msm7x27a_U8815()||
+	    machine_is_msm7x27a_C8820()||
+	    machine_is_msm7x27a_C8825D())
 	{
 	    sensors_list = G_SENSOR + L_SENSOR + P_SENSOR + M_SENSOR;
 	}
-	/* move this else if to above for avoid C8820 without compass can not run in */
+	/* move this part to up */
 	else if(machine_is_msm7x27a_U8185())
 	{
 	    sensors_list = G_SENSOR;
@@ -1038,7 +717,6 @@ char *get_sensors_list_name(void)
 	return list_name;
 	
 }
-
 /*return the string by compass position*/
 char *get_compass_gs_position_name(void)
 {
@@ -1081,6 +759,24 @@ char *get_compass_gs_position_name(void)
 	return position_name;
 	
 }
+/*  FUNCTION  get_hw_lcd_interface_type
+ *  DEPENDENCIES 
+ *      get lcd interface type
+ *      affect nfc.
+ *  RETURN VALUE
+ *      lcd interface type:LCD_IS_MIPI or LCD_IS_RGB
+ */
+hw_lcd_interface_type get_hw_lcd_interface_type(void)
+{
+  if(machine_is_msm7x27a_U8185()||machine_is_msm7x27a_M660())
+  {
+     return LCD_IS_RGB;
+  }
+  else
+  {
+     return LCD_IS_MIPI;
+  }
+}
 
 /*  FUNCTION  get_hw_wifi_device_type
  *  DEPENDENCIES 
@@ -1091,9 +787,7 @@ char *get_compass_gs_position_name(void)
  */
 hw_wifi_device_type get_hw_wifi_device_type(void)
 {
-  if (machine_is_msm7x27a_U8185()
-	|| machine_is_msm7x27a_U8661() 
-	|| machine_is_msm7x27a_C8668D())
+  if(machine_is_msm7x27a_U8185()|| machine_is_msm7x27a_U8661())
   {
       return WIFI_QUALCOMM;
   }
@@ -1111,25 +805,15 @@ hw_wifi_device_type get_hw_wifi_device_type(void)
  */
 hw_wifi_device_model get_hw_wifi_device_model(void)
 {
-  if(machine_is_msm7x27a_U8185()|| machine_is_msm7x27a_U8661()|| machine_is_msm7x27a_C8668D())
+  if(machine_is_msm7x27a_U8185()|| machine_is_msm7x27a_U8661())
   {
       return WIFI_QUALCOMM_6005;
-  }
-  else if(machine_is_msm8255_u8860() 
-		|| machine_is_msm8255_c8860() 
-		|| machine_is_msm8255_u8860lp()
-        || machine_is_msm8255_u8860_r()
-		|| machine_is_msm8255_u8860_92()
-		|| machine_is_msm8255_u8860_51())
-  {
-      return WIFI_BROADCOM_4329;
   }
   else
   {
       return WIFI_BROADCOM_4330;
   }
 }
-
 /*  FUNCTION  get_hw_ds_type
  *  DEPENDENCIES 
  *      get single sim card or double sim card,
@@ -1141,11 +825,7 @@ hw_wifi_device_model get_hw_wifi_device_model(void)
 hw_ds_type get_hw_ds_type(void)
 {
     hw_ds_type ret = HW_NONES;
-	/*add C8668D type*/
-    if( machine_is_msm7x27a_C8820()
- 	  || machine_is_msm7x27a_C8825D() 
-	  || machine_is_msm7x27a_U8661()
-	  || machine_is_msm7x27a_C8668D())
+    if( machine_is_msm7x27a_C8820() || machine_is_msm7x27a_C8825D() || machine_is_msm7x27a_U8661())
     {
 	    ret = HW_DS;
     }
@@ -1198,14 +878,7 @@ hw_bt_wakeup_gpio_type get_hw_bt_wakeup_gpio_type(void)
     }
     else if (machine_is_msm7x27a_U8655_EMMC())
     {
-        if ((ver_sub_type > HW_VER_SUB_VB && ver_sub_type < HW_VER_SUB_VE) || ver_sub_type > HW_VER_SUB_VE)
-		{
-            bt_wakeup_gpio_type = HW_BT_WAKEUP_GPIO_IS_27;
-		}
-		else
-		{
-            bt_wakeup_gpio_type = HW_BT_WAKEUP_GPIO_IS_83;
-		}
+        bt_wakeup_gpio_type = HW_BT_WAKEUP_GPIO_IS_83;
     }
     else if (machine_is_msm7x27a_C8655_NAND())
     {
@@ -1244,19 +917,16 @@ hw_bt_wakeup_gpio_type get_hw_bt_wakeup_gpio_type(void)
     {
         bt_wakeup_gpio_type = HW_BT_WAKEUP_GPIO_IS_83;
     }
-    else if (machine_is_msm7x27a_C8668D())
-    {
-        bt_wakeup_gpio_type = HW_BT_WAKEUP_GPIO_IS_83;
-    }
     	
     printk(KERN_INFO "the bt_wakeup_gpio_type is %d\n", bt_wakeup_gpio_type);
     return bt_wakeup_gpio_type;
 }
 
+/* add U8661 for SINGLE_MIC */
 /* add C8820VC for SINGLE_MIC */
 audio_property_type get_audio_mic_type(void)
 {
-  if(machine_is_msm7x27a_U8185()
+  if(machine_is_msm7x27a_U8185() || machine_is_msm7x27a_U8661()
      || (machine_is_msm7x27a_C8820() && (HW_VER_SUB_VC <= get_hw_sub_board_id()))
 	 )
   {
@@ -1271,20 +941,12 @@ audio_property_type get_audio_mic_type(void)
 /* if you want to enable fir function, please return FIR_ENABLE for adapted project */
 audio_property_type get_audio_fir_enabled(void)
 {
-    if (machine_is_msm7x27a_C8820())
-    {
-        return FIR_ENABLE;
-    }
-    else
-    {
-        return FIR_DISABLE;
-    }
+    return FIR_DISABLE;
 }
 audio_property_type get_audio_fm_type(void)
 {
    if (machine_is_msm7x27a_U8185()
-	|| machine_is_msm7x27a_U8661() 
-	|| machine_is_msm7x27a_C8668D())
+	|| machine_is_msm7x27a_U8661())
    {
        return FM_QUALCOMM;
    }
@@ -1293,16 +955,33 @@ audio_property_type get_audio_fm_type(void)
        return FM_BROADCOM;
    }
 }
+
 hw_camera_type get_hw_camera_mirror_type(void)
 {
     hw_camera_type ret = HW_CAMERA_NONES;
     if( machine_is_msm7x27a_C8820() || machine_is_msm7x27a_C8825D() || machine_is_msm7x27a_U8661())
     {
-        ret = HW_MIRROR_AND_FLIP;
+	    ret = HW_MIRROR_AND_FLIP;
     }
     else
     {
       ret = HW_NOT_MIRROR_OR_FLIP;
     }
   return ret;
+}
+
+/* get touch info */
+char * get_touch_info(void)
+{
+	char * touch_info = NULL;
+	touch_info = get_synaptics_touch_info();
+	if (touch_info != NULL)
+		return touch_info;
+
+	touch_info = get_melfas_touch_info();
+	if (touch_info != NULL)
+		return touch_info;
+
+	return NULL;
+	
 }

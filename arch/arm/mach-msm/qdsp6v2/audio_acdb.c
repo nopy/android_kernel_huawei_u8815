@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,54 +20,52 @@
 #include <mach/qdsp6v2/audio_acdb.h>
 
 
-#define MAX_NETWORKS		12
-
-struct sidetone_atomic_cal {
-	atomic_t	enable;
-	atomic_t	gain;
-};
-
+#define MAX_NETWORKS		9
+#define NUM_ACTIVE_NETWORKS	6
+#define VOCPROC_STREAM_OFFSET	NUM_ACTIVE_NETWORKS
+#define VOCPROC_VOL_OFFSET	(NUM_ACTIVE_NETWORKS * 2)
+#define NUM_VOCPROC_CAL_TYPES	(NUM_ACTIVE_NETWORKS * 3)
+#define NUM_AUDPROC_CAL_TYPES	3
+#define ACDB_BLOCK_SIZE		4096
+#define NUM_VOCPROC_BLOCKS	18
 
 struct acdb_data {
 	struct mutex		acdb_mutex;
 
 	/* ANC Cal */
-	struct acdb_atomic_cal_block	anc_cal;
+	struct acdb_cal_block	anc_cal;
 
 	/* AudProc Cal */
-	atomic_t			asm_topology;
-	atomic_t			adm_topology[MAX_AUDPROC_TYPES];
-	struct acdb_atomic_cal_block	audproc_cal[MAX_AUDPROC_TYPES];
-	struct acdb_atomic_cal_block	audstrm_cal[MAX_AUDPROC_TYPES];
-	struct acdb_atomic_cal_block	audvol_cal[MAX_AUDPROC_TYPES];
+	uint32_t		asm_topology;
+	uint32_t		adm_topology[MAX_AUDPROC_TYPES];
+	struct acdb_cal_block	audproc_cal[MAX_AUDPROC_TYPES];
+	struct acdb_cal_block	audstrm_cal[MAX_AUDPROC_TYPES];
+	struct acdb_cal_block	audvol_cal[MAX_AUDPROC_TYPES];
 
 	/* VocProc Cal */
-	atomic_t			voice_rx_topology;
-	atomic_t			voice_tx_topology;
-	struct acdb_atomic_cal_block	vocproc_cal[MAX_NETWORKS];
-	struct acdb_atomic_cal_block	vocstrm_cal[MAX_NETWORKS];
-	struct acdb_atomic_cal_block	vocvol_cal[MAX_NETWORKS];
+	uint32_t                voice_rx_topology;
+	uint32_t                voice_tx_topology;
+	struct acdb_cal_block	vocproc_cal[MAX_NETWORKS];
+	struct acdb_cal_block	vocstrm_cal[MAX_NETWORKS];
+	struct acdb_cal_block	vocvol_cal[MAX_NETWORKS];
 	/* size of cal block tables above*/
-	atomic_t			vocproc_cal_size;
-	atomic_t			vocstrm_cal_size;
-	atomic_t			vocvol_cal_size;
+	uint32_t		vocproc_cal_size;
+	uint32_t		vocstrm_cal_size;
+	uint32_t		vocvol_cal_size;
 	/* Total size of cal data for all networks */
-	atomic_t			vocproc_total_cal_size;
-	atomic_t			vocstrm_total_cal_size;
-	atomic_t			vocvol_total_cal_size;
-
-	/* AFE cal */
-	struct acdb_atomic_cal_block	afe_cal[MAX_AUDPROC_TYPES];
+	uint32_t		vocproc_total_cal_size;
+	uint32_t		vocstrm_total_cal_size;
+	uint32_t		vocvol_total_cal_size;
 
 	/* Sidetone Cal */
-	struct sidetone_atomic_cal	sidetone_cal;
+	struct sidetone_cal	sidetone_cal;
 
 	/* PMEM information */
-	atomic_t			pmem_fd;
-	atomic64_t			paddr;
-	atomic64_t			kvaddr;
-	atomic64_t			pmem_len;
-	struct file			*file;
+	int			pmem_fd;
+	unsigned long		paddr;
+	unsigned long		kvaddr;
+	unsigned long		pmem_len;
+	struct file		*file;
 
 };
 
@@ -76,105 +74,90 @@ static atomic_t usage_count;
 
 uint32_t get_voice_rx_topology(void)
 {
-	return atomic_read(&acdb_data.voice_rx_topology);
+	return acdb_data.voice_rx_topology;
 }
 
 void store_voice_rx_topology(uint32_t topology)
 {
-	atomic_set(&acdb_data.voice_rx_topology, topology);
+	acdb_data.voice_rx_topology = topology;
 }
 
 uint32_t get_voice_tx_topology(void)
 {
-	return atomic_read(&acdb_data.voice_tx_topology);
+	return acdb_data.voice_tx_topology;
 }
 
 void store_voice_tx_topology(uint32_t topology)
 {
-	atomic_set(&acdb_data.voice_tx_topology, topology);
+	acdb_data.voice_tx_topology = topology;
 }
 
 uint32_t get_adm_rx_topology(void)
 {
-	return atomic_read(&acdb_data.adm_topology[RX_CAL]);
+	return acdb_data.adm_topology[RX_CAL];
 }
 
 void store_adm_rx_topology(uint32_t topology)
 {
-	atomic_set(&acdb_data.adm_topology[RX_CAL], topology);
+	acdb_data.adm_topology[RX_CAL] = topology;
 }
 
 uint32_t get_adm_tx_topology(void)
 {
-	return atomic_read(&acdb_data.adm_topology[TX_CAL]);
+	return acdb_data.adm_topology[TX_CAL];
 }
 
 void store_adm_tx_topology(uint32_t topology)
 {
-	atomic_set(&acdb_data.adm_topology[TX_CAL], topology);
+	acdb_data.adm_topology[TX_CAL] = topology;
 }
 
 uint32_t get_asm_topology(void)
 {
-	return atomic_read(&acdb_data.asm_topology);
+	return acdb_data.asm_topology;
 }
 
 void store_asm_topology(uint32_t topology)
 {
-	atomic_set(&acdb_data.asm_topology, topology);
+	acdb_data.asm_topology = topology;
 }
 
 void get_all_voice_cal(struct acdb_cal_block *cal_block)
 {
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.vocproc_cal[0].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.vocproc_cal[0].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.vocproc_total_cal_size) +
-		atomic_read(&acdb_data.vocstrm_total_cal_size) +
-		atomic_read(&acdb_data.vocvol_total_cal_size);
+	cal_block->cal_kvaddr = acdb_data.vocproc_cal[0].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.vocproc_cal[0].cal_paddr;
+	cal_block->cal_size = acdb_data.vocproc_total_cal_size +
+				acdb_data.vocstrm_total_cal_size +
+				acdb_data.vocvol_total_cal_size;
 }
 
 void get_all_cvp_cal(struct acdb_cal_block *cal_block)
 {
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.vocproc_cal[0].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.vocproc_cal[0].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.vocproc_total_cal_size) +
-		atomic_read(&acdb_data.vocvol_total_cal_size);
+	cal_block->cal_kvaddr = acdb_data.vocproc_cal[0].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.vocproc_cal[0].cal_paddr;
+	cal_block->cal_size = acdb_data.vocproc_total_cal_size +
+				acdb_data.vocvol_total_cal_size;
 }
 
 void get_all_vocproc_cal(struct acdb_cal_block *cal_block)
 {
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.vocproc_cal[0].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.vocproc_cal[0].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.vocproc_total_cal_size);
+	cal_block->cal_kvaddr = acdb_data.vocproc_cal[0].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.vocproc_cal[0].cal_paddr;
+	cal_block->cal_size = acdb_data.vocproc_total_cal_size;
 }
 
 void get_all_vocstrm_cal(struct acdb_cal_block *cal_block)
 {
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.vocstrm_cal[0].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.vocstrm_cal[0].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.vocstrm_total_cal_size);
+	cal_block->cal_kvaddr = acdb_data.vocstrm_cal[0].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.vocstrm_cal[0].cal_paddr;
+	cal_block->cal_size = acdb_data.vocstrm_total_cal_size;
 }
 
 void get_all_vocvol_cal(struct acdb_cal_block *cal_block)
 {
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.vocvol_cal[0].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.vocvol_cal[0].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.vocvol_total_cal_size);
+	cal_block->cal_kvaddr = acdb_data.vocvol_cal[0].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.vocvol_cal[0].cal_paddr;
+	cal_block->cal_size = acdb_data.vocvol_total_cal_size;
 }
 
 void get_anc_cal(struct acdb_cal_block *cal_block)
@@ -186,12 +169,13 @@ void get_anc_cal(struct acdb_cal_block *cal_block)
 		goto done;
 	}
 
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.anc_cal.cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.anc_cal.cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.anc_cal.cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_block->cal_kvaddr = acdb_data.anc_cal.cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.anc_cal.cal_paddr;
+	cal_block->cal_size = acdb_data.anc_cal.cal_size;
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -200,69 +184,43 @@ void store_anc_cal(struct cal_block *cal_block)
 {
 	pr_debug("%s,\n", __func__);
 
-	if (cal_block->cal_offset > atomic64_read(&acdb_data.pmem_len)) {
+	if (cal_block->cal_offset > acdb_data.pmem_len) {
 		pr_err("%s: offset %d is > pmem_len %ld\n",
 			__func__, cal_block->cal_offset,
-			(long)atomic64_read(&acdb_data.pmem_len));
+			acdb_data.pmem_len);
 		goto done;
 	}
 
-	atomic_set(&acdb_data.anc_cal.cal_kvaddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.kvaddr));
-	atomic_set(&acdb_data.anc_cal.cal_paddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.paddr));
-	atomic_set(&acdb_data.anc_cal.cal_size,
-		cal_block->cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	acdb_data.anc_cal.cal_kvaddr =
+		cal_block->cal_offset + acdb_data.kvaddr;
+	acdb_data.anc_cal.cal_paddr =
+		cal_block->cal_offset + acdb_data.paddr;
+	acdb_data.anc_cal.cal_size =
+		cal_block->cal_size;
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
 
-void store_afe_cal(int32_t path, struct cal_block *cal_block)
+void get_audproc_buffer_data(struct audproc_buffer_data *cal_buffers)
 {
-	pr_debug("%s, path = %d\n", __func__, path);
+	int i;
+	pr_debug("%s\n", __func__);
 
-	if (cal_block->cal_offset > atomic64_read(&acdb_data.pmem_len)) {
-		pr_err("%s: offset %d is > pmem_len %ld\n",
-			__func__, cal_block->cal_offset,
-			(long)atomic64_read(&acdb_data.pmem_len));
-		goto done;
-	}
-	if ((path >= MAX_AUDPROC_TYPES) || (path < 0)) {
-		pr_err("ACDB=> Bad path sent to %s, path: %d\n",
-			__func__, path);
-		goto done;
-	}
-
-	atomic_set(&acdb_data.afe_cal[path].cal_kvaddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.kvaddr));
-	atomic_set(&acdb_data.afe_cal[path].cal_paddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.paddr));
-	atomic_set(&acdb_data.afe_cal[path].cal_size,
-		cal_block->cal_size);
-done:
-	return;
-}
-
-void get_afe_cal(int32_t path, struct acdb_cal_block *cal_block)
-{
-	pr_debug("%s, path = %d\n", __func__, path);
-
-	if (cal_block == NULL) {
+	if (cal_buffers == NULL) {
 		pr_err("ACDB=> NULL pointer sent to %s\n", __func__);
 		goto done;
 	}
-	if ((path >= MAX_AUDPROC_TYPES) || (path < 0)) {
-		pr_err("ACDB=> Bad path sent to %s, path: %d\n",
-			__func__, path);
-		goto done;
-	}
 
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.afe_cal[path].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.afe_cal[path].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.afe_cal[path].cal_size);
+	for (i = 0; i < NUM_AUDPROC_BUFFERS; i++) {
+		cal_buffers->phys_addr[i] = (uint32_t)
+			(acdb_data.paddr +
+			(NUM_VOCPROC_BLOCKS + i) * ACDB_BLOCK_SIZE);
+		cal_buffers->buf_size[i] = ACDB_BLOCK_SIZE;
+	}
 done:
 	return;
 }
@@ -271,10 +229,12 @@ void store_audproc_cal(int32_t path, struct cal_block *cal_block)
 {
 	pr_debug("%s, path = %d\n", __func__, path);
 
-	if (cal_block->cal_offset > atomic64_read(&acdb_data.pmem_len)) {
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	if (cal_block->cal_offset > acdb_data.pmem_len) {
 		pr_err("%s: offset %d is > pmem_len %ld\n",
 			__func__, cal_block->cal_offset,
-			(long)atomic64_read(&acdb_data.pmem_len));
+			acdb_data.pmem_len);
 		goto done;
 	}
 	if (path >= MAX_AUDPROC_TYPES) {
@@ -283,13 +243,15 @@ void store_audproc_cal(int32_t path, struct cal_block *cal_block)
 		goto done;
 	}
 
-	atomic_set(&acdb_data.audproc_cal[path].cal_kvaddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.kvaddr));
-	atomic_set(&acdb_data.audproc_cal[path].cal_paddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.paddr));
-	atomic_set(&acdb_data.audproc_cal[path].cal_size,
-		cal_block->cal_size);
+	acdb_data.audproc_cal[path].cal_kvaddr =
+		cal_block->cal_offset + acdb_data.kvaddr;
+	acdb_data.audproc_cal[path].cal_paddr =
+		cal_block->cal_offset + acdb_data.paddr;
+	acdb_data.audproc_cal[path].cal_size =
+		cal_block->cal_size;
+
 done:
+	mutex_unlock(&acdb_data.acdb_mutex);
 	return;
 }
 
@@ -307,12 +269,13 @@ void get_audproc_cal(int32_t path, struct acdb_cal_block *cal_block)
 		goto done;
 	}
 
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.audproc_cal[path].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.audproc_cal[path].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.audproc_cal[path].cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_block->cal_kvaddr = acdb_data.audproc_cal[path].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.audproc_cal[path].cal_paddr;
+	cal_block->cal_size = acdb_data.audproc_cal[path].cal_size;
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -321,10 +284,12 @@ void store_audstrm_cal(int32_t path, struct cal_block *cal_block)
 {
 	pr_debug("%s, path = %d\n", __func__, path);
 
-	if (cal_block->cal_offset > atomic64_read(&acdb_data.pmem_len)) {
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	if (cal_block->cal_offset > acdb_data.pmem_len) {
 		pr_err("%s: offset %d is > pmem_len %ld\n",
 			__func__, cal_block->cal_offset,
-			(long)atomic64_read(&acdb_data.pmem_len));
+			acdb_data.pmem_len);
 		goto done;
 	}
 	if (path >= MAX_AUDPROC_TYPES) {
@@ -333,13 +298,15 @@ void store_audstrm_cal(int32_t path, struct cal_block *cal_block)
 		goto done;
 	}
 
-	atomic_set(&acdb_data.audstrm_cal[path].cal_kvaddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.kvaddr));
-	atomic_set(&acdb_data.audstrm_cal[path].cal_paddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.paddr));
-	atomic_set(&acdb_data.audstrm_cal[path].cal_size,
-		cal_block->cal_size);
+	acdb_data.audstrm_cal[path].cal_kvaddr =
+		cal_block->cal_offset + acdb_data.kvaddr;
+	acdb_data.audstrm_cal[path].cal_paddr =
+		cal_block->cal_offset + acdb_data.paddr;
+	acdb_data.audstrm_cal[path].cal_size =
+		cal_block->cal_size;
+
 done:
+	mutex_unlock(&acdb_data.acdb_mutex);
 	return;
 }
 
@@ -357,12 +324,13 @@ void get_audstrm_cal(int32_t path, struct acdb_cal_block *cal_block)
 		goto done;
 	}
 
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.audstrm_cal[path].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.audstrm_cal[path].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.audstrm_cal[path].cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_block->cal_kvaddr = acdb_data.audstrm_cal[path].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.audstrm_cal[path].cal_paddr;
+	cal_block->cal_size = acdb_data.audstrm_cal[path].cal_size;
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -371,10 +339,12 @@ void store_audvol_cal(int32_t path, struct cal_block *cal_block)
 {
 	pr_debug("%s, path = %d\n", __func__, path);
 
-	if (cal_block->cal_offset > atomic64_read(&acdb_data.pmem_len)) {
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	if (cal_block->cal_offset > acdb_data.pmem_len) {
 		pr_err("%s: offset %d is > pmem_len %ld\n",
 			__func__, cal_block->cal_offset,
-			(long)atomic64_read(&acdb_data.pmem_len));
+			acdb_data.pmem_len);
 		goto done;
 	}
 	if (path >= MAX_AUDPROC_TYPES) {
@@ -383,13 +353,15 @@ void store_audvol_cal(int32_t path, struct cal_block *cal_block)
 		goto done;
 	}
 
-	atomic_set(&acdb_data.audvol_cal[path].cal_kvaddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.kvaddr));
-	atomic_set(&acdb_data.audvol_cal[path].cal_paddr,
-		cal_block->cal_offset + atomic64_read(&acdb_data.paddr));
-	atomic_set(&acdb_data.audvol_cal[path].cal_size,
-		cal_block->cal_size);
+	acdb_data.audvol_cal[path].cal_kvaddr =
+		cal_block->cal_offset + acdb_data.kvaddr;
+	acdb_data.audvol_cal[path].cal_paddr =
+		cal_block->cal_offset + acdb_data.paddr;
+	acdb_data.audvol_cal[path].cal_size =
+		cal_block->cal_size;
+
 done:
+	mutex_unlock(&acdb_data.acdb_mutex);
 	return;
 }
 
@@ -401,18 +373,19 @@ void get_audvol_cal(int32_t path, struct acdb_cal_block *cal_block)
 		pr_err("ACDB=> NULL pointer sent to %s\n", __func__);
 		goto done;
 	}
-	if (path >= MAX_AUDPROC_TYPES || path < 0) {
+	if (path > MAX_AUDPROC_TYPES || path < 0) {
 		pr_err("ACDB=> Bad path sent to %s, path: %d\n",
 			__func__, path);
 		goto done;
 	}
 
-	cal_block->cal_kvaddr =
-		atomic_read(&acdb_data.audvol_cal[path].cal_kvaddr);
-	cal_block->cal_paddr =
-		atomic_read(&acdb_data.audvol_cal[path].cal_paddr);
-	cal_block->cal_size =
-		atomic_read(&acdb_data.audvol_cal[path].cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_block->cal_kvaddr = acdb_data.audvol_cal[path].cal_kvaddr;
+	cal_block->cal_paddr = acdb_data.audvol_cal[path].cal_paddr;
+	cal_block->cal_size = acdb_data.audvol_cal[path].cal_size;
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -429,28 +402,31 @@ void store_vocproc_cal(int32_t len, struct cal_block *cal_blocks)
 		goto done;
 	}
 
-	atomic_set(&acdb_data.vocproc_total_cal_size, 0);
+
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	acdb_data.vocproc_total_cal_size = 0;
 	for (i = 0; i < len; i++) {
-		if (cal_blocks[i].cal_offset >
-					atomic64_read(&acdb_data.pmem_len)) {
+		if (cal_blocks[i].cal_offset > acdb_data.pmem_len) {
 			pr_err("%s: offset %d is > pmem_len %ld\n",
 				__func__, cal_blocks[i].cal_offset,
-				(long)atomic64_read(&acdb_data.pmem_len));
-			atomic_set(&acdb_data.vocproc_cal[i].cal_size, 0);
+				acdb_data.pmem_len);
+			acdb_data.vocproc_cal[i].cal_size = 0;
 		} else {
-			atomic_add(cal_blocks[i].cal_size,
-				&acdb_data.vocproc_total_cal_size);
-			atomic_set(&acdb_data.vocproc_cal[i].cal_size,
-				cal_blocks[i].cal_size);
-			atomic_set(&acdb_data.vocproc_cal[i].cal_paddr,
+			acdb_data.vocproc_total_cal_size +=
+				cal_blocks[i].cal_size;
+			acdb_data.vocproc_cal[i].cal_size =
+				cal_blocks[i].cal_size;
+			acdb_data.vocproc_cal[i].cal_paddr =
 				cal_blocks[i].cal_offset +
-				atomic64_read(&acdb_data.paddr));
-			atomic_set(&acdb_data.vocproc_cal[i].cal_kvaddr,
+				acdb_data.paddr;
+			acdb_data.vocproc_cal[i].cal_kvaddr =
 				cal_blocks[i].cal_offset +
-				atomic64_read(&acdb_data.kvaddr));
+				acdb_data.kvaddr;
 		}
 	}
-	atomic_set(&acdb_data.vocproc_cal_size, len);
+	acdb_data.vocproc_cal_size = len;
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -464,8 +440,12 @@ void get_vocproc_cal(struct acdb_cal_data *cal_data)
 		goto done;
 	}
 
-	cal_data->num_cal_blocks = atomic_read(&acdb_data.vocproc_cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_data->num_cal_blocks = acdb_data.vocproc_cal_size;
 	cal_data->cal_blocks = &acdb_data.vocproc_cal[0];
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -481,28 +461,30 @@ void store_vocstrm_cal(int32_t len, struct cal_block *cal_blocks)
 		goto done;
 	}
 
-	atomic_set(&acdb_data.vocstrm_total_cal_size, 0);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	acdb_data.vocstrm_total_cal_size = 0;
 	for (i = 0; i < len; i++) {
-		if (cal_blocks[i].cal_offset >
-					atomic64_read(&acdb_data.pmem_len)) {
+		if (cal_blocks[i].cal_offset > acdb_data.pmem_len) {
 			pr_err("%s: offset %d is > pmem_len %ld\n",
 				__func__, cal_blocks[i].cal_offset,
-				(long)atomic64_read(&acdb_data.pmem_len));
-			atomic_set(&acdb_data.vocstrm_cal[i].cal_size, 0);
+				acdb_data.pmem_len);
+			acdb_data.vocstrm_cal[i].cal_size = 0;
 		} else {
-			atomic_add(cal_blocks[i].cal_size,
-				&acdb_data.vocstrm_total_cal_size);
-			atomic_set(&acdb_data.vocstrm_cal[i].cal_size,
-				cal_blocks[i].cal_size);
-			atomic_set(&acdb_data.vocstrm_cal[i].cal_paddr,
+			acdb_data.vocstrm_total_cal_size +=
+				cal_blocks[i].cal_size;
+			acdb_data.vocstrm_cal[i].cal_size =
+				cal_blocks[i].cal_size;
+			acdb_data.vocstrm_cal[i].cal_paddr =
 				cal_blocks[i].cal_offset +
-				atomic64_read(&acdb_data.paddr));
-			atomic_set(&acdb_data.vocstrm_cal[i].cal_kvaddr,
+				acdb_data.paddr;
+			acdb_data.vocstrm_cal[i].cal_kvaddr =
 				cal_blocks[i].cal_offset +
-				atomic64_read(&acdb_data.kvaddr));
+				acdb_data.kvaddr;
 		}
 	}
-	atomic_set(&acdb_data.vocstrm_cal_size, len);
+	acdb_data.vocstrm_cal_size = len;
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -516,8 +498,12 @@ void get_vocstrm_cal(struct acdb_cal_data *cal_data)
 		goto done;
 	}
 
-	cal_data->num_cal_blocks = atomic_read(&acdb_data.vocstrm_cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_data->num_cal_blocks = acdb_data.vocstrm_cal_size;
 	cal_data->cal_blocks = &acdb_data.vocstrm_cal[0];
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -533,28 +519,30 @@ void store_vocvol_cal(int32_t len, struct cal_block *cal_blocks)
 		goto done;
 	}
 
-	atomic_set(&acdb_data.vocvol_total_cal_size, 0);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	acdb_data.vocvol_total_cal_size = 0;
 	for (i = 0; i < len; i++) {
-		if (cal_blocks[i].cal_offset >
-					atomic64_read(&acdb_data.pmem_len)) {
+		if (cal_blocks[i].cal_offset > acdb_data.pmem_len) {
 			pr_err("%s: offset %d is > pmem_len %ld\n",
 				__func__, cal_blocks[i].cal_offset,
-				(long)atomic64_read(&acdb_data.pmem_len));
-			atomic_set(&acdb_data.vocvol_cal[i].cal_size, 0);
+				acdb_data.pmem_len);
+			acdb_data.vocvol_cal[i].cal_size = 0;
 		} else {
-			atomic_add(cal_blocks[i].cal_size,
-				&acdb_data.vocvol_total_cal_size);
-			atomic_set(&acdb_data.vocvol_cal[i].cal_size,
-				cal_blocks[i].cal_size);
-			atomic_set(&acdb_data.vocvol_cal[i].cal_paddr,
+			acdb_data.vocvol_total_cal_size +=
+				cal_blocks[i].cal_size;
+			acdb_data.vocvol_cal[i].cal_size =
+				cal_blocks[i].cal_size;
+			acdb_data.vocvol_cal[i].cal_paddr =
 				cal_blocks[i].cal_offset +
-				atomic64_read(&acdb_data.paddr));
-			atomic_set(&acdb_data.vocvol_cal[i].cal_kvaddr,
+				acdb_data.paddr;
+			acdb_data.vocvol_cal[i].cal_kvaddr =
 				cal_blocks[i].cal_offset +
-				atomic64_read(&acdb_data.kvaddr));
+				acdb_data.kvaddr;
 		}
 	}
-	atomic_set(&acdb_data.vocvol_cal_size, len);
+	acdb_data.vocvol_cal_size = len;
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -568,8 +556,12 @@ void get_vocvol_cal(struct acdb_cal_data *cal_data)
 		goto done;
 	}
 
-	cal_data->num_cal_blocks = atomic_read(&acdb_data.vocvol_cal_size);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_data->num_cal_blocks = acdb_data.vocvol_cal_size;
 	cal_data->cal_blocks = &acdb_data.vocvol_cal[0];
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -578,8 +570,12 @@ void store_sidetone_cal(struct sidetone_cal *cal_data)
 {
 	pr_debug("%s\n", __func__);
 
-	atomic_set(&acdb_data.sidetone_cal.enable, cal_data->enable);
-	atomic_set(&acdb_data.sidetone_cal.gain, cal_data->gain);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	acdb_data.sidetone_cal.enable = cal_data->enable;
+	acdb_data.sidetone_cal.gain = cal_data->gain;
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 }
 
 
@@ -592,8 +588,12 @@ void get_sidetone_cal(struct sidetone_cal *cal_data)
 		goto done;
 	}
 
-	cal_data->enable = atomic_read(&acdb_data.sidetone_cal.enable);
-	cal_data->gain = atomic_read(&acdb_data.sidetone_cal.gain);
+	mutex_lock(&acdb_data.acdb_mutex);
+
+	cal_data->enable = acdb_data.sidetone_cal.enable;
+	cal_data->gain = acdb_data.sidetone_cal.gain;
+
+	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return;
 }
@@ -601,12 +601,14 @@ done:
 static int acdb_open(struct inode *inode, struct file *f)
 {
 	s32 result = 0;
-	pr_debug("%s\n", __func__);
+	pr_info("%s\n", __func__);
 
-	if (atomic_read(&acdb_data.pmem_fd)) {
-		pr_debug("%s: ACDB opened but PMEM allocated, using existing PMEM!\n",
+	mutex_lock(&acdb_data.acdb_mutex);
+	if (acdb_data.pmem_fd) {
+		pr_info("%s: ACDB opened but PMEM allocated, using existing PMEM!\n",
 			__func__);
 	}
+	mutex_unlock(&acdb_data.acdb_mutex);
 
 	atomic_inc(&usage_count);
 	return result;
@@ -614,42 +616,48 @@ static int acdb_open(struct inode *inode, struct file *f)
 
 static int deregister_pmem(void)
 {
-	if (atomic_read(&acdb_data.pmem_fd)) {
-		mutex_lock(&acdb_data.acdb_mutex);
+	int result;
+	struct audproc_buffer_data buffer;
+
+	get_audproc_buffer_data(&buffer);
+
+	result = adm_memory_unmap_regions(buffer.phys_addr,
+			buffer.buf_size, NUM_AUDPROC_BUFFERS);
+
+	if (result < 0)
+		pr_err("Audcal unmap did not work!\n");
+
+	if (acdb_data.pmem_fd) {
 		put_pmem_file(acdb_data.file);
-		mutex_unlock(&acdb_data.acdb_mutex);
-		atomic_set(&acdb_data.pmem_fd, 0);
+		acdb_data.pmem_fd = 0;
 	}
-	return 0;
+	return result;
 }
 
 static int register_pmem(void)
 {
 	int result;
-	unsigned long paddr;
-	unsigned long kvaddr;
-	unsigned long pmem_len;
+	struct audproc_buffer_data buffer;
 
-	mutex_lock(&acdb_data.acdb_mutex);
-	result = get_pmem_file(atomic_read(&acdb_data.pmem_fd),
-				&paddr, &kvaddr, &pmem_len,
+	result = get_pmem_file(acdb_data.pmem_fd, &acdb_data.paddr,
+				&acdb_data.kvaddr, &acdb_data.pmem_len,
 				&acdb_data.file);
-	mutex_unlock(&acdb_data.acdb_mutex);
 	if (result != 0) {
-		atomic_set(&acdb_data.pmem_fd, 0);
-		atomic64_set(&acdb_data.pmem_len, 0);
+		acdb_data.pmem_fd = 0;
 		pr_err("%s: Could not register PMEM!!!\n", __func__);
 		goto done;
 	}
 
-	atomic64_set(&acdb_data.paddr, paddr);
-	atomic64_set(&acdb_data.kvaddr, kvaddr);
-	atomic64_set(&acdb_data.pmem_len, pmem_len);
 	pr_debug("AUDIO_REGISTER_PMEM done! paddr = 0x%lx, "
-		"kvaddr = 0x%lx, len = x%lx\n",
-		(long)atomic64_read(&acdb_data.paddr),
-		(long)atomic64_read(&acdb_data.kvaddr),
-		(long)atomic64_read(&acdb_data.pmem_len));
+		"kvaddr = 0x%lx, len = x%lx\n", acdb_data.paddr,
+		acdb_data.kvaddr, acdb_data.pmem_len);
+	get_audproc_buffer_data(&buffer);
+	result = adm_memory_map_regions(buffer.phys_addr, 0,
+			buffer.buf_size,
+			NUM_AUDPROC_BUFFERS);
+	if (result < 0)
+		pr_err("Audcal mmap did not work!\n");
+	goto done;
 
 done:
 	return result;
@@ -657,33 +665,37 @@ done:
 static long acdb_ioctl(struct file *f,
 		unsigned int cmd, unsigned long arg)
 {
-	int32_t			result = 0;
-	int32_t			size;
-	int32_t			pmem_fd;
-	uint32_t		topology;
+	s32			result = 0;
+	s32			audproc_path;
+	s32			size;
+	u32			topology;
 	struct cal_block	data[MAX_NETWORKS];
 	pr_debug("%s\n", __func__);
 
 	switch (cmd) {
 	case AUDIO_REGISTER_PMEM:
 		pr_debug("AUDIO_REGISTER_PMEM\n");
-		if (atomic_read(&acdb_data.pmem_fd)) {
+		mutex_lock(&acdb_data.acdb_mutex);
+		if (acdb_data.pmem_fd) {
 			deregister_pmem();
-			pr_debug("Remove the existing PMEM\n");
+			pr_info("Remove the existing PMEM\n");
 		}
 
-		if (copy_from_user(&pmem_fd, (void *)arg, sizeof(pmem_fd))) {
+		if (copy_from_user(&acdb_data.pmem_fd, (void *)arg,
+					sizeof(acdb_data.pmem_fd))) {
 			pr_err("%s: fail to copy pmem handle!\n", __func__);
 			result = -EFAULT;
 		} else {
-			atomic_set(&acdb_data.pmem_fd, pmem_fd);
 			result = register_pmem();
 		}
+		mutex_unlock(&acdb_data.acdb_mutex);
 		goto done;
 
 	case AUDIO_DEREGISTER_PMEM:
 		pr_debug("AUDIO_DEREGISTER_PMEM\n");
+		mutex_lock(&acdb_data.acdb_mutex);
 		deregister_pmem();
+		mutex_unlock(&acdb_data.acdb_mutex);
 		goto done;
 	case AUDIO_SET_VOICE_RX_TOPOLOGY:
 		if (copy_from_user(&topology, (void *)arg,
@@ -755,51 +767,45 @@ static long acdb_ioctl(struct file *f,
 
 	switch (cmd) {
 	case AUDIO_SET_AUDPROC_TX_CAL:
+		audproc_path = TX_CAL;
 		if (size > sizeof(struct cal_block))
 			pr_err("%s: More Audproc Cal then expected, "
 				"size received: %d\n", __func__, size);
-		store_audproc_cal(TX_CAL, data);
+		store_audproc_cal(audproc_path, data);
 		break;
 	case AUDIO_SET_AUDPROC_RX_CAL:
+		audproc_path = RX_CAL;
 		if (size > sizeof(struct cal_block))
 			pr_err("%s: More Audproc Cal then expected, "
 				"size received: %d\n", __func__, size);
-		store_audproc_cal(RX_CAL, data);
+		store_audproc_cal(audproc_path, data);
 		break;
 	case AUDIO_SET_AUDPROC_TX_STREAM_CAL:
+		audproc_path = TX_CAL;
 		if (size > sizeof(struct cal_block))
 			pr_err("%s: More Audproc Cal then expected, "
 				"size received: %d\n", __func__, size);
-		store_audstrm_cal(TX_CAL, data);
+		store_audstrm_cal(audproc_path, data);
 		break;
 	case AUDIO_SET_AUDPROC_RX_STREAM_CAL:
+		audproc_path = RX_CAL;
 		if (size > sizeof(struct cal_block))
 			pr_err("%s: More Audproc Cal then expected, "
 				"size received: %d\n", __func__, size);
-		store_audstrm_cal(RX_CAL, data);
+		store_audstrm_cal(audproc_path, data);
 		break;
 	case AUDIO_SET_AUDPROC_TX_VOL_CAL:
+		audproc_path = TX_CAL;
 		if (size > sizeof(struct cal_block))
 			pr_err("%s: More Audproc Cal then expected, "
 				"size received: %d\n", __func__, size);
-		store_audvol_cal(TX_CAL, data);
+		store_audvol_cal(audproc_path, data);
 	case AUDIO_SET_AUDPROC_RX_VOL_CAL:
+		audproc_path = RX_CAL;
 		if (size > sizeof(struct cal_block))
 			pr_err("%s: More Audproc Cal then expected, "
 				"size received: %d\n", __func__, size);
-		store_audvol_cal(RX_CAL, data);
-		break;
-	case AUDIO_SET_AFE_TX_CAL:
-		if (size > sizeof(struct cal_block))
-			pr_err("%s: More AFE Cal then expected, "
-				"size received: %d\n", __func__, size);
-		store_afe_cal(TX_CAL, data);
-		break;
-	case AUDIO_SET_AFE_RX_CAL:
-		if (size > sizeof(struct cal_block))
-			pr_err("%s: More AFE Cal then expected, "
-				"size received: %d\n", __func__, size);
-		store_afe_cal(RX_CAL, data);
+		store_audvol_cal(audproc_path, data);
 		break;
 	case AUDIO_SET_VOCPROC_CAL:
 		store_vocproc_cal(size / sizeof(struct cal_block), data);
@@ -834,13 +840,14 @@ static int acdb_mmap(struct file *file, struct vm_area_struct *vma)
 
 	pr_debug("%s\n", __func__);
 
-	if (atomic_read(&acdb_data.pmem_fd)) {
-		if (size <= atomic64_read(&acdb_data.pmem_len)) {
+	mutex_lock(&acdb_data.acdb_mutex);
+	if (acdb_data.pmem_fd) {
+		if (size <= acdb_data.pmem_len) {
 			vma->vm_page_prot = pgprot_noncached(
 						vma->vm_page_prot);
 			result = remap_pfn_range(vma,
 				vma->vm_start,
-				atomic64_read(&acdb_data.paddr) >> PAGE_SHIFT,
+				acdb_data.paddr >> PAGE_SHIFT,
 				size,
 				vma->vm_page_prot);
 		} else {
@@ -851,6 +858,7 @@ static int acdb_mmap(struct file *file, struct vm_area_struct *vma)
 		pr_err("%s: PMEM is not allocated, yet!\n", __func__);
 		result = -ENODEV;
 	}
+	mutex_unlock(&acdb_data.acdb_mutex);
 
 	return result;
 }
@@ -862,13 +870,16 @@ static int acdb_release(struct inode *inode, struct file *f)
 	atomic_dec(&usage_count);
 	atomic_read(&usage_count);
 
-	pr_debug("%s: ref count %d!\n", __func__,
+	pr_info("%s: ref count %d!\n", __func__,
 		atomic_read(&usage_count));
 
-	if (atomic_read(&usage_count) >= 1)
+	if (atomic_read(&usage_count) >= 1) {
 		result = -EBUSY;
-	else
+	} else {
+		mutex_lock(&acdb_data.acdb_mutex);
 		result = deregister_pmem();
+		mutex_unlock(&acdb_data.acdb_mutex);
+	}
 
 	return result;
 }

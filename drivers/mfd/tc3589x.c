@@ -192,14 +192,14 @@ static int tc3589x_irq_init(struct tc3589x *tc3589x)
 	int irq;
 
 	for (irq = base; irq < base + TC3589x_NR_INTERNAL_IRQS; irq++) {
-		irq_set_chip_data(irq, tc3589x);
-		irq_set_chip_and_handler(irq, &dummy_irq_chip,
+		set_irq_chip_data(irq, tc3589x);
+		set_irq_chip_and_handler(irq, &dummy_irq_chip,
 					 handle_edge_irq);
-		irq_set_nested_thread(irq, 1);
+		set_irq_nested_thread(irq, 1);
 #ifdef CONFIG_ARM
 		set_irq_flags(irq, IRQF_VALID);
 #else
-		irq_set_noprobe(irq);
+		set_irq_noprobe(irq);
 #endif
 	}
 
@@ -215,8 +215,8 @@ static void tc3589x_irq_remove(struct tc3589x *tc3589x)
 #ifdef CONFIG_ARM
 		set_irq_flags(irq, 0);
 #endif
-		irq_set_chip_and_handler(irq, NULL, NULL);
-		irq_set_chip_data(irq, NULL);
+		set_irq_chip_and_handler(irq, NULL, NULL);
+		set_irq_chip_data(irq, NULL);
 	}
 }
 

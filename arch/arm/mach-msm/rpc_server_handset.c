@@ -2,14 +2,17 @@
  *
  * Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *
+ * See the GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, you can find it at http://www.fsf.org.
  */
 
 #include <linux/slab.h>
@@ -24,9 +27,6 @@
 #include <mach/msm_rpcrouter.h>
 #include <mach/board.h>
 #include <mach/rpc_server_handset.h>
-#ifdef CONFIG_HUAWEI_KERNEL
-#include <linux/rtc.h>
-#endif
 #ifdef CONFIG_HUAWEI_FEATURE_OEMINFO
 #include <linux/types.h>
 #include <linux/ioctl.h>
@@ -47,7 +47,9 @@
 #include <mach/msm_rpcrouter.h>
 #include "smd_private.h"
 #endif
-
+#ifdef CONFIG_HUAWEI_KERNEL
+#include <linux/wakelock.h>
+#endif
 #define DRIVER_NAME	"msm-handset"
 
 #define HS_SERVER_PROG 0x30000062
@@ -75,15 +77,7 @@
 #define HS_HEADSET_SWITCH_3_K	0xF1
 #define HS_HEADSET_HEADPHONE_K	0xF6
 #define HS_HEADSET_MICROPHONE_K 0xF7
-
-#ifdef CONFIG_HUAWEI_KERNEL
-#define HS_STEREO_HEADSET_NO_MIC_K  0xFB
-#define HS_PREVIOUS_K   0xFC
-#define HS_NEXT_K       0xFD
-#endif
-
 #define HS_REL_K		0xFF	/* key release */
-
 #ifdef CONFIG_HUAWEI_FEATURE_OEMINFO
 #define HS_OEMINFO_K    0xFE
 #endif
@@ -91,11 +85,6 @@
 
 #define KEY(hs_key, input_key) ((hs_key << 24) | input_key)
 
-enum mschine_type{
-    HW_MACHINE_8X55 = 0,
-    HW_MACHINE_7X2725A,
-};
-static int get_current_machine(void);
 /* creates /sys/module/rpc_server_handset/parameters/oeminfo_rpc_debug_mask file */
 static int oeminfo_rpc_debug_mask = 0;
 module_param(oeminfo_rpc_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
@@ -105,29 +94,7 @@ module_param(oeminfo_rpc_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 		if (oeminfo_rpc_debug_mask)	  \
 			printk(KERN_ERR x);	  \
 	} while (0)
-static int get_current_machine()
-{
-    if( (machine_is_msm8255_u8800_pro())
-		|| (machine_is_msm8255_u8860()) 
-		|| (machine_is_msm8255_c8860()) 
-		|| (machine_is_msm8255_u8860lp())
-        || machine_is_msm8255_u8860_r()
-		|| (machine_is_msm8255_u8860_92())            
-		|| (machine_is_msm8255_u8860_51())
-		|| (machine_is_msm8255_u8680()) 
-	    || (machine_is_msm8255_u8730()))
-    {
-        OEMINFO_RPC_DEBUG("8x55 oeminfo. \n");
-        return HW_MACHINE_8X55;
-    }
-    else
-    {
-        OEMINFO_RPC_DEBUG("27a25a oeminfo. \n");
-        return HW_MACHINE_7X2725A;
-    }
-}
 
-		
 enum hs_event {
 	HS_EVNT_EXT_PWR = 0,	/* External Power status        */
 	HS_EVNT_HSD,		/* Headset Detection            */
@@ -261,11 +228,6 @@ static const uint32_t hs_key_map[] = {
 	KEY(HS_HEADSET_SWITCH_K, KEY_MEDIA),
 	KEY(HS_HEADSET_SWITCH_2_K, KEY_VOLUMEUP),
 	KEY(HS_HEADSET_SWITCH_3_K, KEY_VOLUMEDOWN),
-#ifdef CONFIG_HUAWEI_KERNEL
-    KEY(HS_STEREO_HEADSET_NO_MIC_K, SW_HEADPHONE_INSERT),
-    KEY(HS_PREVIOUS_K, KEY_PREVIOUSSONG),
-    KEY(HS_NEXT_K,         KEY_NEXTSONG),
-#endif
 	0
 };
 
@@ -299,6 +261,9 @@ struct msm_handset {
 
 static struct msm_rpc_client *rpc_client;
 static struct msm_handset *hs;
+#ifdef CONFIG_HUAWEI_KERNEL
+static struct wake_lock headset_unplug_wake_lock;
+#endif
 #ifdef CONFIG_HUAWEI_FEATURE_OEMINFO
 static int handle_hs_rpc_call(struct msm_rpc_server *server,
 			   struct rpc_request_hdr *req, unsigned len);
@@ -534,7 +499,7 @@ static void print_oeminfo_data(void * data)
   
     strncat(all_log_string,sub_string,sizeof(sub_string));
   }
-
+  
   OEMINFO_RPC_DEBUG("%s\n",all_log_string);
 }
 
@@ -546,9 +511,9 @@ static int rmt_oeminfo_handle_key(uint32_t key_parm)
   struct rmt_oeminfo_kevent *kevent;
   struct rmt_oeminfo_kdata  *kdata;
   struct oeminfo_type * share_ptr = NULL;
-
+  
   OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(),enter. key_parm is 0x%x. \n", 
-			 __func__, key_parm);
+         __func__, key_parm);
   
   kevent = kmalloc(sizeof(struct rmt_oeminfo_kevent), GFP_KERNEL);
   if (!kevent) {
@@ -558,7 +523,7 @@ static int rmt_oeminfo_handle_key(uint32_t key_parm)
   }
   else
   {
-	OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(). malloc kevent OK. \n",__func__);
+    OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(). malloc kevent OK. \n",__func__);
   }
   
   kdata = kmalloc(sizeof(struct rmt_oeminfo_kdata), GFP_KERNEL);
@@ -570,13 +535,12 @@ static int rmt_oeminfo_handle_key(uint32_t key_parm)
   }
   else
   {
-	OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(). malloc kdata OK. \n",__func__);
+    OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(). malloc kdata OK. \n",__func__);
   }
 
   // share_ptr = (void *)be32_to_cpu(key_parm);
   share_ptr = smem_alloc(SMEM_LCD_CUR_PANEL, sizeof(struct oeminfo_type));
   OEMINFO_RPC_DEBUG("emmc_oeminfo: share_ptr is 0x%x. \n",(int)share_ptr);
-  
   print_oeminfo_data(share_ptr);
   
   // memcpy(&kevent->event, share_ptr , sizeof(struct oeminfo_type));
@@ -584,14 +548,14 @@ static int rmt_oeminfo_handle_key(uint32_t key_parm)
 
   msm_rpc_server_get_requesting_client(&kdata->cinfo);
   kdata->data = share_ptr;
-
+  
   OEMINFO_RPC_DEBUG("emmc_oeminfo: put event ok!\n");
   
   oeminfo_put_event(rms, kevent);
   oeminfo_put_data(rms, kdata);
   atomic_inc(&rms->total_events);
   wake_up(&rms->event_q);
-
+  
   OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(), end. \n",__func__);
 
   return 1;
@@ -609,26 +573,23 @@ static long rmt_oeminfo_ioctl(struct file *fp, unsigned int cmd,
 	struct rmt_oeminfo_kevent *kevent;
     struct rmt_oeminfo_kdata *kdata;
     struct oeminfo_type * share_ptr = NULL;
-
-	OEMINFO_RPC_DEBUG("emmc_oeminfo: %s: wait for request ioctl\n", __func__);
 	
+    OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(),enter. cmd is 0x%x. \n",__func__, cmd);
+
 	switch (cmd) {
 
 	case RMT_OEMINFO_WAIT_FOR_REQ:
-		if (HW_MACHINE_7X2725A == get_current_machine())
+		if (firstboot == true)
 		{
-			if (firstboot == true)
+			firstboot = false;
+			/* use rpc to set sig TMC_KERNEL_READY_SIG */
+			rc = msm_rpc_client_req(rpc_client, OEMINFO_READY_PROC,
+				NULL, NULL,
+				NULL, NULL, -1);
+			if (rc)
 			{
-				firstboot = false;
-				/* use rpc to set sig TMC_KERNEL_READY_SIG */
-				rc = msm_rpc_client_req(rpc_client, OEMINFO_READY_PROC,
-					NULL, NULL,
-					NULL, NULL, -1);
-				if (rc)
-				{
-					firstboot = true;
-					pr_err("%s: couldn't send rpc client request OEMINFO_READY_PROC\n", __func__);
-				}
+				firstboot = true;
+				pr_err("%s: couldn't send rpc client request OEMINFO_READY_PROC\n", __func__);
 			}
 		}
 		OEMINFO_RPC_DEBUG("emmc_oeminfo: %s: wait for request ioctl\n", __func__);
@@ -641,7 +602,7 @@ static long rmt_oeminfo_ioctl(struct file *fp, unsigned int cmd,
 		atomic_dec(&rms->total_events);
 
 		kevent = oeminfo_get_event(rms);
-		OEMINFO_RPC_DEBUG("emmc_oeminfo: call copy_to_user().\n");
+        OEMINFO_RPC_DEBUG("emmc_oeminfo: call copy_to_user().\n");
         
 		WARN_ON(kevent == NULL);
 		if (copy_to_user((void __user *)arg, kevent->event,sizeof(struct oeminfo_type)))
@@ -666,23 +627,19 @@ static long rmt_oeminfo_ioctl(struct file *fp, unsigned int cmd,
 				wake_unlock(&rms->wlock);
 			break;
 		}
-
-		if (HW_MACHINE_7X2725A == get_current_machine())
-		{
-			rc = msm_rpc_client_req(rpc_client, OEMINFO_FINISH_PROC,
-						NULL, NULL,
-						NULL, NULL, -1);
-            if (rc)
-			    pr_err("%s: couldn't send rpc client request\n", __func__);
-		}
-		OEMINFO_RPC_DEBUG("%s:kernel memory data: \n", __func__);
+	 rc = msm_rpc_client_req(rpc_client, OEMINFO_FINISH_PROC,
+				NULL, NULL,
+				NULL, NULL, -1);
+        if (rc)
+		    pr_err("%s: couldn't send rpc client request\n", __func__);
+        OEMINFO_RPC_DEBUG("%s:kernel memory data: \n", __func__);
         print_oeminfo_data(kdata->data);
 
-		OEMINFO_RPC_DEBUG("%s:share memory data: \n", __func__);
+        OEMINFO_RPC_DEBUG("%s:share memory data: \n", __func__);
         print_oeminfo_data(share_ptr);
 
-#if 0 
-		OEMINFO_RPC_DEBUG("%s: call msm_rpc_server_cb_req().\n", __func__);
+#if 0
+        OEMINFO_RPC_DEBUG("%s: call msm_rpc_server_cb_req().\n", __func__);
 		ret = msm_rpc_server_cb_req(&hs_rpc_server, &kdata->cinfo,
 			RMT_OEMINFO_EVENT_FUNC_PTR_TYPE_PROC, NULL, NULL,NULL, NULL, -1);
         
@@ -700,8 +657,8 @@ static long rmt_oeminfo_ioctl(struct file *fp, unsigned int cmd,
 		ret = -EINVAL;
 		break;
 	}
-
-	OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(),end.\n",__func__);
+    
+    OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(),end.\n",__func__);
 
 	return ret;
 }
@@ -729,11 +686,6 @@ static int rmt_oeminfo_release(struct inode *ip, struct file *fp)
   
   return 0;
 }
-#endif
-
-#ifdef CONFIG_HUAWEI_KERNEL
-static struct wake_lock headset_unplug_wake_lock;
-#define HEADSET_WAKE_DURING 2
 #endif
 
 static int hs_find_key(uint32_t hscode)
@@ -779,11 +731,7 @@ static void update_state(void)
 static void report_hs_key(uint32_t key_code, uint32_t key_parm)
 {
 	int key, temp_key_code;
-/* add it for get UTC */
-#ifdef CONFIG_HUAWEI_KERNEL 
-    struct timespec ts;  
-    struct rtc_time tm;
-#endif
+
 	if (key_code == HS_REL_K)
 		key = hs_find_key(key_parm);
 	else
@@ -798,29 +746,18 @@ static void report_hs_key(uint32_t key_code, uint32_t key_parm)
 	case KEY_POWER:
 		break;
 	case KEY_END:
-   /* add log,print key code and UTC */
-    #ifdef CONFIG_HUAWEI_KERNEL
-        getnstimeofday(&ts);  
-        rtc_time_to_tm(ts.tv_sec, &tm);
-        printk("%s:Press power key ,key=%d ,now time (%02d:%02d:%02d.%09lu UTC)\n",__func__,key_code,tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec);
-    #endif
-   	#ifdef CONFIG_HUAWEI_KERNEL
+#ifdef CONFIG_HUAWEI_KERNEL
 		input_report_key(hs->ipdev, KEY_POWER, (key_code != HS_REL_K));
-   	#else
-   		input_report_key(hs->ipdev, key, (key_code != HS_REL_K));
-   	#endif
 		break;
+#endif
 	case KEY_MEDIA:
 #ifdef CONFIG_HUAWEI_KERNEL
         /* add 2s wake lock here to fix issue that time of press headset key  
-         * is not enough when AP seelp during incall */
-        wake_lock_timeout(&headset_unplug_wake_lock, HEADSET_WAKE_DURING*HZ);
+         * is not enough when ARM11 seelp during incall */
+        wake_lock_timeout(&headset_unplug_wake_lock, 2*HZ);
 #endif
 	case KEY_VOLUMEUP:
 	case KEY_VOLUMEDOWN:
-#ifdef CONFIG_HUAWEI_KERNEL
-        printk(KERN_ERR "%s: kernel recieve modem linectl hdset key: KEY_MEDIA\n",__func__);
-#endif
 		input_report_key(hs->ipdev, key, (key_code != HS_REL_K));
 		break;
 	case SW_HEADPHONE_INSERT_W_MIC:
@@ -828,9 +765,9 @@ static void report_hs_key(uint32_t key_code, uint32_t key_parm)
         printk(KERN_ERR "%s: SW_HEADPHONE_INSERT: key_code = %d\n",__func__, key_code);
 
 		//delete
-            /* add 2s wake lock here to fix issue that time of swtiching audio-output 
-             * is not enough when headset unpluging during incall */
-            wake_lock_timeout(&headset_unplug_wake_lock, HEADSET_WAKE_DURING*HZ);
+		/* add 2s wake lock here to fix issue that time of swtiching audio-output 
+		 * is not enough when headset unpluging during incall */
+		wake_lock_timeout(&headset_unplug_wake_lock, 2*HZ);
 		//delete
 #endif
 		hs->mic_on = hs->hs_on = (key_code != HS_REL_K) ? 1 : 0;
@@ -840,20 +777,6 @@ static void report_hs_key(uint32_t key_code, uint32_t key_parm)
 							hs->mic_on);
 		update_state();
 		break;
-#ifdef CONFIG_HUAWEI_KERNEL
-    case KEY_PREVIOUSSONG:
-        {
-             printk(KERN_ERR "%s: kernel recieve modem linectl hdset key: KEY_PREVIOUSSONG\n",__func__);
-            input_report_key(hs->ipdev, key, (key_code != HS_REL_K));
-            break;
-        }
-    case KEY_NEXTSONG:
-        {
-             printk(KERN_ERR "%s: kernel recieve modem linectl hdset key: KEY_NEXTSONG\n",__func__);
-            input_report_key(hs->ipdev, key, (key_code != HS_REL_K));
-            break;
-        }
-#endif
 
 	case SW_HEADPHONE_INSERT:
 		hs->hs_on = (key_code != HS_REL_K) ? 1 : 0;
@@ -891,12 +814,11 @@ static int handle_hs_rpc_call(struct msm_rpc_server *server,
 		args = (struct rpc_keypad_pass_key_code_args *)(req + 1);
 		args->key_code = be32_to_cpu(args->key_code);
 		args->key_parm = be32_to_cpu(args->key_parm);
-        
 		#ifdef CONFIG_HUAWEI_FEATURE_OEMINFO
-		OEMINFO_RPC_DEBUG("emmc_oeminfo: ori key_code is %d, ori key_parm is %d.\n", 
-				args->key_code,args->key_parm);
-		OEMINFO_RPC_DEBUG("emmc_oeminfo: key_code is %d, key_parm is %d.\n", 
-				args->key_code,args->key_parm);
+        OEMINFO_RPC_DEBUG("emmc_oeminfo: ori key_code is %d, ori key_parm is %d.\n", 
+                args->key_code,args->key_parm);
+        OEMINFO_RPC_DEBUG("emmc_oeminfo: key_code is %d, key_parm is %d.\n", 
+                args->key_code,args->key_parm);
 		#endif
 
 		report_hs_key(args->key_code, args->key_parm);
@@ -915,7 +837,6 @@ static int handle_hs_rpc_call(struct msm_rpc_server *server,
 		return -ENODEV;
 	}
 }
-
 #ifndef CONFIG_HUAWEI_FEATURE_OEMINFO
 static struct msm_rpc_server hs_rpc_server = {
 	.prog		= HS_SERVER_PROG,
@@ -923,29 +844,26 @@ static struct msm_rpc_server hs_rpc_server = {
 	.rpc_call	= handle_hs_rpc_call,
 };
 #endif
-
 static int process_subs_srvc_callback(struct hs_event_cb_recv *recv)
 {
 	#ifdef CONFIG_HUAWEI_FEATURE_OEMINFO
     int recv_key;
-
-	OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(),enter.\n", __func__);
+    
+    OEMINFO_RPC_DEBUG("emmc_oeminfo: %s(),enter.\n", __func__);
 	#endif
     
 	if (!recv)
 		return -ENODATA;
-
 	#ifdef CONFIG_HUAWEI_FEATURE_OEMINFO
     recv_key = be32_to_cpu(recv->key.code);
     
     if(HS_OEMINFO_K == recv_key)
     {
-	  OEMINFO_RPC_DEBUG("emmc_oeminfo: oeminfo key transfered.\n");
-      rmt_oeminfo_handle_key(be32_to_cpu(recv->key.ver));
-      return 0;
+		OEMINFO_RPC_DEBUG("emmc_oeminfo: oeminfo key transfered.\n");
+		rmt_oeminfo_handle_key(be32_to_cpu(recv->key.ver));
+		return 0;
     }
 	#endif
-    
 	report_hs_key(be32_to_cpu(recv->key.code), be32_to_cpu(recv->key.parm));
 
 	return 0;
@@ -1155,6 +1073,7 @@ static int __devinit hs_rpc_init(void)
 #ifdef CONFIG_HUAWEI_KERNEL
     wake_lock_init(&headset_unplug_wake_lock, WAKE_LOCK_SUSPEND, "headset_unplug_wake_lock");
 #endif
+
 	rc = hs_rpc_cb_init();
 	if (rc) {
 		pr_err("%s: failed to initialize rpc client, try server...\n",
@@ -1172,9 +1091,6 @@ static int __devinit hs_rpc_init(void)
 
 static void __devexit hs_rpc_deinit(void)
 {
-    #ifdef CONFIG_HUAWEI_KERNEL
-    wake_lock_destroy(&headset_unplug_wake_lock);
-    #endif
 	if (rpc_client)
 		msm_rpc_unregister_client(rpc_client);
 }
@@ -1230,10 +1146,6 @@ static int __devinit hs_probe(struct platform_device *pdev)
 	input_set_capability(ipdev, EV_KEY, KEY_MEDIA);
 	input_set_capability(ipdev, EV_KEY, KEY_VOLUMEUP);
 	input_set_capability(ipdev, EV_KEY, KEY_VOLUMEDOWN);
-#ifdef CONFIG_HUAWEI_KERNEL
-    input_set_capability(ipdev, EV_KEY, KEY_PREVIOUSSONG);
-    input_set_capability(ipdev, EV_KEY, KEY_NEXTSONG);
-#endif
 	input_set_capability(ipdev, EV_SW, SW_HEADPHONE_INSERT);
 	input_set_capability(ipdev, EV_SW, SW_MICROPHONE_INSERT);
 	input_set_capability(ipdev, EV_KEY, KEY_POWER);

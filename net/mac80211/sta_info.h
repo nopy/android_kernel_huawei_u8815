@@ -43,8 +43,6 @@
  *	be in the queues
  * @WLAN_STA_PSPOLL: Station sent PS-poll while driver was keeping
  *	station in power-save mode, reply when the driver unblocks.
- * @WLAN_STA_PS_DRIVER_BUF: Station has frames pending in driver internal
- *	buffers. Automatically cleared on station wake-up.
  */
 enum ieee80211_sta_info_flags {
 	WLAN_STA_AUTH		= 1<<0,
@@ -60,7 +58,6 @@ enum ieee80211_sta_info_flags {
 	WLAN_STA_BLOCK_BA	= 1<<11,
 	WLAN_STA_PS_DRIVER	= 1<<12,
 	WLAN_STA_PSPOLL		= 1<<13,
-	WLAN_STA_PS_DRIVER_BUF	= 1<<14,
 };
 
 #define STA_TID_NUM 16
@@ -85,7 +82,6 @@ enum ieee80211_sta_info_flags {
  * @state: session state (see above)
  * @stop_initiator: initiator of a session stop
  * @tx_stop: TX DelBA frame when stopping
- * @buf_size: reorder buffer size at receiver
  *
  * This structure's lifetime is managed by RCU, assignments to
  * the array holding it must hold the aggregation mutex.
@@ -105,7 +101,6 @@ struct tid_ampdu_tx {
 	u8 dialog_token;
 	u8 stop_initiator;
 	bool tx_stop;
-	u8 buf_size;
 };
 
 /**
@@ -152,7 +147,6 @@ struct tid_ampdu_rx {
  *
  * @tid_rx: aggregation info for Rx per TID -- RCU protected
  * @tid_tx: aggregation info for Tx per TID
- * @tid_start_tx: sessions where start was requested
  * @addba_req_num: number of times addBA request has been sent.
  * @dialog_token_allocator: dialog token enumerator for each new session;
  * @work: work struct for starting/stopping aggregation
@@ -164,16 +158,38 @@ struct tid_ampdu_rx {
 struct sta_ampdu_mlme {
 	struct mutex mtx;
 	/* rx */
-	struct tid_ampdu_rx __rcu *tid_rx[STA_TID_NUM];
+	struct tid_ampdu_rx *tid_rx[STA_TID_NUM];
 	unsigned long tid_rx_timer_expired[BITS_TO_LONGS(STA_TID_NUM)];
 	/* tx */
 	struct work_struct work;
-	struct tid_ampdu_tx __rcu *tid_tx[STA_TID_NUM];
-	struct tid_ampdu_tx *tid_start_tx[STA_TID_NUM];
+	struct tid_ampdu_tx *tid_tx[STA_TID_NUM];
 	u8 addba_req_num[STA_TID_NUM];
 	u8 dialog_token_allocator;
 };
 
+
+/**
+ * enum plink_state - state of a mesh peer link finite state machine
+ *
+ * @PLINK_LISTEN: initial state, considered the implicit state of non existant
+ * 	mesh peer links
+ * @PLINK_OPN_SNT: mesh plink open frame has been sent to this mesh peer
+ * @PLINK_OPN_RCVD: mesh plink open frame has been received from this mesh peer
+ * @PLINK_CNF_RCVD: mesh plink confirm frame has been received from this mesh
+ * 	peer
+ * @PLINK_ESTAB: mesh peer link is established
+ * @PLINK_HOLDING: mesh peer link is being closed or cancelled
+ * @PLINK_BLOCKED: all frames transmitted from this mesh plink are discarded
+ */
+enum plink_state {
+	PLINK_LISTEN,
+	PLINK_OPN_SNT,
+	PLINK_OPN_RCVD,
+	PLINK_CNF_RCVD,
+	PLINK_ESTAB,
+	PLINK_HOLDING,
+	PLINK_BLOCKED
+};
 
 /**
  * struct sta_info - STA information
@@ -191,8 +207,6 @@ struct sta_ampdu_mlme {
  * @rate_ctrl_priv: rate control private per-STA pointer
  * @last_tx_rate: rate used for last transmit, to report to userspace as
  *	"the" transmit rate
- * @last_rx_rate_idx: rx status rate index of the last data packet
- * @last_rx_rate_flag: rx status flag of the last data packet
  * @lock: used for locking all fields that require locking, see comments
  *	in the header file.
  * @flaglock: spinlock for flags accesses
@@ -208,7 +222,6 @@ struct sta_ampdu_mlme {
  * @rx_bytes: Number of bytes received from this STA
  * @wep_weak_iv_count: number of weak WEP IVs received from this station
  * @last_rx: time (in jiffies) when last frame was received from this STA
- * @last_connected: time (in seconds) when a station got connected
  * @num_duplicates: number of duplicate frames received from this STA
  * @rx_fragments: number of received MPDUs
  * @rx_dropped: number of dropped MPDUs from this STA
@@ -243,11 +256,11 @@ struct sta_ampdu_mlme {
 struct sta_info {
 	/* General information, mostly static */
 	struct list_head list;
-	struct sta_info __rcu *hnext;
+	struct sta_info *hnext;
 	struct ieee80211_local *local;
 	struct ieee80211_sub_if_data *sdata;
-	struct ieee80211_key __rcu *gtk[NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS];
-	struct ieee80211_key __rcu *ptk;
+	struct ieee80211_key *gtk[NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS];
+	struct ieee80211_key *ptk;
 	struct rate_control_ref *rate_ctrl;
 	void *rate_ctrl_priv;
 	spinlock_t lock;
@@ -278,7 +291,6 @@ struct sta_info {
 	unsigned long rx_packets, rx_bytes;
 	unsigned long wep_weak_iv_count;
 	unsigned long last_rx;
-	long last_connected;
 	unsigned long num_duplicates;
 	unsigned long rx_fragments;
 	unsigned long rx_dropped;
@@ -297,8 +309,6 @@ struct sta_info {
 	unsigned long tx_bytes;
 	unsigned long tx_fragments;
 	struct ieee80211_tx_rate last_tx_rate;
-	int last_rx_rate_idx;
-	int last_rx_rate_flag;
 	u16 tid_seq[IEEE80211_QOS_CTL_TID_MASK + 1];
 
 	/*
@@ -318,7 +328,7 @@ struct sta_info {
 	u8 plink_retries;
 	bool ignore_plink_timer;
 	bool plink_timer_was_running;
-	enum nl80211_plink_state plink_state;
+	enum plink_state plink_state;
 	u32 plink_timeout;
 	struct timer_list plink_timer;
 #endif
@@ -336,12 +346,12 @@ struct sta_info {
 	struct ieee80211_sta sta;
 };
 
-static inline enum nl80211_plink_state sta_plink_state(struct sta_info *sta)
+static inline enum plink_state sta_plink_state(struct sta_info *sta)
 {
 #ifdef CONFIG_MAC80211_MESH
 	return sta->plink_state;
 #endif
-	return NL80211_PLINK_LISTEN;
+	return PLINK_LISTEN;
 }
 
 static inline void set_sta_flags(struct sta_info *sta, const u32 flags)
@@ -400,16 +410,7 @@ static inline u32 get_sta_flags(struct sta_info *sta)
 	return ret;
 }
 
-void ieee80211_assign_tid_tx(struct sta_info *sta, int tid,
-			     struct tid_ampdu_tx *tid_tx);
 
-static inline struct tid_ampdu_tx *
-rcu_dereference_protected_tid_tx(struct sta_info *sta, int tid)
-{
-	return rcu_dereference_protected(sta->ampdu_mlme.tid_tx[tid],
-					 lockdep_is_held(&sta->lock) ||
-					 lockdep_is_held(&sta->ampdu_mlme.mtx));
-}
 
 #define STA_HASH_SIZE 256
 #define STA_HASH(sta) (sta[5])
@@ -490,6 +491,7 @@ void sta_info_set_tim_bit(struct sta_info *sta);
 void sta_info_clear_tim_bit(struct sta_info *sta);
 
 void sta_info_init(struct ieee80211_local *local);
+int sta_info_start(struct ieee80211_local *local);
 void sta_info_stop(struct ieee80211_local *local);
 int sta_info_flush(struct ieee80211_local *local,
 		   struct ieee80211_sub_if_data *sdata);

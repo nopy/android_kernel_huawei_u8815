@@ -58,10 +58,6 @@
 #include <asm/unaligned.h>
 
 
-#ifdef CONFIG_HUAWEI_KERNEL
-#include <asm-arm/huawei/usb_switch_huawei.h>
-#endif
-
 /*
  * Thanks to NetChip Technologies for donating this product ID.
  *
@@ -252,17 +248,6 @@ struct fsg_lun {
 	u32		unit_attention_data;
 
 	struct device	dev;
-#ifdef CONFIG_USB_MSC_PROFILING
-	spinlock_t	lock;
-	struct {
-
-		unsigned long rbytes;
-		unsigned long wbytes;
-		ktime_t rtime;
-		ktime_t wtime;
-	} perf;
-
-#endif
 };
 
 #define fsg_lun_is_open(curlun)	((curlun)->filp != NULL)
@@ -697,43 +682,6 @@ static ssize_t fsg_show_nofua(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%u\n", curlun->nofua);
 }
 
-#ifdef CONFIG_USB_MSC_PROFILING
-static ssize_t fsg_show_perf(struct device *dev, struct device_attribute *attr,
-			      char *buf)
-{
-	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
-	unsigned long rbytes, wbytes;
-	int64_t rtime, wtime;
-
-	spin_lock(&curlun->lock);
-	rbytes = curlun->perf.rbytes;
-	wbytes = curlun->perf.wbytes;
-	rtime = ktime_to_us(curlun->perf.rtime);
-	wtime = ktime_to_us(curlun->perf.wtime);
-	spin_unlock(&curlun->lock);
-
-	return snprintf(buf, PAGE_SIZE, "Write performance :"
-					"%lu bytes in %lld microseconds\n"
-					"Read performance :"
-					"%lu bytes in %lld microseconds\n",
-					wbytes, wtime, rbytes, rtime);
-}
-static ssize_t fsg_store_perf(struct device *dev, struct device_attribute *attr,
-			const char *buf, size_t count)
-{
-	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
-	int value;
-
-	sscanf(buf, "%d", &value);
-	if (!value) {
-		spin_lock(&curlun->lock);
-		memset(&curlun->perf, 0, sizeof(curlun->perf));
-		spin_unlock(&curlun->lock);
-	}
-
-	return count;
-}
-#endif
 static ssize_t fsg_show_file(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
@@ -765,14 +713,13 @@ static ssize_t fsg_show_file(struct device *dev, struct device_attribute *attr,
 static ssize_t fsg_store_ro(struct device *dev, struct device_attribute *attr,
 			    const char *buf, size_t count)
 {
-	ssize_t		rc;
+	ssize_t		rc = count;
 	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
 	struct rw_semaphore	*filesem = dev_get_drvdata(dev);
-	unsigned	ro;
+	unsigned long	ro;
 
-	rc = kstrtouint(buf, 2, &ro);
-	if (rc)
-		return rc;
+	if (strict_strtoul(buf, 2, &ro))
+		return -EINVAL;
 
 	/*
 	 * Allow the write-enable status to change only while the
@@ -786,7 +733,6 @@ static ssize_t fsg_store_ro(struct device *dev, struct device_attribute *attr,
 		curlun->ro = ro;
 		curlun->initially_ro = ro;
 		LDBG(curlun, "read-only status set to %d\n", curlun->ro);
-		rc = count;
 	}
 	up_read(filesem);
 	return rc;
@@ -797,12 +743,10 @@ static ssize_t fsg_store_nofua(struct device *dev,
 			       const char *buf, size_t count)
 {
 	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
-	unsigned	nofua;
-	int		ret;
+	unsigned long	nofua;
 
-	ret = kstrtouint(buf, 2, &nofua);
-	if (ret)
-		return ret;
+	if (strict_strtoul(buf, 2, &nofua))
+		return -EINVAL;
 
 	/* Sync data when switching from async mode to sync */
 	if (!nofua && curlun->nofua)
@@ -820,20 +764,7 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 	struct rw_semaphore	*filesem = dev_get_drvdata(dev);
 	int		rc = 0;
 
-#ifdef CONFIG_HUAWEI_KERNEL
-    USB_PR("%s: buf=%s\n", __func__, buf);
-    
-    /* if the unshare command comes later than the port switch, the cdrom lunfile will be cleared.
-     * so ignore the lunfile clearing in normal mode.
-     */
-    if((CDROM_INDEX == usb_para_data.usb_para.usb_pid_index)&&(0 == *buf))
-    {
-        
-        USB_PR("%s: normal mode, ignore the clearing of lunfile\n", __func__);
-        return count;
-    }
-#endif
-    
+
 #ifndef CONFIG_USB_ANDROID_MASS_STORAGE
 	/* disabled in android because we need to allow closing the backing file
 	 * if the media was removed
@@ -843,6 +774,36 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 		return -EBUSY;				/* "Door is locked" */
 	}
 #endif
+
+#ifdef CONFIG_USB_AUTO_INSTALL
+    USB_PR("%s, buf=%s, count=%d, pid_index=%d\n", __func__, buf, count, usb_para_info.usb_pid_index);
+	
+    if(GOOGLE_INDEX != usb_para_info.usb_pid_index)
+    {
+        unsigned ui_state, ui_usb_state;
+
+        if((*buf == 0)&&(count == 1))
+        {
+            /* app exit udisk, closing file moved to switch_composite_function.
+             * so here return directly.
+             */
+            USB_PR("%s: normal mode, ignore the clearing of lunfile\n", __func__);
+            return count;            
+        }
+
+        usb_get_state(&ui_state, &ui_usb_state);
+        USB_PR("ui_state=%d, ui_usb_state=%d\n", ui_state, ui_usb_state);
+	
+        /* initiate switch to CDROM when ui_state is OFFLINE(2) and the 
+         * written string including u disk path.
+         */
+        if((ui_state == 2) && (strstr(buf, "vold/179:0")))
+       {
+            USB_PR("initiate usb switch to CDROM for OFFLINE state, delay 100ms\n");
+            initiate_switch_to_cdrom(10); /* 10ms * 10 = 100ms */
+        }
+    }
+#endif	/* CONFIG_USB_AUTO_INSTALL */
 
 	/* Remove a trailing newline */
 	if (count > 0 && buf[count-1] == '\n')

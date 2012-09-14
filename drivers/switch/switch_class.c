@@ -102,46 +102,48 @@ EXPORT_SYMBOL_GPL(switch_set_state);
 #ifdef CONFIG_USB_AUTO_INSTALL
 void switch_set_udisk_state(struct switch_dev *sdev, const char* cmd)
 {
-    char name_buf[120] = {0};
-    char state_buf[120] = {0};
-    char *prop_buf = NULL;
-    char *envp[3] = {NULL, NULL, NULL};
-    int env_offset = 0;
-    int length = 0;
+  char name_buf[120];
+  char state_buf[120];
+  char *prop_buf;
+  char *envp[3];
+  int env_offset = 0;
+  int length;
 
-    prop_buf = (char *)get_zeroed_page(GFP_KERNEL);
-    if (prop_buf) {
-        length = name_show(sdev->dev, NULL, prop_buf);
-        if (length > 0) {
-            if (prop_buf[length - 1] == '\n')
-                prop_buf[length - 1] = 0;
-            snprintf(name_buf, sizeof(name_buf),
-                     "SWITCH_NAME=%s", prop_buf);
-            envp[env_offset++] = name_buf;
-            
-            /* only send uevent in mass_storage */
-            if (strcmp(prop_buf, "usb_mass_storage")) {
-                pr_err("switch_set_udisk_state: the name(%s) isn't support\n", prop_buf);
-                free_page((unsigned long)prop_buf);
-                return;
-            }
-        }
-        length = sprintf(prop_buf, "%s\n", cmd);
-        if (length > 0) {
-            if (prop_buf[length - 1] == '\n')
-                prop_buf[length - 1] = 0;
-            snprintf(state_buf, sizeof(state_buf),
-                     "SWITCH_STATE=%s", prop_buf);
-            envp[env_offset++] = state_buf;
-        }
-        envp[env_offset] = NULL;  
-        pr_info("switch_set_udisk_state: %s\n", envp[env_offset-1]);
-        kobject_uevent_env(&sdev->dev->kobj, KOBJ_CHANGE, envp);
+  prop_buf = (char *)get_zeroed_page(GFP_KERNEL);
+  if (prop_buf) {
+    length = name_show(sdev->dev, NULL, prop_buf);
+    if (length > 0) {
+      if (prop_buf[length - 1] == '\n')
+        prop_buf[length - 1] = 0;
+      snprintf(name_buf, sizeof(name_buf),
+        "SWITCH_NAME=%s", prop_buf);
+      envp[env_offset++] = name_buf;
+
+      /* only send uevent in mass_storage */
+      if (strcmp(prop_buf, "usb_mass_storage"))
+      {
+        pr_err("switch_set_udisk_state: the name(%s) isn't support\n", prop_buf);
         free_page((unsigned long)prop_buf);
+        return;
+      }
     }
+    length = sprintf(prop_buf, "%s\n", cmd);
+    if (length > 0) {
+      if (prop_buf[length - 1] == '\n')
+        prop_buf[length - 1] = 0;
+      snprintf(state_buf, sizeof(state_buf),
+        "SWITCH_STATE=%s", prop_buf);
+      envp[env_offset++] = state_buf;
+    }
+    envp[env_offset] = NULL;  
+    pr_info("switch_set_udisk_state: %s\n", envp[env_offset-1]);
+    kobject_uevent_env(&sdev->dev->kobj, KOBJ_CHANGE, envp);
+    free_page((unsigned long)prop_buf);
+  }
 }
 EXPORT_SYMBOL_GPL(switch_set_udisk_state);
 #endif
+
 static int create_switch_class(void)
 {
 	if (!switch_class) {
@@ -195,8 +197,9 @@ void switch_dev_unregister(struct switch_dev *sdev)
 {
 	device_remove_file(sdev->dev, &dev_attr_name);
 	device_remove_file(sdev->dev, &dev_attr_state);
-	device_destroy(switch_class, MKDEV(0, sdev->index));
+	atomic_dec(&device_count);
 	dev_set_drvdata(sdev->dev, NULL);
+	device_destroy(switch_class, MKDEV(0, sdev->index));
 }
 EXPORT_SYMBOL_GPL(switch_dev_unregister);
 

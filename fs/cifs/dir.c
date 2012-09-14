@@ -50,12 +50,12 @@ build_path_from_dentry(struct dentry *direntry)
 {
 	struct dentry *temp;
 	int namelen;
+	int pplen;
 	int dfsplen;
 	char *full_path;
 	char dirsep;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(direntry->d_sb);
-	struct cifs_tcon *tcon = cifs_sb_master_tcon(cifs_sb);
-	unsigned seq;
+	struct cifsTconInfo *tcon = cifs_sb_master_tcon(cifs_sb);
 
 	if (direntry == NULL)
 		return NULL;  /* not much we can do if dentry is freed and
@@ -63,35 +63,29 @@ build_path_from_dentry(struct dentry *direntry)
 		when the server crashed */
 
 	dirsep = CIFS_DIR_SEP(cifs_sb);
+	pplen = cifs_sb->prepathlen;
 	if (tcon->Flags & SMB_SHARE_IS_IN_DFS)
 		dfsplen = strnlen(tcon->treeName, MAX_TREE_SIZE + 1);
 	else
 		dfsplen = 0;
 cifs_bp_rename_retry:
-	namelen = dfsplen;
-	seq = read_seqbegin(&rename_lock);
-	rcu_read_lock();
+	namelen = pplen + dfsplen;
 	for (temp = direntry; !IS_ROOT(temp);) {
 		namelen += (1 + temp->d_name.len);
 		temp = temp->d_parent;
 		if (temp == NULL) {
 			cERROR(1, "corrupt dentry");
-			rcu_read_unlock();
 			return NULL;
 		}
 	}
-	rcu_read_unlock();
 
 	full_path = kmalloc(namelen+1, GFP_KERNEL);
 	if (full_path == NULL)
 		return full_path;
 	full_path[namelen] = 0;	/* trailing null */
-	rcu_read_lock();
 	for (temp = direntry; !IS_ROOT(temp);) {
-		spin_lock(&temp->d_lock);
 		namelen -= 1 + temp->d_name.len;
 		if (namelen < 0) {
-			spin_unlock(&temp->d_lock);
 			break;
 		} else {
 			full_path[namelen] = dirsep;
@@ -99,19 +93,16 @@ cifs_bp_rename_retry:
 				temp->d_name.len);
 			cFYI(0, "name: %s", full_path + namelen);
 		}
-		spin_unlock(&temp->d_lock);
 		temp = temp->d_parent;
 		if (temp == NULL) {
 			cERROR(1, "corrupt dentry");
-			rcu_read_unlock();
 			kfree(full_path);
 			return NULL;
 		}
 	}
-	rcu_read_unlock();
-	if (namelen != dfsplen || read_seqretry(&rename_lock, seq)) {
-		cFYI(1, "did not end path lookup where expected. namelen=%d "
-			"dfsplen=%d", namelen, dfsplen);
+	if (namelen != pplen + dfsplen) {
+		cERROR(1, "did not end path lookup where expected namelen is %d",
+			namelen);
 		/* presumably this is only possible if racing with a rename
 		of one of the parent directories  (we can not lock the dentries
 		above us to prevent this, but retrying should be harmless) */
@@ -135,6 +126,7 @@ cifs_bp_rename_retry:
 			}
 		}
 	}
+	strncpy(full_path + dfsplen, CIFS_SB(direntry->d_sb)->prepath, pplen);
 	return full_path;
 }
 
@@ -160,7 +152,7 @@ cifs_create(struct inode *inode, struct dentry *direntry, int mode,
 	__u16 fileHandle;
 	struct cifs_sb_info *cifs_sb;
 	struct tcon_link *tlink;
-	struct cifs_tcon *tcon;
+	struct cifsTconInfo *tcon;
 	char *full_path = NULL;
 	FILE_ALL_INFO *buf = NULL;
 	struct inode *newinode = NULL;
@@ -197,7 +189,7 @@ cifs_create(struct inode *inode, struct dentry *direntry, int mode,
 			inode->i_sb, mode, oflags, &oplock, &fileHandle, xid);
 		/* EIO could indicate that (posix open) operation is not
 		   supported, despite what server claimed in capability
-		   negotiation.  EREMOTE indicates DFS junction, which is not
+		   negotation.  EREMOTE indicates DFS junction, which is not
 		   handled in posix open */
 
 		if (rc == 0) {
@@ -364,8 +356,7 @@ int cifs_mknod(struct inode *inode, struct dentry *direntry, int mode,
 	int xid;
 	struct cifs_sb_info *cifs_sb;
 	struct tcon_link *tlink;
-	struct cifs_tcon *pTcon;
-	struct cifs_io_parms io_parms;
+	struct cifsTconInfo *pTcon;
 	char *full_path = NULL;
 	struct inode *newinode = NULL;
 	int oplock = 0;
@@ -448,19 +439,16 @@ int cifs_mknod(struct inode *inode, struct dentry *direntry, int mode,
 	 * timestamps in, but we can reuse it safely */
 
 	pdev = (struct win_dev *)buf;
-	io_parms.netfid = fileHandle;
-	io_parms.pid = current->tgid;
-	io_parms.tcon = pTcon;
-	io_parms.offset = 0;
-	io_parms.length = sizeof(struct win_dev);
 	if (S_ISCHR(mode)) {
 		memcpy(pdev->type, "IntxCHR", 8);
 		pdev->major =
 		      cpu_to_le64(MAJOR(device_number));
 		pdev->minor =
 		      cpu_to_le64(MINOR(device_number));
-		rc = CIFSSMBWrite(xid, &io_parms,
-			&bytes_written, (char *)pdev,
+		rc = CIFSSMBWrite(xid, pTcon,
+			fileHandle,
+			sizeof(struct win_dev),
+			0, &bytes_written, (char *)pdev,
 			NULL, 0);
 	} else if (S_ISBLK(mode)) {
 		memcpy(pdev->type, "IntxBLK", 8);
@@ -468,8 +456,10 @@ int cifs_mknod(struct inode *inode, struct dentry *direntry, int mode,
 		      cpu_to_le64(MAJOR(device_number));
 		pdev->minor =
 		      cpu_to_le64(MINOR(device_number));
-		rc = CIFSSMBWrite(xid, &io_parms,
-			&bytes_written, (char *)pdev,
+		rc = CIFSSMBWrite(xid, pTcon,
+			fileHandle,
+			sizeof(struct win_dev),
+			0, &bytes_written, (char *)pdev,
 			NULL, 0);
 	} /* else if (S_ISFIFO) */
 	CIFSSMBClose(xid, pTcon, fileHandle);
@@ -496,7 +486,7 @@ cifs_lookup(struct inode *parent_dir_inode, struct dentry *direntry,
 	bool posix_open = false;
 	struct cifs_sb_info *cifs_sb;
 	struct tcon_link *tlink;
-	struct cifs_tcon *pTcon;
+	struct cifsTconInfo *pTcon;
 	struct cifsFileInfo *cfile;
 	struct inode *newInode = NULL;
 	char *full_path = NULL;
@@ -641,7 +631,7 @@ lookup_out:
 static int
 cifs_d_revalidate(struct dentry *direntry, struct nameidata *nd)
 {
-	if (nd && (nd->flags & LOOKUP_RCU))
+	if (nd->flags & LOOKUP_RCU)
 		return -ECHILD;
 
 	if (direntry->d_inode) {

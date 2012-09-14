@@ -33,6 +33,9 @@ MODULE_DESCRIPTION("Driver for Athena cards");
 MODULE_AUTHOR("Shu Lin - Hiep Huynh");
 MODULE_LICENSE("GPL");
 
+struct list_head cx25821_devlist;
+EXPORT_SYMBOL(cx25821_devlist);
+
 static unsigned int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "enable debug messages");
@@ -43,10 +46,8 @@ MODULE_PARM_DESC(card, "card type");
 
 static unsigned int cx25821_devcount;
 
-DEFINE_MUTEX(cx25821_devlist_mutex);
-EXPORT_SYMBOL(cx25821_devlist_mutex);
+static DEFINE_MUTEX(devlist);
 LIST_HEAD(cx25821_devlist);
-EXPORT_SYMBOL(cx25821_devlist);
 
 struct sram_channel cx25821_sram_channels[] = {
 	[SRAM_CH00] = {
@@ -910,9 +911,9 @@ static int cx25821_dev_setup(struct cx25821_dev *dev)
 	dev->nr = ++cx25821_devcount;
 	sprintf(dev->name, "cx25821[%d]", dev->nr);
 
-	mutex_lock(&cx25821_devlist_mutex);
+	mutex_lock(&devlist);
 	list_add_tail(&dev->devlist, &cx25821_devlist);
-	mutex_unlock(&cx25821_devlist_mutex);
+	mutex_unlock(&devlist);
 
 	strcpy(cx25821_boards[UNKNOWN_BOARD].name, "unknown");
 	strcpy(cx25821_boards[CX25821_BOARD].name, "cx25821");
@@ -1464,9 +1465,9 @@ static void __devexit cx25821_finidev(struct pci_dev *pci_dev)
 	if (pci_dev->irq)
 		free_irq(pci_dev->irq, dev);
 
-	mutex_lock(&cx25821_devlist_mutex);
+	mutex_lock(&devlist);
 	list_del(&dev->devlist);
-	mutex_unlock(&cx25821_devlist_mutex);
+	mutex_unlock(&devlist);
 
 	cx25821_dev_unregister(dev);
 	v4l2_device_unregister(v4l2_dev);
@@ -1500,6 +1501,7 @@ static struct pci_driver cx25821_pci_driver = {
 
 static int __init cx25821_init(void)
 {
+	INIT_LIST_HEAD(&cx25821_devlist);
 	pr_info("driver version %d.%d.%d loaded\n",
 		(CX25821_VERSION_CODE >> 16) & 0xff,
 		(CX25821_VERSION_CODE >> 8) & 0xff,

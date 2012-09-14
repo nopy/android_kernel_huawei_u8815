@@ -20,7 +20,6 @@
 #include <linux/highmem.h>
 #include <linux/perf_event.h>
 
-#include <asm/exception.h>
 #include <asm/system.h>
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
@@ -86,11 +85,9 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 
 	printk(KERN_ALERT "pgd = %p\n", mm->pgd);
 	pgd = pgd_offset(mm, addr);
-	printk(KERN_ALERT "[%08lx] *pgd=%08llx",
-			addr, (long long)pgd_val(*pgd));
+	printk(KERN_ALERT "[%08lx] *pgd=%08lx", addr, pgd_val(*pgd));
 
 	do {
-		pud_t *pud;
 		pmd_t *pmd;
 		pte_t *pte;
 
@@ -102,21 +99,9 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 			break;
 		}
 
-		pud = pud_offset(pgd, addr);
-		if (PTRS_PER_PUD != 1)
-			printk(", *pud=%08lx", pud_val(*pud));
-
-		if (pud_none(*pud))
-			break;
-
-		if (pud_bad(*pud)) {
-			printk("(bad)");
-			break;
-		}
-
-		pmd = pmd_offset(pud, addr);
+		pmd = pmd_offset(pgd, addr);
 		if (PTRS_PER_PMD != 1)
-			printk(", *pmd=%08llx", (long long)pmd_val(*pmd));
+			printk(", *pmd=%08lx", pmd_val(*pmd));
 
 		if (pmd_none(*pmd))
 			break;
@@ -131,9 +116,8 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 			break;
 
 		pte = pte_offset_map(pmd, addr);
-		printk(", *pte=%08llx", (long long)pte_val(*pte));
-		printk(", *ppte=%08llx",
-		       (long long)pte_val(pte[PTE_HWTABLE_PTRS]));
+		printk(", *pte=%08lx", pte_val(*pte));
+		printk(", *ppte=%08lx", pte_val(pte[PTE_HWTABLE_PTRS]));
 		pte_unmap(pte);
 	} while(0);
 
@@ -413,7 +397,6 @@ do_translation_fault(unsigned long addr, unsigned int fsr,
 {
 	unsigned int index;
 	pgd_t *pgd, *pgd_k;
-	pud_t *pud, *pud_k;
 	pmd_t *pmd, *pmd_k;
 
 	if (addr < TASK_SIZE)
@@ -432,19 +415,12 @@ do_translation_fault(unsigned long addr, unsigned int fsr,
 
 	if (pgd_none(*pgd_k))
 		goto bad_area;
+
 	if (!pgd_present(*pgd))
 		set_pgd(pgd, *pgd_k);
 
-	pud = pud_offset(pgd, addr);
-	pud_k = pud_offset(pgd_k, addr);
-
-	if (pud_none(*pud_k))
-		goto bad_area;
-	if (!pud_present(*pud))
-		set_pud(pud, *pud_k);
-
-	pmd = pmd_offset(pud, addr);
-	pmd_k = pmd_offset(pud_k, addr);
+	pmd_k = pmd_offset(pgd_k, addr);
+	pmd   = pmd_offset(pgd, addr);
 
 	/*
 	 * On ARM one Linux PGD entry contains two hardware entries (see page

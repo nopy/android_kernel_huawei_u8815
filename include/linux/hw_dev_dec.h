@@ -95,13 +95,12 @@ enum hw_device_type {
     DEV_I2C_CAMERA_SLAVE,
     DEV_I2C_KEYPAD,
     DEV_I2C_APS,
+    DEV_I2C_GYROSCOPE,
     DEV_I2C_NFC,
     DEV_I2C_DC_DC,
     DEV_I2C_SPEAKER,
-    DEV_FM,	
+    DEV_FM,
     DEV_I2C_OFN,
-    /* add gyroscope */
-    DEV_I2C_GYROSCOPE,  
     DEV_MAX,    
 };
 
@@ -109,4 +108,5 @@ enum hw_device_type {
 int set_hw_dev_flag( int dev_id );
 
 #endif
+
 

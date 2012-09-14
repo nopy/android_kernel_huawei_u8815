@@ -34,16 +34,15 @@ struct perf_session {
 	struct thread		*last_match;
 	struct machine		host_machine;
 	struct rb_root		machines;
-	struct perf_evlist	*evlist;
+	struct rb_root		hists_tree;
 	/*
-	 * FIXME: Need to split this up further, we need global
-	 *	  stats + per event stats. 'perf diff' also needs
-	 *	  to properly support multiple events in a single
-	 *	  perf.data file.
+	 * FIXME: should point to the first entry in hists_tree and
+	 *        be a hists instance. Right now its only 'report'
+	 *        that is using ->hists_tree while all the rest use
+	 *        ->hists.
 	 */
 	struct hists		hists;
 	u64			sample_type;
-	int			sample_size;
 	int			fd;
 	bool			fd_pipe;
 	bool			repipe;
@@ -52,25 +51,20 @@ struct perf_session {
 	int			cwdlen;
 	char			*cwd;
 	struct ordered_samples	ordered_samples;
-	struct callchain_cursor	callchain_cursor;
-	char			filename[0];
+	char filename[0];
 };
 
-struct perf_evsel;
 struct perf_event_ops;
 
-typedef int (*event_sample)(union perf_event *event, struct perf_sample *sample,
-			    struct perf_evsel *evsel, struct perf_session *session);
-typedef int (*event_op)(union perf_event *self, struct perf_sample *sample,
+typedef int (*event_op)(event_t *self, struct sample_data *sample,
 			struct perf_session *session);
-typedef int (*event_synth_op)(union perf_event *self,
-			      struct perf_session *session);
-typedef int (*event_op2)(union perf_event *self, struct perf_session *session,
+typedef int (*event_synth_op)(event_t *self, struct perf_session *session);
+typedef int (*event_op2)(event_t *self, struct perf_session *session,
 			 struct perf_event_ops *ops);
 
 struct perf_event_ops {
-	event_sample	sample;
-	event_op	mmap,
+	event_op	sample,
+			mmap,
 			comm,
 			fork,
 			exit,
@@ -100,10 +94,10 @@ int __perf_session__process_events(struct perf_session *self,
 int perf_session__process_events(struct perf_session *self,
 				 struct perf_event_ops *event_ops);
 
-int perf_session__resolve_callchain(struct perf_session *self,
-				    struct thread *thread,
-				    struct ip_callchain *chain,
-				    struct symbol **parent);
+struct map_symbol *perf_session__resolve_callchain(struct perf_session *self,
+						   struct thread *thread,
+						   struct ip_callchain *chain,
+						   struct symbol **parent);
 
 bool perf_session__has_traces(struct perf_session *self, const char *msg);
 
@@ -112,11 +106,12 @@ int perf_session__set_kallsyms_ref_reloc_sym(struct map **maps,
 					     u64 addr);
 
 void mem_bswap_64(void *src, int byte_size);
-void perf_event__attr_swap(struct perf_event_attr *attr);
 
 int perf_session__create_kernel_maps(struct perf_session *self);
 
 void perf_session__update_sample_type(struct perf_session *self);
+void perf_session__set_sample_id_all(struct perf_session *session, bool value);
+void perf_session__set_sample_type(struct perf_session *session, u64 type);
 void perf_session__remove_thread(struct perf_session *self, struct thread *th);
 
 static inline
@@ -154,22 +149,9 @@ size_t perf_session__fprintf_dsos(struct perf_session *self, FILE *fp);
 size_t perf_session__fprintf_dsos_buildid(struct perf_session *self,
 					  FILE *fp, bool with_hits);
 
-size_t perf_session__fprintf_nr_events(struct perf_session *session, FILE *fp);
-
-static inline int perf_session__parse_sample(struct perf_session *session,
-					     const union perf_event *event,
-					     struct perf_sample *sample)
+static inline
+size_t perf_session__fprintf_nr_events(struct perf_session *self, FILE *fp)
 {
-	return perf_event__parse_sample(event, session->sample_type,
-					session->sample_size,
-					session->sample_id_all, sample);
+	return hists__fprintf_nr_events(&self->hists, fp);
 }
-
-struct perf_evsel *perf_session__find_first_evtype(struct perf_session *session,
-					    unsigned int type);
-
-void perf_session__print_symbols(union perf_event *event,
-				 struct perf_sample *sample,
-				 struct perf_session *session);
-
 #endif /* __PERF_SESSION_H */

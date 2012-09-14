@@ -21,10 +21,10 @@
 static DEFINE_SPINLOCK(voter_clk_lock);
 
 /* Aggregate the rate of clocks that are currently on. */
-static unsigned long voter_clk_aggregate_rate(const struct clk *parent)
+static unsigned voter_clk_aggregate_rate(const struct clk *parent)
 {
 	struct clk *clk;
-	unsigned long rate = 0;
+	unsigned rate = 0;
 
 	list_for_each_entry(clk, &parent->children, siblings) {
 		struct clk_voter *v = to_clk_voter(clk);
@@ -34,13 +34,13 @@ static unsigned long voter_clk_aggregate_rate(const struct clk *parent)
 	return rate;
 }
 
-static int voter_clk_set_rate(struct clk *clk, unsigned long rate)
+static int voter_clk_set_rate(struct clk *clk, unsigned rate)
 {
 	int ret = 0;
 	unsigned long flags;
 	struct clk *clkp;
 	struct clk_voter *clkh, *v = to_clk_voter(clk);
-	unsigned long cur_rate, new_rate, other_rate = 0;
+	unsigned cur_rate, new_rate, other_rate = 0;
 
 	spin_lock_irqsave(&voter_clk_lock, flags);
 
@@ -61,7 +61,7 @@ static int voter_clk_set_rate(struct clk *clk, unsigned long rate)
 		new_rate = max(other_rate, rate);
 
 		if (new_rate != cur_rate) {
-			ret = clk_set_rate(parent, new_rate);
+			ret = clk_set_min_rate(parent, new_rate);
 			if (ret)
 				goto unlock;
 		}
@@ -75,9 +75,9 @@ unlock:
 
 static int voter_clk_enable(struct clk *clk)
 {
-	int ret = 0;
+	int ret;
 	unsigned long flags;
-	unsigned long cur_rate;
+	unsigned cur_rate;
 	struct clk *parent;
 	struct clk_voter *v = to_clk_voter(clk);
 
@@ -90,7 +90,7 @@ static int voter_clk_enable(struct clk *clk)
 	 */
 	cur_rate = voter_clk_aggregate_rate(parent);
 	if (v->rate > cur_rate) {
-		ret = clk_set_rate(parent, v->rate);
+		ret = clk_set_min_rate(parent, v->rate);
 		if (ret)
 			goto out;
 	}
@@ -103,9 +103,10 @@ out:
 
 static void voter_clk_disable(struct clk *clk)
 {
-	unsigned long flags, cur_rate, new_rate;
+	unsigned long flags;
 	struct clk *parent;
 	struct clk_voter *v = to_clk_voter(clk);
+	unsigned cur_rate, new_rate;
 
 	spin_lock_irqsave(&voter_clk_lock, flags);
 	parent = v->parent;
@@ -119,14 +120,15 @@ static void voter_clk_disable(struct clk *clk)
 	cur_rate = max(new_rate, v->rate);
 
 	if (new_rate < cur_rate)
-		clk_set_rate(parent, new_rate);
+		clk_set_min_rate(parent, new_rate);
 
 	spin_unlock_irqrestore(&voter_clk_lock, flags);
 }
 
-static unsigned long voter_clk_get_rate(struct clk *clk)
+static unsigned voter_clk_get_rate(struct clk *clk)
 {
-	unsigned long rate, flags;
+	unsigned rate;
+	unsigned long flags;
 	struct clk_voter *v = to_clk_voter(clk);
 
 	spin_lock_irqsave(&voter_clk_lock, flags);
@@ -142,7 +144,7 @@ static int voter_clk_is_enabled(struct clk *clk)
 	return v->enabled;
 }
 
-static long voter_clk_round_rate(struct clk *clk, unsigned long rate)
+static long voter_clk_round_rate(struct clk *clk, unsigned rate)
 {
 	struct clk_voter *v = to_clk_voter(clk);
 	return clk_round_rate(v->parent, rate);
@@ -175,6 +177,7 @@ struct clk_ops clk_ops_voter = {
 	.enable = voter_clk_enable,
 	.disable = voter_clk_disable,
 	.set_rate = voter_clk_set_rate,
+	.set_min_rate = voter_clk_set_rate,
 	.get_rate = voter_clk_get_rate,
 	.is_enabled = voter_clk_is_enabled,
 	.round_rate = voter_clk_round_rate,

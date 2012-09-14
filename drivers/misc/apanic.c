@@ -38,6 +38,7 @@
 #include <linux/workqueue.h>
 #include <linux/preempt.h>
 
+/** port the apanic extension function. **/
 /* Add meminfo head files */
 #ifdef CONFIG_HUAWEI_APANIC_EXTEND
 #include <linux/hugetlb.h>
@@ -71,27 +72,6 @@
 #include <linux/kallsyms.h>
 #endif
 
-        /** 增加apanic功能，保存死机log - 马振华 **/
-/**
-MMC APANIC
-2M = MTD SIZE
-mtd->erase_size = 512
-mtd->erasesize_shift = 9 : every erase block  = 512 Byte
-mtd->write_size = 512 : this is a flash param ,  flash support size of every writing
-ctx->bounce : temp buffer, and must larger than mtd->write_size
-*/
-/* 2 macros are here to define a block number region
- * that can be marked as bad block, to make sure that 
- * the data in the block region can be protected from 
- * touching by the apanic mechanism.
- * But if you have a seperate partition to store the apanic
- * info, thse macros and the added functions below are
- * useless and should be deleted.
- */
-#ifdef CONFIG_HUAWEI_APANIC
-#define HUAWEI_PROTECT_BLOCK_NUMBER_BEGIN 0
-#define HUAWEI_PROTECT_BLOCK_NUMBER_END 15
-#endif	
 extern void ram_console_enable_console(int);
 
 struct panic_header {
@@ -123,11 +103,6 @@ struct apanic_data {
 	struct proc_dir_entry	*apanic_sysinfo;
 #endif
 	
-#ifdef CONFIG_HUAWEI_KERNEL
-	struct proc_dir_entry   *modem_panic;	
-	char *modem_panic_ptr;
-	int modem_panic_len;
-#endif	
 };
 
 static struct apanic_data drv_ctx;
@@ -138,34 +113,6 @@ static unsigned int *apanic_bbt;
 static unsigned int apanic_erase_blocks;
 static unsigned int apanic_good_blocks;
 
-#ifdef CONFIG_HUAWEI_APANIC
-/*
- * Function block_isprotected
- *
- * Description: 
- *   to return a value shows that if a block should be protected 
- *   from touching by the apainc, if a value 1 is returned, the 
- *   block is marked as a bad block, and the data in these area can 
- *   be protected
- *
- * Return values:
- *    1: this block should be protected 
- *    0: this block can be used to store the apanic info
- *
- */
-static int block_isprotected(int block_number)
-{
-    if( (block_number >= HUAWEI_PROTECT_BLOCK_NUMBER_BEGIN)
-        && (block_number <= HUAWEI_PROTECT_BLOCK_NUMBER_END) )
-    {
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
-}
-#endif	
 static void set_bb(unsigned int block, unsigned int *bbt)
 {
 	unsigned int flag = 1;
@@ -202,15 +149,8 @@ static void scan_bbt(struct mtd_info *mtd, unsigned int *bbt)
 	int i;
 
 	for (i = 0; i < apanic_erase_blocks; i++) {
-    #ifndef CONFIG_HUAWEI_APANIC
 		if (mtd->block_isbad(mtd, i*mtd->erasesize))
 			set_bb(i, apanic_bbt);
-    #else
-		if (block_isprotected(i))
-        {
-			set_bb(i, apanic_bbt);
-        }
-    #endif	
 	}
 }
 
@@ -307,7 +247,7 @@ static int apanic_proc_read(char *buffer, char **start, off_t offset,
 	memcpy(buffer, ctx->bounce + page_offset, count);
 
 	*start = (char*)count;
-	
+
 	if ((offset + count) == file_length)
 		*peof = 1;
 
@@ -369,7 +309,6 @@ static void mtd_panic_erase(void)
 		schedule();
 		remove_wait_queue(&wait_q, &wait);
 	}
-
     /* write the erased mtd virtual flash to the mmc panic partition */
 #ifdef CONFIG_HUAWEI_KERNEL
     if (ctx->mtd->sync)
@@ -377,7 +316,6 @@ static void mtd_panic_erase(void)
         ctx->mtd->sync(ctx->mtd);
     }
 #endif
-	
 	printk(KERN_DEBUG "apanic: %s partition erased\n",
 	       CONFIG_APANIC_PLABEL);
 out:
@@ -417,33 +355,6 @@ static int apanic_proc_write(struct file *file, const char __user *buffer,
 	return count;
 }
 
-#ifdef CONFIG_HUAWEI_KERNEL
-static ssize_t modem_proc_read(struct file *file, char __user *buf,
-			size_t len, loff_t *offset)
-{
-	struct apanic_data *ctx = &drv_ctx;
-	loff_t pos = *offset;
-	ssize_t count;
-
-	if (pos >= ctx->modem_panic_len)
-		return 0;
-
-	count = min(len, (size_t)(ctx->modem_panic_len - pos));
-	if (copy_to_user(buf, ctx->modem_panic_ptr + pos, count)) {
-		pr_err("%s: copy to user failed\n", __func__);
-		return -EFAULT;
-	}
-
-	*offset += count;
-	return count;
-}
-
-static struct file_operations modem_crash_log_fops = {
-	.read = modem_proc_read
-};
-extern int detect_modem_crash_log(void **ppcrash_log,int *plog_len);
-#endif
-	
 static void mtd_panic_notify_add(struct mtd_info *mtd)
 {
 	struct apanic_data *ctx = &drv_ctx;
@@ -454,19 +365,6 @@ static void mtd_panic_notify_add(struct mtd_info *mtd)
 
 	if (strcmp(mtd->name, CONFIG_APANIC_PLABEL))
 		return;
-
-#ifdef CONFIG_HUAWEI_KERNEL
-	if(detect_modem_crash_log((void **)&ctx->modem_panic_ptr,&ctx->modem_panic_len)) {
-		ctx->modem_panic= create_proc_entry("modem_panic",
-						      S_IFREG | S_IRUGO, NULL);
-		if (!ctx->modem_panic)
-			printk(KERN_ERR "%s: failed creating modem procfile\n",__func__);
-		else {
-			ctx->modem_panic->proc_fops = &modem_crash_log_fops;
-			ctx->modem_panic->size = ctx->modem_panic_len;
-		}	
-	}
-#endif	
 
 	ctx->mtd = mtd;
 
@@ -1053,8 +951,8 @@ static int apanic_s_show(void *p)
 	if (v->nr_pages)
 		data_end += sprintf(&data_buf[data_end]," pages=%d", v->nr_pages);
 
-    if (v->phys_addr)
-		data_end += sprintf(&data_buf[data_end]," phys=%lx", (unsigned long)v->phys_addr);
+	if (v->phys_addr)
+		data_end += sprintf(&data_buf[data_end]," phys=%lx", (long unsigned int)v->phys_addr);
 
 	if (v->flags & VM_IOREMAP)
 		data_end += sprintf(&data_buf[data_end],"%s"," ioremap");
@@ -1322,10 +1220,8 @@ static int apanic(struct notifier_block *this, unsigned long event,
 #endif
 	touch_softlockup_watchdog();
 
-	if (!ctx->mtd) {
-        printk(KERN_EMERG "No mtd partition in use!\n");
-        goto out;
-    }
+	if (!ctx->mtd)
+		goto out;
 
 	if (ctx->curr.magic) {
 		printk(KERN_EMERG "Crash partition in use!\n");

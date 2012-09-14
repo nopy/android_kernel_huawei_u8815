@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,7 +19,6 @@
 #include <linux/errno.h>
 #include <linux/cpufreq.h>
 #include <linux/clk.h>
-#include <linux/mfd/tps65023.h>
 
 #include <mach/board.h>
 #include <mach/msm_iomap.h>
@@ -40,11 +39,8 @@
 #define SCPLL_STATUS_ADDR      (MSM_SCPLL_BASE + 0x18)
 #define SCPLL_FSM_CTL_EXT_ADDR (MSM_SCPLL_BASE + 0x10)
 
-#ifdef CONFIG_QSD_SVS
-#define TPS65023_MAX_DCDC1	1600
-#else
-#define TPS65023_MAX_DCDC1	CONFIG_QSD_PMIC_DEFAULT_DCDC1
-#endif
+#define dprintk(msg...) \
+	cpufreq_debug_printk(CPUFREQ_DEBUG_DRIVER, "cpufreq-msm", msg)
 
 enum {
 	ACPU_PLL_TCXO	= -1,
@@ -121,11 +117,11 @@ static struct clkctl_acpu_speed *acpu_freq_tbl = acpu_freq_tbl_998;
 /* Use 128MHz for PC since ACPU will auto-switch to AXI (128MHz) before
  * coming back up. This allows detection of return-from-PC, since 128MHz
  * is only used for power collapse. */
-#define POWER_COLLAPSE_KHZ	128000
+#define POWER_COLLAPSE_KHZ (AXI_S->acpuclk_khz)
 /* Use 245MHz (not 128MHz) for SWFI to avoid unnecessary steps between
  * 128MHz<->245MHz. Jumping to high frequencies from 128MHz directly
  * is not allowed. */
-#define WAIT_FOR_IRQ_KHZ	245760
+#define WAIT_FOR_IRQ_KHZ (PLL0_S->acpuclk_khz)
 
 #ifdef CONFIG_CPU_FREQ_MSM
 static struct cpufreq_frequency_table freq_table[20];
@@ -162,6 +158,10 @@ static void __init cpufreq_table_init(void)
 struct clock_state {
 	struct clkctl_acpu_speed	*current_speed;
 	struct mutex			lock;
+	uint32_t			acpu_switch_time_us;
+	uint32_t			max_speed_delta_khz;
+	uint32_t			vdd_switch_time_us;
+	unsigned int			max_vdd;
 	struct clk			*ebi1_clk;
 	int (*acpu_set_vdd) (int mvolts);
 };
@@ -215,9 +215,9 @@ static void scpll_apps_enable(bool state)
 	uint32_t regval;
 
 	if (state)
-		pr_debug("Enabling PLL 3\n");
+		dprintk("Enabling PLL 3\n");
 	else
-		pr_debug("Disabling PLL 3\n");
+		dprintk("Disabling PLL 3\n");
 
 	/* Wait for any frequency switches to finish. */
 	while (readl(SCPLL_STATUS_ADDR) & 0x1)
@@ -243,12 +243,12 @@ static void scpll_apps_enable(bool state)
 		regval &= ~(0x7);
 		writel(regval, SCPLL_CTL_ADDR);
 	}
-	udelay(62);
+	udelay(drv_state.vdd_switch_time_us);
 
 	if (state)
-		pr_debug("PLL 3 Enabled\n");
+		dprintk("PLL 3 Enabled\n");
 	else
-		pr_debug("PLL 3 Disabled\n");
+		dprintk("PLL 3 Disabled\n");
 }
 
 static void scpll_init(void)
@@ -257,7 +257,7 @@ static void scpll_init(void)
 #define L_VAL_384MHZ	0xA
 #define L_VAL_768MHZ	0x14
 
-	pr_debug("Initializing PLL 3\n");
+	dprintk("Initializing PLL 3\n");
 
 	/* power down scpll */
 	writel(0x0, SCPLL_CTL_ADDR);
@@ -384,7 +384,7 @@ static void config_pll(struct clkctl_acpu_speed *s)
 static int acpuclk_set_vdd_level(int vdd)
 {
 	if (drv_state.acpu_set_vdd) {
-		pr_debug("Switching VDD to %d mV\n", vdd);
+		dprintk("Switching VDD to %d mV\n", vdd);
 		return drv_state.acpu_set_vdd(vdd);
 	} else {
 		/* Assume that the PMIC supports scaling the processor
@@ -394,8 +394,7 @@ static int acpuclk_set_vdd_level(int vdd)
 	}
 }
 
-static int acpuclk_8x50_set_rate(int cpu, unsigned long rate,
-				 enum setrate_reason reason)
+int acpuclk_set_rate(int cpu, unsigned long rate, enum setrate_reason reason)
 {
 	struct clkctl_acpu_speed *tgt_s, *strt_s;
 	int res, rc = 0;
@@ -445,7 +444,7 @@ static int acpuclk_8x50_set_rate(int cpu, unsigned long rate,
 		config_pll(PLL0_S);
 	}
 
-	pr_debug("Switching from ACPU rate %u KHz -> %u KHz\n",
+	dprintk("Switching from ACPU rate %u KHz -> %u KHz\n",
 		strt_s->acpuclk_khz, tgt_s->acpuclk_khz);
 
 	if (strt_s->pll != ACPU_PLL_3 && tgt_s->pll != ACPU_PLL_3) {
@@ -497,14 +496,14 @@ static int acpuclk_8x50_set_rate(int cpu, unsigned long rate,
 			pr_warning("Unable to drop ACPU vdd (%d)\n", res);
 	}
 
-	pr_debug("ACPU speed change complete\n");
+	dprintk("ACPU speed change complete\n");
 out:
 	if (reason == SETRATE_CPUFREQ)
 		mutex_unlock(&drv_state.lock);
 	return rc;
 }
 
-static void __init acpuclk_hw_init(void)
+static void __init acpuclk_init(void)
 {
 	struct clkctl_acpu_speed *speed;
 	uint32_t div, sel, regval;
@@ -571,9 +570,28 @@ static void __init acpuclk_hw_init(void)
 	pr_info("ACPU running at %d KHz\n", speed->acpuclk_khz);
 }
 
-static unsigned long acpuclk_8x50_get_rate(int cpu)
+unsigned long acpuclk_get_rate(int cpu)
 {
 	return drv_state.current_speed->acpuclk_khz;
+}
+
+uint32_t acpuclk_get_switch_time(void)
+{
+	return drv_state.acpu_switch_time_us;
+}
+
+unsigned long acpuclk_power_collapse(void)
+{
+	int ret = acpuclk_get_rate(smp_processor_id());
+	acpuclk_set_rate(smp_processor_id(), POWER_COLLAPSE_KHZ, SETRATE_PC);
+	return ret;
+}
+
+unsigned long acpuclk_wait_for_irq(void)
+{
+	int ret = acpuclk_get_rate(smp_processor_id());
+	acpuclk_set_rate(smp_processor_id(), WAIT_FOR_IRQ_KHZ, SETRATE_SWFI);
+	return ret;
 }
 
 /* Spare register populated with efuse data on max ACPU freq. */
@@ -629,6 +647,7 @@ static void __init acpu_freq_tbl_fixup(void)
 
 skip_efuse_fixup:
 	iounmap(ct_csr_base);
+	BUG_ON(drv_state.max_vdd == 0);
 
 	/* pll0_m_val will be 36 when PLL0 is run at 235MHz
 	 * instead of the usual 245MHz. */
@@ -637,7 +656,7 @@ skip_efuse_fixup:
 		PLL0_S->acpuclk_khz = 235930;
 
 	for (i = 0; acpu_freq_tbl[i].acpuclk_khz != 0; i++) {
-		if (acpu_freq_tbl[i].vdd > TPS65023_MAX_DCDC1) {
+		if (acpu_freq_tbl[i].vdd > drv_state.max_vdd) {
 			acpu_freq_tbl[i].acpuclk_khz = 0;
 			break;
 		}
@@ -673,54 +692,25 @@ static int __init acpu_avs_init(int (*set_vdd) (int), int khz)
 }
 #endif
 
-static int qsd8x50_tps65023_set_dcdc1(int mVolts)
-{
-	int rc = 0;
-#ifdef CONFIG_QSD_SVS
-	rc = tps65023_set_dcdc1_level(mVolts);
-	/*
-	 * By default the TPS65023 will be initialized to 1.225V.
-	 * So we can safely switch to any frequency within this
-	 * voltage even if the device is not probed/ready.
-	 */
-	if (rc == -ENODEV && mVolts <= CONFIG_QSD_PMIC_DEFAULT_DCDC1)
-		rc = 0;
-#else
-	/*
-	 * Disallow frequencies not supported in the default PMIC
-	 * output voltage.
-	 */
-	if (mVolts > CONFIG_QSD_PMIC_DEFAULT_DCDC1)
-		rc = -EFAULT;
-#endif
-	return rc;
-}
-
-static struct acpuclk_data acpuclk_8x50_data = {
-	.set_rate = acpuclk_8x50_set_rate,
-	.get_rate = acpuclk_8x50_get_rate,
-	.power_collapse_khz = POWER_COLLAPSE_KHZ,
-	.wait_for_irq_khz = WAIT_FOR_IRQ_KHZ,
-	.switch_time_us = 20,
-};
-
-static int __init acpuclk_8x50_init(struct acpuclk_soc_data *soc_data)
+void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *clkdata)
 {
 	mutex_init(&drv_state.lock);
-	drv_state.acpu_set_vdd = qsd8x50_tps65023_set_dcdc1;
+	drv_state.acpu_switch_time_us = clkdata->acpu_switch_time_us;
+	drv_state.max_speed_delta_khz = clkdata->max_speed_delta_khz;
+	drv_state.vdd_switch_time_us = clkdata->vdd_switch_time_us;
+	drv_state.max_vdd = clkdata->max_vdd;
+	drv_state.acpu_set_vdd = clkdata->acpu_set_vdd;
 
 	drv_state.ebi1_clk = clk_get(NULL, "ebi1_acpu_clk");
 	BUG_ON(IS_ERR(drv_state.ebi1_clk));
 
 	acpu_freq_tbl_fixup();
-	acpuclk_hw_init();
+	acpuclk_init();
 	lpj_init();
 	/* Set a lower bound for ACPU rate for boot. This limits the
 	 * maximum frequency hop caused by the first CPUFREQ switch. */
 	if (drv_state.current_speed->acpuclk_khz < PLL0_S->acpuclk_khz)
 		acpuclk_set_rate(0, PLL0_S->acpuclk_khz, SETRATE_CPUFREQ);
-
-	acpuclk_register(&acpuclk_8x50_data);
 
 #ifdef CONFIG_CPU_FREQ_MSM
 	cpufreq_table_init();
@@ -733,9 +723,4 @@ static int __init acpuclk_8x50_init(struct acpuclk_soc_data *soc_data)
 		drv_state.acpu_set_vdd = NULL;
 	}
 #endif
-	return 0;
 }
-
-struct acpuclk_soc_data acpuclk_8x50_soc_data __initdata = {
-	.init = acpuclk_8x50_init,
-};

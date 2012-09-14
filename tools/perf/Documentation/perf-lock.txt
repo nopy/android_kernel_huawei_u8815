@@ -24,8 +24,8 @@ and statistics with this 'perf lock' command.
 
   'perf lock report' reports statistical data.
 
-COMMON OPTIONS
---------------
+OPTIONS
+-------
 
 -i::
 --input=<file>::
@@ -38,14 +38,6 @@ COMMON OPTIONS
 -D::
 --dump-raw-trace::
         Dump raw trace in ASCII.
-
-REPORT OPTIONS
---------------
-
--k::
---key=<value>::
-        Sorting key. Possible values: acquired (default), contended,
-        wait_total, wait_max, wait_min.
 
 SEE ALSO
 --------

@@ -253,21 +253,16 @@ xfs_iget_cache_hit(
 			rcu_read_lock();
 			spin_lock(&ip->i_flags_lock);
 
-			ip->i_flags &= ~(XFS_INEW | XFS_IRECLAIM);
-			ASSERT(ip->i_flags & XFS_IRECLAIMABLE);
+			ip->i_flags &= ~XFS_INEW;
+			ip->i_flags |= XFS_IRECLAIMABLE;
+			__xfs_inode_set_reclaim_tag(pag, ip);
 			trace_xfs_iget_reclaim_fail(ip);
 			goto out_error;
 		}
 
 		spin_lock(&pag->pag_ici_lock);
 		spin_lock(&ip->i_flags_lock);
-
-		/*
-		 * Clear the per-lifetime state in the inode as we are now
-		 * effectively a new inode and need to return to the initial
-		 * state before reuse occurs.
-		 */
-		ip->i_flags &= ~XFS_IRECLAIM_RESET_FLAGS;
+		ip->i_flags &= ~(XFS_IRECLAIMABLE | XFS_IRECLAIM);
 		ip->i_flags |= XFS_INEW;
 		__xfs_inode_clear_reclaim_tag(mp, pag, ip);
 		inode->i_state = I_NEW;

@@ -16,8 +16,6 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 
-#include "tick-internal.h"
-
 /*
  * NTP timekeeping variables:
  */
@@ -646,19 +644,6 @@ int do_adjtimex(struct timex *txc)
 
 		if (txc->modes & ADJ_STATUS && time_state != TIME_OK)
 			hrtimer_cancel(&leap_timer);
-	}
-
-	if (txc->modes & ADJ_SETOFFSET) {
-		struct timespec delta;
-		delta.tv_sec  = txc->time.tv_sec;
-		delta.tv_nsec = txc->time.tv_usec;
-		if (!capable(CAP_SYS_TIME))
-			return -EPERM;
-		if (!(txc->modes & ADJ_NANO))
-			delta.tv_nsec *= 1000;
-		result = timekeeping_inject_offset(&delta);
-		if (result)
-			return result;
 	}
 
 	getnstimeofday(&ts);

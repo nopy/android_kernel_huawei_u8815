@@ -29,7 +29,6 @@
 #include <asm/uaccess.h>
 #include "linux/hardware_self_adapt.h"
 #include <linux/slab.h>
-#include <mach/vreg.h>
 
 #include <linux/gs_adxl345.h>
 
@@ -254,14 +253,24 @@ static int gs_data_to_compass(signed short accel_data [3])
 /**************************************************************************************/
 
 /*set register*/
+static int gs_init_reg(struct gs_data  *gs)
+{
+	int ret = 0;
+	ret = reg_write(gs, GS_ADI_REG_OFSX, 0); /* offset: 0g */
+	ret |= reg_write(gs, GS_ADI_REG_OFSY, 0); /* offset: 0g */
+	ret |= reg_write(gs, GS_ADI_REG_OFSZ, 0); /* offset: 0g */
+	ret |= reg_write(gs,GS_ADI_REG_BW,0x0b);    /* Rate: 200Hz, IDD: 130uA */
+	ret |= reg_write(gs,GS_ADI_REG_DATA_FORMAT,0x0B);/* Data Format: 16g right justified  256=1g*/
+	if (ret)
+	{
+		printk(KERN_ERR " gs init reg  Failed \n" );
+	}
+	return ret;
+}
 static int gs_st_open(struct inode *inode, struct file *file)
 {	
 	/*gs active mode*/
-	reg_write(this_gs_data, GS_ADI_REG_OFSX, 0); /* offset: 0g */
-	reg_write(this_gs_data, GS_ADI_REG_OFSY, 0); /* offset: 0g */
-	reg_write(this_gs_data, GS_ADI_REG_OFSZ, 0); /* offset: 0g */
-	reg_write(this_gs_data,GS_ADI_REG_BW,0x0b);    /* Rate: 200Hz, IDD: 130uA */
-	reg_write(this_gs_data,GS_ADI_REG_DATA_FORMAT,0x0B);/* Data Format: 16g right justified  256=1g*/
+	gs_init_reg(this_gs_data);
 	reg_write(this_gs_data, GS_ADI_REG_POWER_CTL, 0x08);  
 
 	if (this_gs_data->use_irq)
@@ -288,9 +297,10 @@ static int gs_st_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 gs_st_ioctl(struct file *file, unsigned int cmd,
-	   unsigned long arg)
+		unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
 	signed short accel_buf[3];
@@ -367,6 +377,7 @@ gs_st_ioctl(struct file *file, unsigned int cmd,
 	return 0;
 }
 
+/* modify iotcl interface */
 static struct file_operations gs_st_fops = {
 	.owner = THIS_MODULE,
 	.open = gs_st_open,
@@ -510,26 +521,15 @@ static int gs_probe(
 	struct gs_data *gs;
 	unsigned char revid;
 	struct gs_platform_data *pdata = NULL;
-	/*delete 20 lines*/
-	    
+    
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		printk(KERN_ERR "gs_adi346_probe: need I2C_FUNC_I2C\n");
 		ret = -ENODEV;
 		goto err_check_functionality_failed;
 	}
 
-	/*turn on the power*/
 	pdata = client->dev.platform_data;
 	if (pdata){
-#ifdef CONFIG_ARCH_MSM7X30
-		if(pdata->gs_power != NULL){
-			ret = pdata->gs_power(IC_PM_ON);
-			if(ret < 0 ){
-				goto err_check_functionality_failed;
-			}
-		}
-#endif
-				
 		if(pdata->adapt_fn != NULL){
 			ret = pdata->adapt_fn();
 			if(ret > 0){
@@ -538,7 +538,7 @@ static int gs_probe(
 				if(client->addr == 0){
 					printk(KERN_ERR "%s: bad i2c address = %d\n", __FUNCTION__, client->addr);
 					ret = -EFAULT;
-					goto err_power_failed;
+					goto err_check_functionality_failed;
 				}
 			}
 		}
@@ -552,7 +552,7 @@ static int gs_probe(
 			if(*(pdata->init_flag)){
 				printk(KERN_ERR "gs_adi346 probe failed, because the othe gsensor has been probed.\n");
 				ret = -ENODEV;
-				goto err_power_failed;
+				goto err_check_functionality_failed;
 			}
 		}
 	}
@@ -562,7 +562,7 @@ static int gs_probe(
 	ret = gs_config_int_pin();
 	if(ret <0)
 	{
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 #endif
 
@@ -581,6 +581,7 @@ static int gs_probe(
 
 	printk(KERN_INFO "%s:     %d     revid===%d\n",__func__,__LINE__,revid);
 
+	/*modify the initializtion*/
 	switch (revid) {
 	case ID_ADXL346:
 		model = 346;
@@ -590,25 +591,8 @@ static int gs_probe(
 		goto err_detect_failed;
 	}
 
-	/*modify the initializtion*/
 
-	ret = reg_write(gs, GS_ADI_REG_OFSX, 0); /* offset: 0g */
-	if ( ret <0 )
-		goto err_detect_failed;
-
-	ret = reg_write(gs, GS_ADI_REG_OFSY, 0); /* offset: 0g */
-	if ( ret <0 )
-		goto err_detect_failed;
-
-	ret = reg_write(gs, GS_ADI_REG_OFSZ, 0); /* offset: 0g */
-	if ( ret <0 )
-		goto err_detect_failed;	
-
-	ret = reg_write(gs,GS_ADI_REG_BW,0x0b);    /* Rate: 200Hz, IDD: 130uA */
-	if ( ret <0 )
-		goto err_detect_failed;
-
-	ret = reg_write(gs,GS_ADI_REG_DATA_FORMAT,0x0B);/* Data Format: 16g right justified  256=1g*/
+	ret = gs_init_reg(gs); 
 	if ( ret <0 )
 		goto err_detect_failed;
 
@@ -643,7 +627,7 @@ static int gs_probe(
 	gs->input_dev->id.vendor = GS_ADI346;
 	
 	set_bit(EV_ABS,gs->input_dev->evbit);
-	/* modify for ES-version*/
+	/* modify the func of init */
 	input_set_abs_params(gs->input_dev, ABS_X, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Y, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Z, -11520, 11520, 0, 0);
@@ -717,13 +701,6 @@ err_alloc_data_failed:
 #ifndef   GS_POLLING 
 	gs_free_int();
 #endif
-/*turn down the power*/	
-err_power_failed:
-#ifdef CONFIG_ARCH_MSM7X30
-	if(pdata->gs_power != NULL){
-		pdata->gs_power(IC_PM_OFF);
-	}
-#endif
 err_check_functionality_failed:
 
 	printk(KERN_INFO "gs_probe: faile  adi346  in  mode\n");
@@ -767,11 +744,7 @@ static int gs_resume(struct i2c_client *client)
 {
 	struct gs_data *gs = i2c_get_clientdata(client);
 	
-	reg_write(this_gs_data, GS_ADI_REG_OFSX, 0); /* Tap Threshold: 2G */
-	reg_write(this_gs_data, GS_ADI_REG_OFSY, 0); /* Tap Threshold: 2G */
-	reg_write(this_gs_data, GS_ADI_REG_OFSZ, 0); /* Tap Threshold: 2G */
-	reg_write(this_gs_data,GS_ADI_REG_BW,0x0b);    /* Rate: 200Hz, IDD: 130uA */
-	 reg_write(this_gs_data,GS_ADI_REG_DATA_FORMAT,0x0B);/* Data Format: 16g right justified  256=1g*/
+	gs_init_reg(this_gs_data);
 	reg_write(this_gs_data, GS_ADI_REG_POWER_CTL, 0x08);
 	
 	if (!gs->use_irq)

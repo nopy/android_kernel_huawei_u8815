@@ -24,6 +24,7 @@
  * 
  * when       who      what, where, why
  * -------------------------------------------------------------------------------
+ * 20110106  genghua  create  SUPPORT PN544 NFC on Sonic
  */
 
 /*
@@ -91,8 +92,9 @@
 #include <linux/slab.h> 
 #include <linux/delay.h>
 #include <linux/string.h>
-#include <linux/crc-ccitt.h>
 #include <asm/mach-types.h>
+//#include <asm/mach/arch.h>
+#include <linux/crc-ccitt.h>
 
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 #include <linux/hw_dev_dec.h>
@@ -103,6 +105,7 @@ int pn544_debug_control = 1;
 #define PN544_RESET_CMD 	0
 #define PN544_DOWNLOAD_CMD	2
 
+int pn544_download_gpio = 0;
 module_param_named(debug_mask, pn544_debug_mask, int, 
 				   S_IRUGO | S_IWUSR | S_IWGRP);
 
@@ -363,7 +366,6 @@ static ssize_t pn544_read(struct file *file, char __user *buf,
 	int ret = -1;
 	int i = 0;
 	char tmp[PN544_MAX_PACK_LEN];
-	char tmp_nodata[1];
 
 	PN544_DEBUG("%s:entered\n",__func__);
 
@@ -390,6 +392,7 @@ static ssize_t pn544_read(struct file *file, char __user *buf,
 			goto out;
 		}	
 	}
+
 	if (update)
 	{
 		PN544_DEBUG("updateing****!\n");
@@ -498,15 +501,6 @@ static long pn544_dev_ioctl(struct file *file, unsigned int cmd, unsigned long l
 {
 	long ret = 0;
 
-//On platform 7X30, if GPIO04 is used, the fuction  machine_is_msm8255_u8860_r() will return true	
-#ifdef CONFIG_ARCH_MSM7X30
-	if (!machine_is_msm8255_u8860_r())
-	{
-	    printk("%s:the cmd is not supported on this board.\n",__func__);
-	    return ret;
-	}
-#endif
-
 	//Now we only deal with cmd PN544_RESET_CMD and PN544_DOWNLOAD_CMD
 	switch (cmd) {
 	case PN544_SET_PWR:
@@ -558,7 +552,6 @@ static long pn544_dev_ioctl(struct file *file, unsigned int cmd, unsigned long l
 
 	return ret;
 }
-
 static const struct file_operations pn544_fops = 
 { 
 	.owner		= THIS_MODULE, 
@@ -570,21 +563,27 @@ static const struct file_operations pn544_fops =
 	.unlocked_ioctl      = pn544_dev_ioctl,
 }; 
 
-//nto all phone download pin is down, we need pull down the NFC_DOWNLOAD pin first, this func is used for firmware download
+//nto all phone download pin is down, we need pull down the NFC_DOWNLOAD pin first
 static int init_fw_download(void)
 {
 	int ret=0;
 	int gpio_config=0;
-	
-	printk("pn544:fw_download gpio_request GPIO%d\n", GPIO_NFC_LOAD);
-	ret = gpio_request(GPIO_NFC_LOAD, "gpio for NFC pn544 download");
+       if(machine_is_msm7x27a_U8185())
+       {
+            pn544_download_gpio = 32;
+       }
+       else
+       {
+            pn544_download_gpio = 115;
+       }
+	ret = gpio_request(pn544_download_gpio, "gpio for NFC pn544 download");
 	if(ret) {
 		printk("pn544:fw_download gpio_request failed\n");
 	}
 	
-	gpio_config = GPIO_CFG(GPIO_NFC_LOAD, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA);
+	gpio_config = GPIO_CFG(pn544_download_gpio, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA);
 	ret = gpio_tlmm_config(gpio_config, GPIO_CFG_ENABLE);
-	ret = gpio_direction_output(GPIO_NFC_LOAD,0);
+	ret = gpio_direction_output(pn544_download_gpio,0);
 	return 0;
 }
 	
@@ -594,8 +593,7 @@ static int __devinit pn544_probe(struct i2c_client *client,
 	int ret=0; 
 	u8 *cmd_reset = NULL;
 	u8 *cmd_receive = NULL;
-	/* struct pn544_nfc_platform_data *pdata; */
-	char pn544_set_stanby_return[50];
+    /*del 1 line*/
 	
 	PN544_DEBUG("%s:entered\n",__func__);
 
@@ -626,22 +624,12 @@ static int __devinit pn544_probe(struct i2c_client *client,
 	init_waitqueue_head(&pn544_info->read_wait); 
 	spin_lock_init(&pn544_info->irq_enabled_lock);
 	i2c_set_clientdata(client, pn544_info); 
-//On platform 7X30 we should identify whether GPIO04 is used
-#ifdef CONFIG_ARCH_MSM7X30
-    if (machine_is_msm8255_u8860_r())
-	{
-	    //GPIO04 is needed for firmware download
-	    ret = init_fw_download();
-	    if(ret) {
-		    printk("%s:nfc init_fw_download failed\n",__func__);
-	    }
-	}
-#else	
+	
 	ret = init_fw_download();
 	if(ret) {
 		printk("%s:nfc init_fw_download failed\n",__func__);
 	}
-#endif
+	
 	pdata = client->dev.platform_data; 
 	if (!pdata) 
 	{ 
@@ -649,10 +637,7 @@ static int __devinit pn544_probe(struct i2c_client *client,
 		ret = -EINVAL; 
 		goto err_no_platform_data; 
 	} 
-//The clock control of nfc is different between 7x27A and 7x30, we don't need to do following operation on 7X30 
-#ifdef CONFIG_ARCH_MSM7X30
-	/* nothing todo */
-#else
+
 	if (!pdata->pn544_clock_output_ctrl) 
 	{ 
 		printk("%s:pn544_clock_output_ctrl  missing\n",__func__); 
@@ -662,13 +647,13 @@ static int __devinit pn544_probe(struct i2c_client *client,
 	else
 	{
 		ret = pdata->pn544_clock_output_ctrl(1);
-		printk("pn544_clock_output_ctrl:%d \n",ret);
+              printk("pn544_clock_output_ctrl:%d  \n",ret );
 		if(ret)
 		{		       
-		    goto err_no_clock_ctrl; 
+			goto err_no_clock_ctrl; 
 		}
 	}    
-	//It is a fixed operation sequence, just follow it   
+
 	if (!pdata->pn544_fw_download_pull_down) 
 	{ 
 		printk("%s:fw_download  missing\n",__func__); 
@@ -683,8 +668,7 @@ static int __devinit pn544_probe(struct i2c_client *client,
 			goto err_no_fw_download; 
 		}
 	}
-#endif
-
+	
 	if (!pdata->pn544_ven_reset) 
 	{ 
 		printk("%s:ven reset missing\n",__func__); 
@@ -858,19 +842,14 @@ static int __devinit pn544_probe(struct i2c_client *client,
 		goto err_mmi_error;
 	}
 
-//following operation is for power save	
-#ifdef CONFIG_ARCH_MSM7X30
-	/* nothing todo */
-#else
 	ret = pdata->pn544_clock_output_ctrl(0);
-	printk("pn544_clock_output_ctrl:%d \n",ret);
+       printk("pn544_clock_output_ctrl:%d  \n",ret );
 	if(ret)
 	{		       
 		goto err_clock_mode_ctrl_err; 
 	}
 
-	//It is another clock out put mode, we can see the difference with pn544_clock_output_ctrl() in board-msm7x27a.c
-	if (!pdata->pn544_clock_output_mode_ctrl) 
+    	if (!pdata->pn544_clock_output_mode_ctrl) 
 	{ 
 		printk("%s:pn544_clock_output_mode_ctrl  missing\n",__func__); 
 		ret = -EINVAL; 
@@ -879,22 +858,17 @@ static int __devinit pn544_probe(struct i2c_client *client,
 	else
 	{
 		ret = pdata->pn544_clock_output_mode_ctrl();
-		printk("pn544_clock_output_mode_ctrl:%d \n",ret);
+              printk("pn544_clock_output_mode_ctrl:%d  \n",ret );
 		if(ret)
 		{		       
 			goto err_clock_mode_ctrl_err; 
 		}
 	}
-#endif
 	kfree(cmd_reset);
 	kfree(cmd_receive);
-			
-	return 0; 		
-#ifdef CONFIG_ARCH_MSM7X30
-	/* nothing todo */
-#else
+	return 0; 
+
 err_clock_mode_ctrl_err:	
-#endif
 err_mmi_error:
 	misc_deregister(&pn544_info->miscdev);
 err_misc_dev:
@@ -912,14 +886,10 @@ err_cmd_reset_alloc:
 err_gpio_config:
 
 err_no_ven_reset:
-#ifdef CONFIG_ARCH_MSM7X30
-	/* nothing todo */
-#else
 err_no_fw_download:
 	pdata->pn544_clock_output_ctrl(0);
-    printk("pn544_clock_output_ctrl  close when error\n");
+    printk("pn544_clock_output_ctrl  close when error\n" );
 err_no_clock_ctrl:    
-#endif
 err_no_platform_data:
 	mutex_destroy(&pn544_info->read_mutex); 
 	mutex_destroy(&pn544_info->mutex); 

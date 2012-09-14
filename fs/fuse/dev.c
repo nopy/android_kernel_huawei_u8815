@@ -19,7 +19,6 @@
 #include <linux/pipe_fs_i.h>
 #include <linux/swap.h>
 #include <linux/splice.h>
-#include <linux/freezer.h>
 
 MODULE_ALIAS_MISCDEV(FUSE_MINOR);
 MODULE_ALIAS("devname:fuse");
@@ -259,14 +258,10 @@ void fuse_queue_forget(struct fuse_conn *fc, struct fuse_forget_link *forget,
 	forget->forget_one.nlookup = nlookup;
 
 	spin_lock(&fc->lock);
-	if (fc->connected) {
-		fc->forget_list_tail->next = forget;
-		fc->forget_list_tail = forget;
-		wake_up(&fc->waitq);
-		kill_fasync(&fc->fasync, SIGIO, POLL_IN);
-	} else {
-		kfree(forget);
-	}
+	fc->forget_list_tail->next = forget;
+	fc->forget_list_tail = forget;
+	wake_up(&fc->waitq);
+	kill_fasync(&fc->fasync, SIGIO, POLL_IN);
 	spin_unlock(&fc->lock);
 }
 
@@ -388,10 +383,7 @@ __acquires(fc->lock)
 	 * Wait it out.
 	 */
 	spin_unlock(&fc->lock);
-
-	while (req->state != FUSE_REQ_FINISHED)
-		wait_event_freezable(req->waitq,
-				     req->state == FUSE_REQ_FINISHED);
+	wait_event(req->waitq, req->state == FUSE_REQ_FINISHED);
 	spin_lock(&fc->lock);
 
 	if (!req->aborted)
@@ -745,12 +737,14 @@ static int fuse_try_move_page(struct fuse_copy_state *cs, struct page **pagep)
 	if (WARN_ON(PageMlocked(oldpage)))
 		goto out_fallback_unlock;
 
-	err = replace_page_cache_page(oldpage, newpage, GFP_KERNEL);
-	if (err) {
-		unlock_page(newpage);
-		return err;
-	}
+	remove_from_page_cache(oldpage);
+	page_cache_release(oldpage);
 
+	err = add_to_page_cache_locked(newpage, mapping, index, GFP_KERNEL);
+	if (err) {
+		printk(KERN_WARNING "fuse_try_move_page: failed to add page");
+		goto out_fallback_unlock;
+	}
 	page_cache_get(newpage);
 
 	if (!(buf->flags & PIPE_BUF_FLAG_LRU))
@@ -1366,10 +1360,6 @@ static int fuse_notify_inval_entry(struct fuse_conn *fc, unsigned int size,
 	if (outarg.namelen > FUSE_NAME_MAX)
 		goto err;
 
-	err = -EINVAL;
-	if (size != sizeof(outarg) + outarg.namelen + 1)
-		goto err;
-
 	name.name = buf;
 	name.len = outarg.namelen;
 	err = fuse_copy_one(cs, buf, outarg.namelen + 1);
@@ -1920,21 +1910,6 @@ __acquires(fc->lock)
 		kfree(dequeue_forget(fc, 1, NULL));
 }
 
-static void end_polls(struct fuse_conn *fc)
-{
-	struct rb_node *p;
-
-	p = rb_first(&fc->polled_files);
-
-	while (p) {
-		struct fuse_file *ff;
-		ff = rb_entry(p, struct fuse_file, polled_node);
-		wake_up_interruptible_all(&ff->poll_wait);
-
-		p = rb_next(p);
-	}
-}
-
 /*
  * Abort all requests.
  *
@@ -1962,7 +1937,6 @@ void fuse_abort_conn(struct fuse_conn *fc)
 		fc->blocked = 0;
 		end_io_requests(fc);
 		end_queued_requests(fc);
-		end_polls(fc);
 		wake_up_all(&fc->waitq);
 		wake_up_all(&fc->blocked_waitq);
 		kill_fasync(&fc->fasync, SIGIO, POLL_IN);
@@ -1979,7 +1953,6 @@ int fuse_dev_release(struct inode *inode, struct file *file)
 		fc->connected = 0;
 		fc->blocked = 0;
 		end_queued_requests(fc);
-		end_polls(fc);
 		wake_up_all(&fc->blocked_waitq);
 		spin_unlock(&fc->lock);
 		fuse_conn_put(fc);

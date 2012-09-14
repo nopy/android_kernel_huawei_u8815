@@ -29,7 +29,6 @@
 #include <asm/uaccess.h>
 #include "linux/hardware_self_adapt.h"
 #include <linux/slab.h>
-#include <mach/vreg.h>
 
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 #include <linux/hw_dev_dec.h>
@@ -263,9 +262,10 @@ static int gs_bma250_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 gs_bma250_ioctl(struct file *file, unsigned int cmd,
-	   unsigned long arg)
+		unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
 	signed short accel_buf[3];
@@ -342,6 +342,7 @@ gs_bma250_ioctl(struct file *file, unsigned int cmd,
 	return 0;
 }
 
+/* modify iotcl interface */
 static struct file_operations gs_bma250_fops = {
 	.owner = THIS_MODULE,
 	.open = gs_bma250_open,
@@ -511,7 +512,6 @@ static int gs_probe(
 	s32 result = 0;
 	struct gs_data *gs;
 	struct gs_platform_data *pdata = NULL;
-	/*delete 19 lines*/
 	
 	GS_DEBUG(KERN_ERR "gs_BMA250_probe init \n");
     
@@ -521,17 +521,8 @@ static int gs_probe(
 		goto err_check_functionality_failed;
 	}
 
-	/*turn on the power*/
 	pdata = client->dev.platform_data;
 	if (pdata){
-#ifdef CONFIG_ARCH_MSM7X30
-		if(pdata->gs_power != NULL){
-			ret = pdata->gs_power(IC_PM_ON);
-			if(ret < 0 ){
-				goto err_check_functionality_failed;
-			}
-		}
-#endif
 		if(pdata->adapt_fn != NULL){
 			ret = pdata->adapt_fn();
 			if(ret > 0){
@@ -540,7 +531,7 @@ static int gs_probe(
 				if(client->addr == 0){
 					printk(KERN_ERR "%s: bad i2c address = %d\n", __FUNCTION__, client->addr);
 					ret = -EFAULT;
-					goto err_power_failed;
+					goto err_check_functionality_failed;
 				}
 			}
 		}
@@ -552,7 +543,7 @@ static int gs_probe(
 			if(*(pdata->init_flag)){
 				printk(KERN_ERR "gs_bma250 probe failed, because the othe gsensor has been probed.\n");
 				ret = -ENODEV;
-				goto err_power_failed;
+				goto err_check_functionality_failed;
 			}
 		}
 	}
@@ -564,14 +555,14 @@ static int gs_probe(
 		dev_err(&client->dev,"read chip ID 0x%x is not equal to 0x%x!\n", result,BMA250_ID);
 		printk(KERN_INFO "read chip ID failed\n");
 		result = -ENODEV;
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 	
 #ifndef   GS_POLLING 	
 	ret = gs_config_int_pin();
 	if(ret <0)
 	{
-		goto err_power_failed;
+		goto err_check_functionality_failed;
 	}
 #endif
 
@@ -633,7 +624,7 @@ static int gs_probe(
 	gs->input_dev->id.vendor = GS_BMA250;
 	
 	set_bit(EV_ABS,gs->input_dev->evbit);
-	/* modify for ES-version*/
+	/* modify the func of init */
 	input_set_abs_params(gs->input_dev, ABS_X, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Y, -11520, 11520, 0, 0);
 	input_set_abs_params(gs->input_dev, ABS_Z, -11520, 11520, 0, 0);
@@ -709,13 +700,6 @@ err_detect_failed:
 err_alloc_data_failed:
 #ifndef   GS_POLLING 
 	gs_free_int();
-#endif
-/*turn down the power*/
-err_power_failed:
-#ifdef CONFIG_ARCH_MSM7X30
-	if(pdata->gs_power != NULL){
-		pdata->gs_power(IC_PM_OFF);
-	}
 #endif
 err_check_functionality_failed:
 	return ret;

@@ -66,7 +66,8 @@ unsigned char Wb35Reg_BurstWrite(struct hw_data *pHwData, u16 RegisterNo, u32 *p
 	} else {
 		if (urb)
 			usb_free_urb(urb);
-		kfree(reg_queue);
+		if (reg_queue)
+			kfree(reg_queue);
 		return false;
 	}
    return false;

@@ -764,10 +764,8 @@ static struct ccw_device_id raw3215_id[] = {
 };
 
 static struct ccw_driver raw3215_ccw_driver = {
-	.driver = {
-		.name	= "3215",
-		.owner	= THIS_MODULE,
-	},
+	.name		= "3215",
+	.owner		= THIS_MODULE,
 	.ids		= raw3215_id,
 	.probe		= &raw3215_probe,
 	.remove		= &raw3215_remove,

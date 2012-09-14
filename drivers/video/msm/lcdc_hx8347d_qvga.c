@@ -57,7 +57,7 @@
 #include <linux/delay.h>
 #include <mach/gpio.h>
 #include "msm_fb.h"
-#include "hw_lcd_common.h"
+#include "lcdc_huawei_config.h"
 
 #define LCD_DRIVER_NAME "lcdc_hx8347d_qvga"
 

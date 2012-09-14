@@ -139,13 +139,12 @@ static void *unflatten_dt_alloc(unsigned long *mem, unsigned long size,
 /**
  * unflatten_dt_node - Alloc and populate a device_node from the flat tree
  * @blob: The parent device tree blob
- * @mem: Memory chunk to use for allocating device nodes and properties
  * @p: pointer to node in flat tree
  * @dad: Parent struct device_node
  * @allnextpp: pointer to ->allnext from last allocated device_node
  * @fpsize: Size of the node path up at the current depth.
  */
-static unsigned long unflatten_dt_node(struct boot_param_header *blob,
+unsigned long unflatten_dt_node(struct boot_param_header *blob,
 				unsigned long mem,
 				unsigned long *p,
 				struct device_node *dad,
@@ -231,7 +230,6 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 		}
 		kref_init(&np->kref);
 	}
-	/* process properties */
 	while (1) {
 		u32 sz, noff;
 		char *pname;
@@ -353,7 +351,7 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
  * @dt_alloc: An allocator that provides a virtual address to memory
  * for the resulting tree
  */
-static void __unflatten_device_tree(struct boot_param_header *blob,
+void __unflatten_device_tree(struct boot_param_header *blob,
 			     struct device_node **mynodes,
 			     void * (*dt_alloc)(u64 size, u64 align))
 {
@@ -670,25 +668,25 @@ int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
 
 	pr_debug("search \"chosen\", depth: %d, uname: %s\n", depth, uname);
 
-	if (depth != 1 || !data ||
+	if (depth != 1 ||
 	    (strcmp(uname, "chosen") != 0 && strcmp(uname, "chosen@0") != 0))
 		return 0;
 
 	early_init_dt_check_for_initrd(node);
 
-	/* Retrieve command line */
+	/* Retreive command line */
 	p = of_get_flat_dt_prop(node, "bootargs", &l);
 	if (p != NULL && l > 0)
-		strlcpy(data, p, min((int)l, COMMAND_LINE_SIZE));
+		strlcpy(cmd_line, p, min((int)l, COMMAND_LINE_SIZE));
 
 #ifdef CONFIG_CMDLINE
 #ifndef CONFIG_CMDLINE_FORCE
 	if (p == NULL || l == 0 || (l == 1 && (*p) == 0))
 #endif
-		strlcpy(data, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
+		strlcpy(cmd_line, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
 #endif /* CONFIG_CMDLINE */
 
-	pr_debug("Command line is: %s\n", (char*)data);
+	pr_debug("Command line is: %s\n", cmd_line);
 
 	/* break now */
 	return 1;

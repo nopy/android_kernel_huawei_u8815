@@ -26,15 +26,22 @@
 #include <media/v4l2-device.h>
 
 #include <linux/android_pmem.h>
-#include <mach/msm_subsystem_map.h>
 
 #include "msm.h"
+#include "msm_vfe31.h"
 
 #ifdef CONFIG_MSM_CAMERA_DEBUG
 #define D(fmt, args...) pr_debug("msm_isp: " fmt, ##args)
 #else
 #define D(fmt, args...) do {} while (0)
 #endif
+
+
+#define ERR_USER_COPY(to) pr_err("%s(%d): copy %s user\n", \
+				__func__, __LINE__, ((to) ? "to" : "from"))
+#define ERR_COPY_FROM_USER() ERR_USER_COPY(0)
+#define ERR_COPY_TO_USER() ERR_USER_COPY(1)
+
 
 #define PAD_TO_WORD(a)	  (((a) + 3) & ~3)
 
@@ -117,70 +124,53 @@ static int check_overlap(struct hlist_head *ptype,
 }
 
 static int msm_pmem_table_add(struct hlist_head *ptype,
-	struct msm_pmem_info *info, struct ion_client *client)
+	struct msm_pmem_info *info)
 {
-	unsigned long paddr;
-	unsigned int flags;
-#ifndef CONFIG_MSM_MULTIMEDIA_USE_ION
-	unsigned long kvstart;
 	struct file *file;
+	unsigned long paddr;
+#ifdef CONFIG_ANDROID_PMEM
+	unsigned long kvstart;
+	int rc;
 #endif
-	int rc = -ENOMEM;
-
 	unsigned long len;
 	struct msm_pmem_region *region;
-
-	region = kmalloc(sizeof(struct msm_pmem_region), GFP_KERNEL);
-	if (!region)
-		goto out;
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-	region->handle = ion_import_fd(client, info->fd);
-	if (IS_ERR_OR_NULL(region->handle))
-		goto out1;
-	ion_phys(client, region->handle, &paddr, (size_t *)&len);
-#elif CONFIG_ANDROID_PMEM
+#ifdef CONFIG_ANDROID_PMEM
 	rc = get_pmem_file(info->fd, &paddr, &kvstart, &len, &file);
 	if (rc < 0) {
 		pr_err("%s: get_pmem_file fd %d error %d\n",
-				__func__, info->fd, rc);
-		goto out1;
+						__func__,
+						info->fd, rc);
+		return rc;
 	}
-	region->file = file;
+	if (!info->len)
+		info->len = len;
+
+	rc = check_pmem_info(info, len);
+	if (rc < 0)
+		return rc;
 #else
 	paddr = 0;
 	file = NULL;
-	kvstart = 0;
 #endif
-	if (!info->len)
-		info->len = len;
-	rc = check_pmem_info(info, len);
-	if (rc < 0)
-		goto out2;
 	paddr += info->offset;
 	len = info->len;
 
-	if (check_overlap(ptype, paddr, len) < 0) {
-		rc = -EINVAL;
-		goto out2;
-	}
+	if (check_overlap(ptype, paddr, len) < 0)
+		return -EINVAL;
 
 	CDBG("%s: type %d, active flag %d, paddr 0x%lx, vaddr 0x%lx\n",
 		__func__, info->type, info->active, paddr,
 		(unsigned long)info->vaddr);
 
+	region = kmalloc(sizeof(struct msm_pmem_region), GFP_KERNEL);
+	if (!region)
+		return -ENOMEM;
+
 	INIT_HLIST_NODE(&region->list);
-	flags = MSM_SUBSYSTEM_MAP_IOVA;
-	region->subsys_id = MSM_SUBSYSTEM_CAMERA;
-	region->msm_buffer = msm_subsystem_map_buffer(paddr, len,
-					flags, &(region->subsys_id), 1);
-	if (IS_ERR((void *)region->msm_buffer)) {
-		pr_err("%s: msm_subsystem_map_buffer failed\n", __func__);
-		rc = PTR_ERR((void *)region->msm_buffer);
-		goto out2;
-	}
-	paddr = region->msm_buffer->iova[0];
+
 	region->paddr = paddr;
 	region->len = len;
+	region->file = file;
 	memcpy(&region->info, info, sizeof(region->info));
 	D("%s Adding region to list with type %d\n", __func__,
 						region->info.type);
@@ -188,24 +178,15 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 	hlist_add_head(&(region->list), ptype);
 
 	return 0;
-out2:
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-	ion_free(client, region->handle);
-#elif CONFIG_ANDROID_PMEM
-	put_pmem_file(region->file);
-#endif
-out1:
-	kfree(region);
-out:
-	return rc;
 }
 
 static int __msm_register_pmem(struct hlist_head *ptype,
-			struct msm_pmem_info *pinfo, struct ion_client *client)
+			struct msm_pmem_info *pinfo)
 {
 	int rc = 0;
 
 	switch (pinfo->type) {
+	case MSM_PMEM_AEC_AWB:
 	case MSM_PMEM_AF:
 	case MSM_PMEM_AEC:
 	case MSM_PMEM_AWB:
@@ -213,8 +194,7 @@ static int __msm_register_pmem(struct hlist_head *ptype,
 	case MSM_PMEM_CS:
 	case MSM_PMEM_IHIST:
 	case MSM_PMEM_SKIN:
-	case MSM_PMEM_AEC_AWB:
-		rc = msm_pmem_table_add(ptype, pinfo, client);
+		rc = msm_pmem_table_add(ptype, pinfo);
 		break;
 
 	default:
@@ -226,21 +206,15 @@ static int __msm_register_pmem(struct hlist_head *ptype,
 }
 
 static int __msm_pmem_table_del(struct hlist_head *ptype,
-			struct msm_pmem_info *pinfo, struct ion_client *client)
+			struct msm_pmem_info *pinfo)
 {
 	int rc = 0;
 	struct msm_pmem_region *region;
 	struct hlist_node *node, *n;
 
 	switch (pinfo->type) {
-	case MSM_PMEM_AF:
-	case MSM_PMEM_AEC:
-	case MSM_PMEM_AWB:
-	case MSM_PMEM_RS:
-	case MSM_PMEM_CS:
-	case MSM_PMEM_IHIST:
-	case MSM_PMEM_SKIN:
 	case MSM_PMEM_AEC_AWB:
+	case MSM_PMEM_AF:
 		hlist_for_each_entry_safe(region, node, n,
 				ptype, list) {
 
@@ -248,15 +222,10 @@ static int __msm_pmem_table_del(struct hlist_head *ptype,
 				pinfo->vaddr == region->info.vaddr &&
 				pinfo->fd == region->info.fd) {
 				hlist_del(node);
-				if (msm_subsystem_unmap_buffer
-					(region->msm_buffer) < 0)
-					pr_err(
-					"%s: unmapped stat memory\n",
-				__func__);
-#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-				ion_free(client, region->handle);
-#else
+#ifdef CONFIG_ANDROID_PMEM
 				put_pmem_file(region->file);
+#else
+
 #endif
 				kfree(region);
 			}
@@ -297,30 +266,6 @@ uint8_t msm_pmem_region_lookup(struct hlist_head *ptype,
 	return rc;
 }
 
-int msm_pmem_region_get_phy_addr(struct hlist_head *ptype,
-	struct msm_mem_map_info *mem_map, int32_t *phyaddr)
-{
-	struct msm_pmem_region *region;
-	struct hlist_node *node, *n;
-	int pmem_type = mem_map->mem_type;
-	int rc = -EFAULT;
-
-	D("%s\n", __func__);
-	*phyaddr = 0;
-	mutex_lock(&hlist_mut);
-	hlist_for_each_entry_safe(region, node, n, ptype, list) {
-		if (region->info.type == pmem_type &&
-			(uint32_t)region->info.vaddr == mem_map->cookie) {
-			*phyaddr = (int32_t)region->paddr;
-			rc = 0;
-			break;
-		}
-	}
-	D("%s finished, phy_addr = 0x%x, rc=%d\n", __func__, *phyaddr, rc);
-	mutex_unlock(&hlist_mut);
-	return rc;
-}
-
 uint8_t msm_pmem_region_lookup_2(struct hlist_head *ptype,
 					int pmem_type,
 					struct msm_pmem_region *reg,
@@ -351,6 +296,44 @@ uint8_t msm_pmem_region_lookup_2(struct hlist_head *ptype,
 		}
 	}
 	mutex_unlock(&hlist_mut);
+	return rc;
+}
+
+uint8_t msm_pmem_region_lookup_3(struct msm_cam_v4l2_device *pcam, int idx,
+						struct msm_pmem_region *reg,
+						int mem_type)
+{
+	struct videobuf_contig_pmem *mem;
+	uint8_t rc = 0;
+	struct videobuf_queue *q = &pcam->dev_inst[idx]->vid_bufq;
+	struct videobuf_buffer *buf = NULL;
+
+	videobuf_queue_lock(q);
+	list_for_each_entry(buf, &q->stream, stream) {
+		mem = buf->priv;
+		reg->paddr = mem->phyaddr;
+		D("%s paddr for buf %d is 0x%p\n", __func__,
+						buf->i,
+						(void *)reg->paddr);
+		reg->len = sizeof(struct msm_pmem_info);
+		reg->file = NULL;
+		reg->info.len = mem->size;
+
+		reg->info.vaddr =
+			(void *)(buf->baddr);
+
+		reg->info.type = mem_type;
+
+		reg->info.offset = 0;
+		reg->info.y_off = mem->y_off;
+		reg->info.cbcr_off = PAD_TO_WORD(mem->cbcr_off);
+		D("%s y_off = %d, cbcr_off = %d\n", __func__,
+			reg->info.y_off, reg->info.cbcr_off);
+		rc += 1;
+		reg++;
+	}
+	videobuf_queue_unlock(q);
+
 	return rc;
 }
 
@@ -393,8 +376,7 @@ unsigned long msm_pmem_stats_ptov_lookup(struct msm_sync *sync,
 	return 0;
 }
 
-int msm_register_pmem(struct hlist_head *ptype, void __user *arg,
-					  struct ion_client *client)
+int msm_register_pmem(struct hlist_head *ptype, void __user *arg)
 {
 	struct msm_pmem_info info;
 
@@ -403,12 +385,11 @@ int msm_register_pmem(struct hlist_head *ptype, void __user *arg,
 			return -EFAULT;
 	}
 
-	return __msm_register_pmem(ptype, &info, client);
+	return __msm_register_pmem(ptype, &info);
 }
 EXPORT_SYMBOL(msm_register_pmem);
 
-int msm_pmem_table_del(struct hlist_head *ptype, void __user *arg,
-					   struct ion_client *client)
+int msm_pmem_table_del(struct hlist_head *ptype, void __user *arg)
 {
 	struct msm_pmem_info info;
 
@@ -417,6 +398,6 @@ int msm_pmem_table_del(struct hlist_head *ptype, void __user *arg,
 		return -EFAULT;
 	}
 
-	return __msm_pmem_table_del(ptype, &info, client);
+	return __msm_pmem_table_del(ptype, &info);
 }
 EXPORT_SYMBOL(msm_pmem_table_del);

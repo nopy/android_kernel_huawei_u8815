@@ -118,6 +118,9 @@ enum mt9e013_test_mode_t {
 enum mt9e013_resolution_t {
 	QTR_SIZE,
 	FULL_SIZE,
+	HFR_60FPS,
+	HFR_90FPS,
+	HFR_120FPS,
 	INVALID_SIZE
 };
 enum mt9e013_setting {
@@ -164,8 +167,6 @@ enum mt9e013_reg_mode {
 	E013_FINE_CORRECTION
 };
 
-/*add OTP arrays that can contain OTP when reading, */
-/*add shading arrays that can contain shading */
 struct mt9e013_reg {
 	const struct mt9e013_i2c_reg_conf *reg_mipi;
 	const unsigned short reg_mipi_size;
@@ -173,13 +174,17 @@ struct mt9e013_reg {
 	const unsigned short rec_size;
 	const struct mt9e013_i2c_reg_conf *reg_pll;
 	const unsigned short reg_pll_size;
+	const struct mt9e013_i2c_reg_conf *reg_pll_60fps;
+	const unsigned short reg_pll_60fps_size;
+	const struct mt9e013_i2c_reg_conf *reg_pll_120fps;
+	const unsigned short reg_pll_120fps_size;
 	const struct mt9e013_i2c_reg_conf *reg_prev;
 	const unsigned short reg_prev_size;
 	const struct mt9e013_i2c_reg_conf *reg_snap;
 	const unsigned short reg_snap_size;
-	const struct mt9e013_i2c_reg_conf *reg_shading;
-	const unsigned short reg_shading_size;
-	struct mt9e013_i2c_reg_conf *reg_otp;
-	unsigned short reg_otp_size;
+	const struct mt9e013_i2c_reg_conf *reg_60fps;
+	const unsigned short reg_60fps_size;
+	const struct mt9e013_i2c_reg_conf *reg_120fps;
+	const unsigned short reg_120fps_size;
 };
 #endif /* MT9E013_H */

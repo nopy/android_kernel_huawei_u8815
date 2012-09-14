@@ -17,38 +17,12 @@
 
 #include "internals.h"
 
-/* move from linux/irq.h */
-/* merge qcom DEBUG_CODE for RPC crashes */
-#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-#include <linux/kernel.h>  
-#include <mach/msm_iomap.h>  
-#include <linux/io.h>
-
-#define TIMESTAMP_ADDR_TMP     (MSM_TMR_BASE + 0x08)
-
-static inline unsigned int read_timestamp(void)  
-{  
-	unsigned int tick = 0;  
-	tick = readl(TIMESTAMP_ADDR_TMP);  
-	return tick;  
-}  
-
-struct irqs_timestamp {  
-	unsigned int irq;  
-	uint32_t  ts; 
-	unsigned int state; 
-};  
-
-static struct irqs_timestamp irq_ts[128];  
-static int irq_idx = 0;  
-#endif
-
 /*
  * lockdep: we want to handle all irq_desc locks as a single lock-class:
  */
 static struct lock_class_key irq_desc_lock_class;
 
-#if defined(CONFIG_SMP)
+#if defined(CONFIG_SMP) && defined(CONFIG_GENERIC_HARDIRQS)
 static void __init init_irq_default_affinity(void)
 {
 	alloc_cpumask_var(&irq_default_affinity, GFP_NOWAIT);
@@ -96,8 +70,7 @@ static inline void desc_smp_init(struct irq_desc *desc, int node) { }
 static inline int desc_node(struct irq_desc *desc) { return 0; }
 #endif
 
-static void desc_set_defaults(unsigned int irq, struct irq_desc *desc, int node,
-		struct module *owner)
+static void desc_set_defaults(unsigned int irq, struct irq_desc *desc, int node)
 {
 	int cpu;
 
@@ -106,14 +79,12 @@ static void desc_set_defaults(unsigned int irq, struct irq_desc *desc, int node,
 	desc->irq_data.chip_data = NULL;
 	desc->irq_data.handler_data = NULL;
 	desc->irq_data.msi_desc = NULL;
-	irq_settings_clr_and_set(desc, ~0, _IRQ_DEFAULT_INIT_FLAGS);
-	irqd_set(&desc->irq_data, IRQD_IRQ_DISABLED);
+	desc->status = IRQ_DEFAULT_INIT_FLAGS;
 	desc->handle_irq = handle_bad_irq;
 	desc->depth = 1;
 	desc->irq_count = 0;
 	desc->irqs_unhandled = 0;
 	desc->name = NULL;
-	desc->owner = owner;
 	for_each_possible_cpu(cpu)
 		*per_cpu_ptr(desc->kstat_irqs, cpu) = 0;
 	desc_smp_init(desc, node);
@@ -156,7 +127,7 @@ static void free_masks(struct irq_desc *desc)
 static inline void free_masks(struct irq_desc *desc) { }
 #endif
 
-static struct irq_desc *alloc_desc(int irq, int node, struct module *owner)
+static struct irq_desc *alloc_desc(int irq, int node)
 {
 	struct irq_desc *desc;
 	gfp_t gfp = GFP_KERNEL;
@@ -175,7 +146,7 @@ static struct irq_desc *alloc_desc(int irq, int node, struct module *owner)
 	raw_spin_lock_init(&desc->lock);
 	lockdep_set_class(&desc->lock, &irq_desc_lock_class);
 
-	desc_set_defaults(irq, desc, node, owner);
+	desc_set_defaults(irq, desc, node);
 
 	return desc;
 
@@ -201,14 +172,13 @@ static void free_desc(unsigned int irq)
 	kfree(desc);
 }
 
-static int alloc_descs(unsigned int start, unsigned int cnt, int node,
-		       struct module *owner)
+static int alloc_descs(unsigned int start, unsigned int cnt, int node)
 {
 	struct irq_desc *desc;
 	int i;
 
 	for (i = 0; i < cnt; i++) {
-		desc = alloc_desc(start + i, node, owner);
+		desc = alloc_desc(start + i, node);
 		if (!desc)
 			goto err;
 		mutex_lock(&sparse_irq_lock);
@@ -227,12 +197,13 @@ err:
 	return -ENOMEM;
 }
 
-static int irq_expand_nr_irqs(unsigned int nr)
+struct irq_desc * __ref irq_to_desc_alloc_node(unsigned int irq, int node)
 {
-	if (nr > IRQ_BITMAP_BITS)
-		return -ENOMEM;
-	nr_irqs = nr;
-	return 0;
+	int res = irq_alloc_descs(irq, irq, 1, node);
+
+	if (res == -EEXIST || res == irq)
+		return irq_to_desc(irq);
+	return NULL;
 }
 
 int __init early_irq_init(void)
@@ -256,7 +227,7 @@ int __init early_irq_init(void)
 		nr_irqs = initcnt;
 
 	for (i = 0; i < initcnt; i++) {
-		desc = alloc_desc(i, node, NULL);
+		desc = alloc_desc(i, node);
 		set_bit(i, allocated_irqs);
 		irq_insert_desc(i, desc);
 	}
@@ -267,6 +238,7 @@ int __init early_irq_init(void)
 
 struct irq_desc irq_desc[NR_IRQS] __cacheline_aligned_in_smp = {
 	[0 ... NR_IRQS-1] = {
+		.status		= IRQ_DEFAULT_INIT_FLAGS,
 		.handle_irq	= handle_bad_irq,
 		.depth		= 1,
 		.lock		= __RAW_SPIN_LOCK_UNLOCKED(irq_desc->lock),
@@ -286,11 +258,13 @@ int __init early_irq_init(void)
 	count = ARRAY_SIZE(irq_desc);
 
 	for (i = 0; i < count; i++) {
+		desc[i].irq_data.irq = i;
+		desc[i].irq_data.chip = &no_irq_chip;
+		/* TODO : do this allocation on-demand ... */
 		desc[i].kstat_irqs = alloc_percpu(unsigned int);
-		alloc_masks(&desc[i], GFP_KERNEL, node);
-		raw_spin_lock_init(&desc[i].lock);
+		alloc_masks(desc + i, GFP_KERNEL, node);
+		desc_smp_init(desc + i, node);
 		lockdep_set_class(&desc[i].lock, &irq_desc_lock_class);
-		desc_set_defaults(i, &desc[i], node, NULL);
 	}
 	return arch_early_irq_init();
 }
@@ -300,63 +274,37 @@ struct irq_desc *irq_to_desc(unsigned int irq)
 	return (irq < NR_IRQS) ? irq_desc + irq : NULL;
 }
 
+struct irq_desc *irq_to_desc_alloc_node(unsigned int irq, int node)
+{
+	return irq_to_desc(irq);
+}
+
 static void free_desc(unsigned int irq)
 {
 	dynamic_irq_cleanup(irq);
 }
 
-static inline int alloc_descs(unsigned int start, unsigned int cnt, int node,
-			      struct module *owner)
+static inline int alloc_descs(unsigned int start, unsigned int cnt, int node)
 {
-	u32 i;
+#if defined(CONFIG_KSTAT_IRQS_ONDEMAND)
+	struct irq_desc *desc;
+	unsigned int i;
 
 	for (i = 0; i < cnt; i++) {
-		struct irq_desc *desc = irq_to_desc(start + i);
+		desc = irq_to_desc(start + i);
+		if (desc && !desc->kstat_irqs) {
+			unsigned int __percpu *stats = alloc_percpu(unsigned int);
 
-		desc->owner = owner;
+			if (!stats)
+				return -1;
+			if (cmpxchg(&desc->kstat_irqs, NULL, stats) != NULL)
+				free_percpu(stats);
+		}
 	}
+#endif
 	return start;
 }
-
-static int irq_expand_nr_irqs(unsigned int nr)
-{
-	return -ENOMEM;
-}
-
 #endif /* !CONFIG_SPARSE_IRQ */
-
-/**
- * generic_handle_irq - Invoke the handler for a particular irq
- * @irq:	The irq number to handle
- *
- */
-int generic_handle_irq(unsigned int irq)
-{
-	struct irq_desc *desc = irq_to_desc(irq);
-
-	/* merge qcom DEBUG_CODE for RPC crashes */
-#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-	uint32_t  timetick=0; 
-	timetick = read_timestamp();  
-	irq_ts[irq_idx].irq=irq;
-	irq_ts[irq_idx].ts=timetick; 
-	irq_ts[irq_idx].state=1; 
-	/*end of HUAWEI*/
-#endif
-
-    if (!desc)
-		return -EINVAL;
-    generic_handle_irq_desc(irq, desc);
-
-#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-    /*HUAWEI debug */
-    irq_ts[irq_idx].state=3;
-    irq_idx = (irq_idx + 1)%128; 
-#endif
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(generic_handle_irq);
 
 /* Dynamic interrupt handling */
 
@@ -379,7 +327,6 @@ void irq_free_descs(unsigned int from, unsigned int cnt)
 	bitmap_clear(allocated_irqs, from, cnt);
 	mutex_unlock(&sparse_irq_lock);
 }
-EXPORT_SYMBOL_GPL(irq_free_descs);
 
 /**
  * irq_alloc_descs - allocate and initialize a range of irq descriptors
@@ -391,43 +338,32 @@ EXPORT_SYMBOL_GPL(irq_free_descs);
  * Returns the first irq number or error code
  */
 int __ref
-__irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int node,
-		  struct module *owner)
+irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int node)
 {
 	int start, ret;
 
 	if (!cnt)
 		return -EINVAL;
 
-	if (irq >= 0) {
-		if (from > irq)
-			return -EINVAL;
-		from = irq;
-	}
-
 	mutex_lock(&sparse_irq_lock);
 
-	start = bitmap_find_next_zero_area(allocated_irqs, IRQ_BITMAP_BITS,
-					   from, cnt, 0);
+	start = bitmap_find_next_zero_area(allocated_irqs, nr_irqs, from, cnt, 0);
 	ret = -EEXIST;
 	if (irq >=0 && start != irq)
 		goto err;
 
-	if (start + cnt > nr_irqs) {
-		ret = irq_expand_nr_irqs(start + cnt);
-		if (ret)
-			goto err;
-	}
+	ret = -ENOMEM;
+	if (start >= nr_irqs)
+		goto err;
 
 	bitmap_set(allocated_irqs, start, cnt);
 	mutex_unlock(&sparse_irq_lock);
-	return alloc_descs(start, cnt, node, owner);
+	return alloc_descs(start, cnt, node);
 
 err:
 	mutex_unlock(&sparse_irq_lock);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(__irq_alloc_descs);
 
 /**
  * irq_reserve_irqs - mark irqs allocated
@@ -465,56 +401,6 @@ unsigned int irq_get_next_irq(unsigned int offset)
 	return find_next_bit(allocated_irqs, nr_irqs, offset);
 }
 
-struct irq_desc *
-__irq_get_desc_lock(unsigned int irq, unsigned long *flags, bool bus,
-		    unsigned int check)
-{
-	struct irq_desc *desc = irq_to_desc(irq);
-
-	if (desc) {
-		if (check & _IRQ_DESC_CHECK) {
-			if ((check & _IRQ_DESC_PERCPU) &&
-			    !irq_settings_is_per_cpu_devid(desc))
-				return NULL;
-
-			if (!(check & _IRQ_DESC_PERCPU) &&
-			    irq_settings_is_per_cpu_devid(desc))
-				return NULL;
-		}
-
-		if (bus)
-			chip_bus_lock(desc);
-		raw_spin_lock_irqsave(&desc->lock, *flags);
-	}
-	return desc;
-}
-
-void __irq_put_desc_unlock(struct irq_desc *desc, unsigned long flags, bool bus)
-{
-	raw_spin_unlock_irqrestore(&desc->lock, flags);
-	if (bus)
-		chip_bus_sync_unlock(desc);
-}
-
-int irq_set_percpu_devid(unsigned int irq)
-{
-	struct irq_desc *desc = irq_to_desc(irq);
-
-	if (!desc)
-		return -EINVAL;
-
-	if (desc->percpu_enabled)
-		return -EINVAL;
-
-	desc->percpu_enabled = kzalloc(sizeof(*desc->percpu_enabled), GFP_KERNEL);
-
-	if (!desc->percpu_enabled)
-		return -ENOMEM;
-
-	irq_set_percpu_devid_flags(irq);
-	return 0;
-}
-
 /**
  * dynamic_irq_cleanup - cleanup a dynamically allocated irq
  * @irq:	irq number to initialize
@@ -525,7 +411,7 @@ void dynamic_irq_cleanup(unsigned int irq)
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
-	desc_set_defaults(irq, desc, desc_node(desc), NULL);
+	desc_set_defaults(irq, desc, desc_node(desc));
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 }
 
@@ -537,6 +423,7 @@ unsigned int kstat_irqs_cpu(unsigned int irq, int cpu)
 			*per_cpu_ptr(desc->kstat_irqs, cpu) : 0;
 }
 
+#ifdef CONFIG_GENERIC_HARDIRQS
 unsigned int kstat_irqs(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
@@ -549,3 +436,4 @@ unsigned int kstat_irqs(unsigned int irq)
 		sum += *per_cpu_ptr(desc->kstat_irqs, cpu);
 	return sum;
 }
+#endif /* CONFIG_GENERIC_HARDIRQS */

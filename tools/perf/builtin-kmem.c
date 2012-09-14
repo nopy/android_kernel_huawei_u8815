@@ -275,8 +275,9 @@ static void process_free_event(void *data,
 	s_alloc->alloc_cpu = -1;
 }
 
-static void process_raw_event(union perf_event *raw_event __used, void *data,
-			      int cpu, u64 timestamp, struct thread *thread)
+static void
+process_raw_event(event_t *raw_event __used, void *data,
+		  int cpu, u64 timestamp, struct thread *thread)
 {
 	struct event *event;
 	int type;
@@ -303,9 +304,7 @@ static void process_raw_event(union perf_event *raw_event __used, void *data,
 	}
 }
 
-static int process_sample_event(union perf_event *event,
-				struct perf_sample *sample,
-				struct perf_evsel *evsel __used,
+static int process_sample_event(event_t *event, struct sample_data *sample,
 				struct perf_session *session)
 {
 	struct thread *thread = perf_session__findnew(session, event->ip.pid);
@@ -326,7 +325,7 @@ static int process_sample_event(union perf_event *event,
 
 static struct perf_event_ops event_ops = {
 	.sample			= process_sample_event,
-	.comm			= perf_event__process_comm,
+	.comm			= event__process_comm,
 	.ordered_samples	= true,
 };
 

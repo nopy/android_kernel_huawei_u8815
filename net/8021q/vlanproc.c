@@ -54,7 +54,7 @@ static const char name_conf[]	 = "config";
 
 /*
  *	Structures for interfacing with the /proc filesystem.
- *	VLAN creates its own directory /proc/net/vlan with the following
+ *	VLAN creates its own directory /proc/net/vlan with the folowing
  *	entries:
  *	config		device status/configuration
  *	<device>	entry for each  device

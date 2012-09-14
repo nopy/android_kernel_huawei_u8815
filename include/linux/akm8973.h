@@ -1,3 +1,5 @@
+
+
 /*
  * Definitions for akm8973 compass chip.
  */
@@ -6,11 +8,8 @@
 
 #include <linux/ioctl.h>
 
-#define AKM8973_I2C_NAME "akm8973"
-
 /* Compass device dependent definition */
-#define AKECS_MODE_MEASURE	0x00	/* Starts measurement. Please use AKECS_MODE_MEASURE_SNG */
-					/* or AKECS_MODE_MEASURE_SEQ instead of this. */
+#define AKECS_MODE_MEASURE	0x00	/* Starts measurement. */
 #define AKECS_MODE_E2P_READ	0x02	/* E2P access mode (read). */
 #define AKECS_MODE_POWERDOWN	0x03	/* Power down mode */
 
@@ -33,15 +32,23 @@
 #define AKECS_REG_EHXGA			0x66   /*Magnetic sensor X-axis DAC E2PROME gain register*/
 #define AKECS_REG_EHYGA			0x67   /*Magnetic sensor Y-axis DAC E2PROME gain register*/
 #define AKECS_REG_EHZGA			0x68   /*Magnetic sensor Z-axis DACE2PROME  gain register*/
-/*BK4D03309, update firmware for compass, dingxifeng dKF14049,2009-7-30 start*/ 
 
 #define  AKECS_REG_ETS				0x62	/* Offset adjustment for temperature sensor*/
 #define  AKECS_REG_EVIR				0x63	/* VREF &IREF adjustment value*/
 #define  AKECS_REG_EIHE				0x64	/*HE drive power supply correction value*/
 #define  AKECS_REG_ETST				0x65	/*for testing the value is 0xC7*/
 
-/*BK4D03309, update firmware for compass, dingxifeng dKF14049,2009-7-30 end*/ 
-#define AKMIO				0xA1
+
+
+
+
+
+
+#define AKMIO                           0xA1
+#if 0
+//dxf 20090429 add
+#define  ECS_IOCTL_READ_ACCEL_XYZ     _IOR(AKMIO, 0x06, char[3])    /*get g_sensor data comand*/
+#endif
 
 /* IOCTLs for AKM library */
 #define ECS_IOCTL_INIT                  _IO(AKMIO, 0x01)
@@ -55,34 +62,26 @@
 #define ECS_IOCTL_GET_OPEN_STATUS       _IOR(AKMIO, 0x0D, int)
 #define ECS_IOCTL_GET_CLOSE_STATUS      _IOR(AKMIO, 0x0E, int)
 #define ECS_IOCTL_GET_DELAY             _IOR(AKMIO, 0x30, short)
-#define ECS_IOCTL_GET_PROJECT_NAME      _IOR(AKMIO, 0x0D, char[64])
-#define ECS_IOCTL_GET_MATRIX            _IOR(AKMIO, 0x0E, short [4][3][3])
 
 /* IOCTLs for APPs */
-#define ECS_IOCTL_APP_SET_MODE		_IOW(AKMIO, 0x10, short)
 #define ECS_IOCTL_APP_SET_MFLAG		_IOW(AKMIO, 0x11, short)
 #define ECS_IOCTL_APP_GET_MFLAG		_IOW(AKMIO, 0x12, short)
 #define ECS_IOCTL_APP_SET_AFLAG		_IOW(AKMIO, 0x13, short)
 #define ECS_IOCTL_APP_GET_AFLAG		_IOR(AKMIO, 0x14, short)
 #define ECS_IOCTL_APP_SET_TFLAG		_IOR(AKMIO, 0x15, short)
 #define ECS_IOCTL_APP_GET_TFLAG		_IOR(AKMIO, 0x16, short)
-#define ECS_IOCTL_APP_RESET_PEDOMETER   _IO(AKMIO, 0x17)
 #define ECS_IOCTL_APP_SET_DELAY		_IOW(AKMIO, 0x18, short)
 #define ECS_IOCTL_APP_GET_DELAY		ECS_IOCTL_GET_DELAY
 #define ECS_IOCTL_APP_SET_MVFLAG	_IOW(AKMIO, 0x19, short)	/* Set raw magnetic vector flag */
 #define ECS_IOCTL_APP_GET_MVFLAG	_IOR(AKMIO, 0x1A, short)	/* Get raw magnetic vector flag */
-
 #define ECS_IOCTL_APP_GET_LFLAG		_IOR(AKMIO, 0x1B, short)
 #define ECS_IOCTL_APP_SET_LFLAG		_IOW(AKMIO, 0x1C, short)
 #define ECS_IOCTL_APP_GET_PFLAG		_IOR(AKMIO, 0x1D, short)
 #define ECS_IOCTL_APP_SET_PFLAG		_IOW(AKMIO, 0x1E, short)
 #define ECS_IOCTL_APP_GET_DEVID 	_IOR(AKMIO, 0x1F, char[20])
-struct akm8973_platform_data {
-	short layouts[4][3][3];
-	char project_name[64];
-	int reset;
-	int intr;
-};
+
 
 #endif
+
+
 

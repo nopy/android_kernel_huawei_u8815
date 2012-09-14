@@ -87,11 +87,15 @@ config FB_MSM_MDDI
 
 config FB_MSM_MIPI_DSI
 	bool
-	default n
+	default y
 
 config FB_MSM_LCDC
 	bool
-	default n
+	default y
+
+config  FB_MSM_DEFAULT_DEPTH_RGBA8888
+	bool
+	default y
 
 config FB_MSM_OVERLAY
 	depends on FB_MSM_MDP40 && ANDROID_PMEM
@@ -159,8 +163,7 @@ config FB_MSM_MIPI_DSI_RENESAS
 config FB_MSM_MIPI_DSI_TRULY
 	bool
 	select FB_MSM_MIPI_DSI
-	default n
-	
+
 config FB_MSM_MIPI_DSI_SIMULATOR
 	bool
 	select FB_MSM_MIPI_DSI
@@ -171,88 +174,6 @@ config FB_MSM_MIPI_DSI_NOVATEK
         select FB_MSM_MIPI_DSI
         default n
 
-config FB_MSM_MIPI_DSI_TC358764_DSI2LVDS
-	bool
-	select FB_MSM_MIPI_DSI
-	---help---
-	  Support for Toshiba MIPI DSI-to-LVDS bridge.
-	  The chip supports 1366x768 24-bit
-	  using a single LVDS link
-	  and up to WUXGA 1920x1200 18-bit
-	  using a dual LVDS link.
-
-config FB_HUAWEI_MIPI_DSI_RSP61408
-	bool "support MIPI RSP61408"
-	select FB_MSM_MIPI_DSI
-	default n
-config FB_HUAWEI_MIPI_DSI_NT35560
-	bool "support MIPI NT35560"
-	select FB_MSM_MIPI_DSI
-	default n
-config FB_HUAWEI_MIPI_DSI_HX8357C
-	bool "support MIPI HX8357C"
-	select FB_MSM_MIPI_DSI
-	default n
-config FB_HUAWEI_MIPI_DSI_HX8369A
-	bool "support MIPI HX8369A"
-	select FB_MSM_MIPI_DSI
-	default n
-config FB_HUAWEI_LCDC_HX8357B
-	bool "support LCDC HX8357B"
-	select FB_MSM_LCDC_PANEL
-	default n          
-config FB_HUAWEI_LCDC_HX8357C
-	bool "support LCDC HX8357C"
-	select FB_MSM_LCDC_PANEL
-	default n
-config FB_HUAWEI_LCDC_R61529
-	bool "support LCDC R61529"
-	select FB_MSM_LCDC_PANEL
-	default n
-config FB_HUAWEI_LCDC_NT35410
-	bool "support LCDC NT35410"
-	select FB_MSM_LCDC_PANEL
-	default n
-config FB_HUAWEI_LCDC_HX8347D
-	bool "support LCDC HX8347D"
-	select FB_MSM_LCDC_PANEL
-	default n
-config FB_HUAWEI_LCDC_HX8347G
-	bool "support LCDC HX8347G"
-	select FB_MSM_LCDC_PANEL
-	default n
-
-config FB_HUAWEI_MDDI_NT35582
-	bool "support MDDI NT35582"
-	select FB_MSM_MDDI
-	default n          
-config FB_HUAWEI_MDDI_NT35510
-	bool "support MDDI NT35510"
-	select FB_MSM_MDDI
-	default n
-
-config FB_HUAWEI_MDDI_NT35510_TYPE2
-	bool "support MDDI NT35510 type2"
-	select FB_MSM_MDDI
-	default n
-
-config FB_HUAWEI_MDDI_NT35560
-	bool "support MDDI NT35560"
-	select FB_MSM_MDDI
-	default n
-config FB_HUAWEI_MDDI_RSP61408
-	bool "support MDDI RSP61408"
-	select FB_MSM_MDDI
-	default n
-config FB_HUAWEI_MDDI_HX8369A
-	bool "support MDDI HX8369A"
-	select FB_MSM_MDDI
-	default n
-config FB_HUAWEI_MDDI_HX8357C
-	bool "support MDDI HX8357C"
-	select FB_MSM_MDDI
-	default n
-	
 config FB_MSM_LCDC_ST15_WXGA
     bool
     select FB_MSM_LCDC_PANEL
@@ -264,6 +185,22 @@ config FB_MSM_LCDC_ST15_PANEL
     select FB_MSM_LCDC_ST15_WXGA
     ---help---
       Support for ST1.5 WXGA (1366x768) panel
+
+config FB_MSM_LCDC_QRDC_WXGA
+    bool
+    select FB_MSM_LCDC_PANEL
+    default n
+
+config FB_MSM_LCDC_QRDC_PANEL
+    depends on FB_MSM_LCDC_HW
+    bool "LCDC QRDC Panel"
+    select FB_MSM_LCDC_QRDC_WXGA
+    select SENSORS_WPCE775X
+    ---help---
+      Support for QRDC WXGA (1366x768) panel.
+      This will select the on-board WXGA display
+      used on the Quanta QRDC smartbook
+      reference design.
 
 config FB_MSM_LCDC_PRISM_WVGA
 	bool
@@ -310,11 +247,6 @@ config FB_MSM_LCDC_SAMSUNG_OLED_PT
 	select FB_MSM_LCDC_PANEL
 	default n
 
-config FB_MSM_LCDC_NT35582_WVGA
-	bool
-	select FB_MSM_LCDC_PANEL
-	default n
-
 config FB_MSM_LCDC_WXGA
 	bool
 	select FB_MSM_LCDC_PANEL
@@ -326,11 +258,6 @@ config FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT
 	default n
 
 config FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT
-	bool
-	select FB_MSM_MIPI_DSI_TOSHIBA
-	default n
-
-config FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA
 	bool
 	select FB_MSM_MIPI_DSI_TOSHIBA
 	default n
@@ -373,17 +300,13 @@ config FB_MSM_MIPI_SIMULATOR_VIDEO
 	select FB_MSM_MIPI_DSI_SIMULATOR
 	default n
 
-config FB_MSM_OVERLAY0_WRITEBACK
-	depends on FB_MSM_OVERLAY
-        bool "MDP overlay0 write back mode enable"
-	---help---
-	  Support for MDP4 OVERLAY0 write back mode
 
-config FB_MSM_WRITEBACK_MSM_PANEL
+config FB_MSM_OVERLAY_WRITEBACK
 	depends on FB_MSM_OVERLAY
-        bool "MDP overlay write back panel enable"
+        bool "MDP overlay write back mode enable"
 	---help---
 	  Support for MDP4 OVERLAY write back mode
+
 choice
 	prompt "LCD Panel"
 	default FB_MSM_MDDI_AUTO_DETECT
@@ -427,6 +350,7 @@ config FB_MSM_LCDC_TOSHIBA_FWVGA_PT_PANEL
 	depends on FB_MSM_LCDC_HW
 	bool "LCDC Toshiba FWVGA PT Panel"
 	select FB_MSM_LCDC_TOSHIBA_FWVGA_PT
+	default n
 	---help---
 	  Support for LCDC Toshiba FWVGA PT (480x864) panel. This
 	  configuration has to be selected to support the Toshiba
@@ -445,13 +369,6 @@ config FB_MSM_LCDC_AUO_WVGA_PANEL
 	select FB_MSM_LCDC_AUO_WVGA
 	---help---
 	  Support for LCDC AUO WVGA(480x800) panel
-
-config FB_MSM_LCDC_NT35582_PANEL
-	depends on FB_MSM_LCDC_HW
-	bool "LCDC NT35582 WVGA Panel"
-	select FB_MSM_LCDC_NT35582_WVGA
-	---help---
-	  Support for LCDC NT35582 WVGA(480x800) panel
 
 config FB_MSM_LCDC_SAMSUNG_OLED_PT_PANEL
 	depends on FB_MSM_LCDC_HW
@@ -476,19 +393,20 @@ config FB_MSM_TRY_MDDI_CATCH_LCDC_PRISM
 	  If it can't find any MDDI panel, it will load an LCDC panel.
 
 config FB_MSM_MIPI_PANEL_DETECT
-	bool "MIPI Panel Detect"
-	select FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT
-	select FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT
-	select FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA
+	depends on FB_MSM_LCDC_HW
+	bool "MIPI Panel Detect + LCDC Panel Auto Detect"
+	#select FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT
+	#select FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT
+	#select FB_MSM_LCDC_AUTO_DETECT
 	select FB_MSM_MIPI_RENESAS_VIDEO_FWVGA_PT
 	select FB_MSM_MIPI_RENESAS_CMD_FWVGA_PT
 	select FB_MSM_MIPI_TRULY_VIDEO_WVGA_PT
-	select FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT
-	select FB_MSM_MIPI_NOVATEK_CMD_QHD_PT
-	select FB_MSM_MIPI_SIMULATOR_VIDEO
-	select FB_MSM_MIPI_CHIMEI_WXGA
-	---help---
-	  Support for MIPI panel auto detect
+	#select FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT
+	#select FB_MSM_MIPI_NOVATEK_CMD_QHD_PT
+	#select FB_MSM_MIPI_SIMULATOR_VIDEO
+	#select FB_MSM_LCDC_SAMSUNG_WSVGA
+	#select FB_MSM_LCDC_AUO_WVGA
+	#select FB_MSM_LCDC_SAMSUNG_OLED_PT
 
 config FB_MSM_MDDI_PANEL_AUTO_DETECT
 	bool "MDDI Panel Auto Detect"
@@ -501,28 +419,9 @@ config FB_MSM_LCDC_PANEL_AUTO_DETECT
 	select FB_MSM_LCDC_AUTO_DETECT
 	select FB_MSM_LCDC_SAMSUNG_WSVGA
 	select FB_MSM_LCDC_AUO_WVGA
-	select FB_MSM_LCDC_NT35582_WVGA
 	select FB_MSM_LCDC_SAMSUNG_OLED_PT
 	---help---
 	  Support for LCDC panel auto detect
-
-config FB_MSM_LCDC_MIPI_PANEL_AUTO_DETECT
-	bool "LCDC + MIPI Panel Auto Detect"
-	select FB_MSM_LCDC_AUTO_DETECT
-	select FB_MSM_LCDC_SAMSUNG_WSVGA
-	select FB_MSM_LCDC_AUO_WVGA
-	select FB_MSM_LCDC_SAMSUNG_OLED_PT
-	select FB_MSM_LCDC_NT35582_WVGA
-	select FB_MSM_LCDC_TOSHIBA_FWVGA_PT
-	select FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT
-	select FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT
-	select FB_MSM_MIPI_RENESAS_VIDEO_FWVGA_PT
-	select FB_MSM_MIPI_RENESAS_CMD_FWVGA_PT
-	select FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT
-	select FB_MSM_MIPI_NOVATEK_CMD_QHD_PT
-	select FB_MSM_MIPI_SIMULATOR_VIDEO
-	---help---
-	  Support for LCDC + MIPI panel auto detect
 
 config FB_MSM_MDDI_PRISM_WVGA
 	bool "MDDI Prism WVGA Panel"
@@ -562,10 +461,6 @@ config FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT_PANEL
 	bool "MIPI Toshiba WSVGA PT Panel"
 	select FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT
 
-config FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA_PANEL
-	bool "MIPI Toshiba WUXGA (1920x1200) Panel"
-	select FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA
-
 config FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT_PANEL
 	bool "MIPI NOVATEK VIDEO QHD PT Panel"
 	select FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT
@@ -599,11 +494,6 @@ config FB_MSM_EBI2_TMD_QVGA_EPSON_QCIF
 	select FB_MSM_EBI2
 	---help---
 	  Support for EBI2 TMD QVGA (240x320) and Epson QCIF (176x220) panel
-
-config FB_MSM_HDMI_AS_PRIMARY
-	bool "Use HDMI as primary panel"
-	---help---
-	Support for using HDMI as primary
 
 config FB_MSM_PANEL_NONE
 	bool "NONE"
@@ -703,23 +593,6 @@ config FB_MSM_HDMI_MSM_PANEL_HDCP_SUPPORT
 	  Support for HDCP mode for MSM HDMI 1080p Panel
 	  Choose to enable HDCP
 
-config FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
-	depends on FB_MSM_HDMI_MSM_PANEL
-	bool "Enable CEC"
-	default n
-	---help---
-	  Support for HDMI CEC Feature
-	  Choose to enable CEC
-
-config FB_MSM_HDMI_MHL
-	depends on FB_MSM_HDMI_MSM_PANEL
-	bool 'HDMI to MHL support'
-	default n
-	---help---
-	  Support the HDMI to MHL conversion.
-	  MHL (Mobile High-Definition Link) technology
-	  uses USB connector to output HDMI content
-
 choice
 	depends on  (FB_MSM_MDP22 || FB_MSM_MDP31 || FB_MSM_MDP40)
 	prompt "TVOut Region"
@@ -808,17 +681,9 @@ config FB_MSM_DEFAULT_DEPTH_RGBA8888
 
 endchoice
 
-#/* add the code for dynamic gamma function */
-config FB_DYNAMIC_GAMMA
-	bool "Support for DYNAMIC_GAMMA fuction of glory"
-	depends on FB_MSM
-#/* change default state to 'n', move this config to hw7x30_defconfig */
-	default n
-
-#/* Add code for automatic CABC function */
-config FB_AUTO_CABC
-	bool "Support for AUTO_CABC fuction"
-	depends on FB_MSM
-	default n
-
 endif
+config HUAWEI_EVALUATE_POWER_CONSUMPTION
+     tristate "huawei_evaluate_power_consumption"
+     default n
+     help
+       Say Y here if you want to support huawei battery device.

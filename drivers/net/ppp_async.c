@@ -523,7 +523,7 @@ static void ppp_async_process(unsigned long arg)
 #define PUT_BYTE(ap, buf, c, islcp)	do {		\
 	if ((islcp && c < 0x20) || (ap->xaccm[c >> 5] & (1 << (c & 0x1f)))) {\
 		*buf++ = PPP_ESCAPE;			\
-		*buf++ = c ^ PPP_TRANS;			\
+		*buf++ = c ^ 0x20;			\
 	} else						\
 		*buf++ = c;				\
 } while (0)
@@ -896,7 +896,7 @@ ppp_async_input(struct asyncppp *ap, const unsigned char *buf,
 				sp = skb_put(skb, n);
 				memcpy(sp, buf, n);
 				if (ap->state & SC_ESCAPE) {
-					sp[0] ^= PPP_TRANS;
+					sp[0] ^= 0x20;
 					ap->state &= ~SC_ESCAPE;
 				}
 			}

@@ -146,8 +146,7 @@ static ssize_t cs5535_gpio_read(struct file *file, char __user *buf,
 
 	/* add a line-feed if there is room */
 	if ((i == ARRAY_SIZE(rm)) && (count < len)) {
-		if (put_user('\n', buf + count))
-			return -EFAULT;
+		put_user('\n', buf + count);
 		count++;
 	}
 

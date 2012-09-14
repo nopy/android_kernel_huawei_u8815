@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/memory.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -37,11 +37,31 @@
 #include <mach/msm_iomap.h>
 #include <mach/socinfo.h>
 #include <../../mm/mm.h>
-#include <linux/fmem.h>
+
+int arch_io_remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
+			    unsigned long pfn, unsigned long size, pgprot_t prot)
+{
+	unsigned long pfn_addr = pfn << PAGE_SHIFT;
+	if ((pfn_addr >= 0x88000000) && (pfn_addr < 0xD0000000)) {
+		prot = pgprot_device(prot);
+		pr_debug("remapping device %lx\n", prot);
+	}
+	return remap_pfn_range(vma, addr, pfn, size, prot);
+}
 
 void *strongly_ordered_page;
 char strongly_ordered_mem[PAGE_SIZE*2-4];
 
+/*
+ * The trick of making the zero page strongly ordered no longer
+ * works. We no longer want to make a second alias to the zero
+ * page that is strongly ordered. Manually changing the bits
+ * in the page table for the zero page would have side effects
+ * elsewhere that aren't necessary. The result is that we need
+ * to get a page from else where. Given when the first call
+ * to write_to_strongly_ordered_memory occurs, using bootmem
+ * to get a page makes the most sense.
+ */
 void map_page_strongly_ordered(void)
 {
 #if defined(CONFIG_ARCH_MSM7X27) && !defined(CONFIG_ARCH_MSM7X27A)
@@ -174,27 +194,30 @@ void *alloc_bootmem_aligned(unsigned long size, unsigned long alignment)
 	return (void *)addr;
 }
 
-int (*change_memory_power)(u64, u64, int);
+int (*change_memory_power)(unsigned long, unsigned long, int);
 
-int platform_physical_remove_pages(u64 start, u64 size)
+int platform_physical_remove_pages(unsigned long start_pfn,
+	unsigned long nr_pages)
 {
 	if (!change_memory_power)
 		return 0;
-	return change_memory_power(start, size, MEMORY_DEEP_POWERDOWN);
+	return change_memory_power(start_pfn, nr_pages, MEMORY_DEEP_POWERDOWN);
 }
 
-int platform_physical_active_pages(u64 start, u64 size)
+int platform_physical_active_pages(unsigned long start_pfn,
+	unsigned long nr_pages)
 {
 	if (!change_memory_power)
 		return 0;
-	return change_memory_power(start, size, MEMORY_ACTIVE);
+	return change_memory_power(start_pfn, nr_pages, MEMORY_ACTIVE);
 }
 
-int platform_physical_low_power_pages(u64 start, u64 size)
+int platform_physical_low_power_pages(unsigned long start_pfn,
+	unsigned long nr_pages)
 {
 	if (!change_memory_power)
 		return 0;
-	return change_memory_power(start, size, MEMORY_SELF_REFRESH);
+	return change_memory_power(start_pfn, nr_pages, MEMORY_SELF_REFRESH);
 }
 
 char *memtype_name[] = {
@@ -206,63 +229,22 @@ char *memtype_name[] = {
 
 struct reserve_info *reserve_info;
 
-static unsigned long stable_size(struct membank *mb,
-	unsigned long unstable_limit)
-{
-	unsigned long upper_limit = mb->start + mb->size;
-
-	if (!unstable_limit)
-		return mb->size;
-
-	/* Check for 32 bit roll-over */
-	if (upper_limit >= mb->start) {
-		/* If we didn't roll over we can safely make the check below */
-		if (upper_limit <= unstable_limit)
-			return mb->size;
-	}
-
-	if (mb->start >= unstable_limit)
-		return 0;
-	return unstable_limit - mb->start;
-}
-
-/* stable size of all memory banks contiguous to and below this one */
-static unsigned long total_stable_size(unsigned long bank)
-{
-	int i;
-	struct membank *mb = &meminfo.bank[bank];
-	int memtype = reserve_info->paddr_to_memtype(mb->start);
-	unsigned long size;
-
-	size = stable_size(mb, reserve_info->low_unstable_address);
-	for (i = bank - 1, mb = &meminfo.bank[bank - 1]; i >= 0; i--, mb--) {
-		if (mb->start + mb->size != (mb + 1)->start)
-			break;
-		if (reserve_info->paddr_to_memtype(mb->start) != memtype)
-			break;
-		size += stable_size(mb, reserve_info->low_unstable_address);
-	}
-	return size;
-}
-
 static void __init calculate_reserve_limits(void)
 {
 	int i;
 	struct membank *mb;
 	int memtype;
 	struct memtype_reserve *mt;
-	unsigned long size;
 
 	for (i = 0, mb = &meminfo.bank[0]; i < meminfo.nr_banks; i++, mb++)  {
 		memtype = reserve_info->paddr_to_memtype(mb->start);
 		if (memtype == MEMTYPE_NONE) {
 			pr_warning("unknown memory type for bank at %lx\n",
-				(long unsigned int)mb->start);
+				mb->start);
 			continue;
 		}
 		mt = &reserve_info->memtype_reserve_table[memtype];
-		size = total_stable_size(i);
-		mt->limit = max(mt->limit, size);
+		mt->limit = max(mt->limit, mb->size);
 	}
 }
 
@@ -289,23 +271,21 @@ static void __init reserve_memory_for_mempools(void)
 	struct memtype_reserve *mt;
 	struct membank *mb;
 	int ret;
-	unsigned long size;
 
 	mt = &reserve_info->memtype_reserve_table[0];
 	for (memtype = 0; memtype < MEMTYPE_MAX; memtype++, mt++) {
 		if (mt->flags & MEMTYPE_FLAGS_FIXED || !mt->size)
 			continue;
 
-		/* We know we will find memory bank(s) of the proper size
+		/* We know we will find a memory bank of the proper size
 		 * as we have limited the size of the memory pool for
-		 * each memory type to the largest total size of the memory
-		 * banks which are contiguous and of the correct memory type.
-		 * Choose the memory bank with the highest physical
+		 * each memory type to the size of the largest memory
+		 * bank. Choose the memory bank with the highest physical
 		 * address which is large enough, so that we will not
 		 * take memory from the lowest memory bank which the kernel
 		 * is in (and cause boot problems) and so that we might
 		 * be able to steal memory that would otherwise become
-		 * highmem. However, do not use unstable memory.
+		 * highmem.
 		 */
 		for (i = meminfo.nr_banks - 1; i >= 0; i--) {
 			mb = &meminfo.bank[i];
@@ -313,44 +293,14 @@ static void __init reserve_memory_for_mempools(void)
 				reserve_info->paddr_to_memtype(mb->start);
 			if (memtype != membank_type)
 				continue;
-			size = total_stable_size(i);
-			if (size >= mt->size) {
-				size = stable_size(mb,
-					reserve_info->low_unstable_address);
-				/* mt->size may be larger than size, all this
-				 * means is that we are carving the memory pool
-				 * out of multiple contiguous memory banks.
-				 */
-				mt->start = mb->start + (size - mt->size);
+			if (mb->size >= mt->size) {
+				mt->start = mb->start + mb->size - mt->size;
 				ret = memblock_remove(mt->start, mt->size);
 				BUG_ON(ret);
 				break;
 			}
 		}
 	}
-}
-
-unsigned long __init reserve_memory_for_fmem(unsigned long fmem_size)
-{
-	struct membank *mb;
-	int ret;
-	unsigned long fmem_phys;
-
-	if (!fmem_size)
-		return 0;
-
-	mb = &meminfo.bank[meminfo.nr_banks - 1];
-	/*
-	 * Placing fmem at the top of memory causes multimedia issues.
-	 * Instead, place it 1 page below the top of memory to prevent
-	 * the issues from occurring.
-	 */
-	fmem_phys = mb->start + (mb->size - fmem_size) - PAGE_SIZE;
-	ret = memblock_remove(fmem_phys, fmem_size);
-	BUG_ON(ret);
-
-	pr_info("fmem start %lx size %lx\n", fmem_phys, fmem_size);
-	return fmem_phys;
 }
 
 static void __init initialize_mempools(void)
@@ -399,8 +349,7 @@ EXPORT_SYMBOL(allocate_contiguous_ebi);
 unsigned long allocate_contiguous_ebi_nomap(unsigned long size,
 	unsigned long align)
 {
-	return _allocate_contiguous_memory_nomap(size, get_ebi_memtype(),
-		align, __builtin_return_address(0));
+	return allocate_contiguous_memory_nomap(size, get_ebi_memtype(), align);
 }
 EXPORT_SYMBOL(allocate_contiguous_ebi_nomap);
 
@@ -441,12 +390,10 @@ int32_t pmem_kalloc(const size_t size, const uint32_t flags)
 		return -EINVAL;
 	}
 
-	paddr = _allocate_contiguous_memory_nomap(size, memtype, align,
-		__builtin_return_address(0));
-
+	paddr = allocate_contiguous_memory_nomap(size, memtype, align);
 	if (!paddr && pmem_memtype == PMEM_MEMTYPE_SMI)
-		paddr = _allocate_contiguous_memory_nomap(size,
-			ebi1_memtype, align, __builtin_return_address(0));
+		paddr = allocate_contiguous_memory_nomap(size,
+			ebi1_memtype, align);
 
 	if (!paddr)
 		return -ENOMEM;
@@ -461,22 +408,3 @@ int pmem_kfree(const int32_t physaddr)
 	return 0;
 }
 EXPORT_SYMBOL(pmem_kfree);
-
-unsigned int msm_ttbr0;
-
-void store_ttbr0(void)
-{
-	/* Store TTBR0 for post-mortem debugging purposes. */
-	asm("mrc p15, 0, %0, c2, c0, 0\n"
-		: "=r" (msm_ttbr0));
-}
-
-int request_fmem_c_region(void *unused)
-{
-	return fmem_set_state(FMEM_C_STATE);
-}
-
-int release_fmem_c_region(void *unused)
-{
-	return fmem_set_state(FMEM_T_STATE);
-}

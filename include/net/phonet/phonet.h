@@ -36,7 +36,6 @@
 struct pn_sock {
 	struct sock	sk;
 	u16		sobject;
-	u16		dobject;
 	u8		resource;
 };
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,7 +39,6 @@
 #define APPS_DATA  		3
 #define SDIO_DATA		4
 #define WCNSS_DATA		5
-#define HSIC_DATA		6
 #define MODEM_PROC		0
 #define APPS_PROC		1
 #define QDSP_PROC		2
@@ -47,7 +46,6 @@
 #define MSG_MASK_SIZE 8000
 #define LOG_MASK_SIZE 8000
 #define EVENT_MASK_SIZE 1000
-#define USER_SPACE_DATA 8000
 #define PKT_SIZE 4096
 #define MAX_EQUIP_ID 12
 
@@ -159,7 +157,6 @@ struct diagchar_dev {
 	unsigned char *buf_in_wcnss_cntl;
 	unsigned char *usb_buf_out;
 	unsigned char *apps_rsp_buf;
-	unsigned char *user_space_data;
 	smd_channel_t *ch;
 	smd_channel_t *ch_cntl;
 	smd_channel_t *chqdsp;
@@ -204,7 +201,6 @@ struct diagchar_dev {
 	struct diag_request *write_ptr_qdsp_2;
 	struct diag_request *write_ptr_wcnss;
 	int logging_mode;
-	int mask_check;
 	int logging_process_id;
 #ifdef CONFIG_DIAG_SDIO_PIPE
 	unsigned char *buf_in_sdio;
@@ -216,27 +212,7 @@ struct diagchar_dev {
 	struct work_struct diag_read_mdm_work;
 	struct workqueue_struct *diag_sdio_wq;
 	struct work_struct diag_read_sdio_work;
-	struct work_struct diag_close_sdio_work;
-	struct diag_request *usb_read_mdm_ptr;
-	struct diag_request *write_ptr_mdm;
-#endif
-#ifdef CONFIG_DIAG_HSIC_PIPE
-	unsigned char *buf_in_hsic;
-	unsigned char *usb_buf_mdm_out;
-	int hsic_initialized;
-	int hsic_ch;
-	int hsic_device_enabled;
-	int hsic_device_opened;
-	int read_len_mdm;
-	int in_busy_hsic_read_on_mdm;
-	int in_busy_hsic_write_on_mdm;
-	int in_busy_hsic_write;
-	int in_busy_hsic_read;
-	int usb_mdm_connected;
-	struct usb_diag_ch *mdm_ch;
-	struct workqueue_struct *diag_hsic_wq;
-	struct work_struct diag_read_mdm_work;
-	struct work_struct diag_read_hsic_work;
+	struct work_struct diag_remove_sdio_work;
 	struct diag_request *usb_read_mdm_ptr;
 	struct diag_request *write_ptr_mdm;
 #endif

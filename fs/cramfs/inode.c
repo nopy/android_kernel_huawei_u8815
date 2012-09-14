@@ -37,7 +37,7 @@ static DEFINE_MUTEX(read_mutex);
 /* These macros may change in future, to provide better st_ino semantics. */
 #define OFFSET(x)	((x)->i_ino)
 
-static unsigned long cramino(const struct cramfs_inode *cino, unsigned int offset)
+static unsigned long cramino(struct cramfs_inode *cino, unsigned int offset)
 {
 	if (!cino->offset)
 		return offset + 1;
@@ -61,7 +61,7 @@ static unsigned long cramino(const struct cramfs_inode *cino, unsigned int offse
 }
 
 static struct inode *get_cramfs_inode(struct super_block *sb,
-	const struct cramfs_inode *cramfs_inode, unsigned int offset)
+	struct cramfs_inode *cramfs_inode, unsigned int offset)
 {
 	struct inode *inode;
 	static struct timespec zerotime;
@@ -317,7 +317,7 @@ static int cramfs_fill_super(struct super_block *sb, void *data, int silent)
 	/* Set it all up.. */
 	sb->s_op = &cramfs_ops;
 	root = get_cramfs_inode(sb, &super.root, 0);
-	if (IS_ERR(root))
+	if (!root)
 		goto out;
 	sb->s_root = d_alloc_root(root);
 	if (!sb->s_root) {
@@ -423,7 +423,6 @@ static int cramfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 static struct dentry * cramfs_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *nd)
 {
 	unsigned int offset = 0;
-	struct inode *inode = NULL;
 	int sorted;
 
 	mutex_lock(&read_mutex);
@@ -450,8 +449,8 @@ static struct dentry * cramfs_lookup(struct inode *dir, struct dentry *dentry, s
 
 		for (;;) {
 			if (!namelen) {
-				inode = ERR_PTR(-EIO);
-				goto out;
+				mutex_unlock(&read_mutex);
+				return ERR_PTR(-EIO);
 			}
 			if (name[namelen-1])
 				break;
@@ -463,18 +462,17 @@ static struct dentry * cramfs_lookup(struct inode *dir, struct dentry *dentry, s
 		if (retval > 0)
 			continue;
 		if (!retval) {
-			inode = get_cramfs_inode(dir->i_sb, de, dir_off);
-			break;
+			struct cramfs_inode entry = *de;
+			mutex_unlock(&read_mutex);
+			d_add(dentry, get_cramfs_inode(dir->i_sb, &entry, dir_off));
+			return NULL;
 		}
 		/* else (retval < 0) */
 		if (sorted)
 			break;
 	}
-out:
 	mutex_unlock(&read_mutex);
-	if (IS_ERR(inode))
-		return ERR_CAST(inode);
-	d_add(dentry, inode);
+	d_add(dentry, NULL);
 	return NULL;
 }
 

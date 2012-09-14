@@ -59,6 +59,7 @@ struct aps_data {
 };
 
 /*code unitary*/
+
 /*lsensor is for all the product,different phone has different table in .h */
 static uint16_t lsensor_adc_table[LSENSOR_MAX_LEVEL] = {
 	8, 25, 110, 400, 750, 1200, 3000
@@ -115,7 +116,7 @@ static struct aps_init_regdata aps9900_init_regdata[]=
     {APDS9900_ENABLE_REG, 0x0},
     {APDS9900_ATIME_REG,   0xdb},
     {APDS9900_PTIME_REG,   0xff},
-    /*modify the value*/
+    /* modify WTIME_REG for the aps9900 work abort per 200ms */
     {APDS9900_WTIME_REG,  0xb6},
     /* modify the ppcount from 8 to 4 */
     {APDS9900_PPCOUNT_REG, 0x04},
@@ -191,8 +192,7 @@ static int aps_9900_open(struct inode *inode, struct file *file)
     /* when the device is open use this if light open report -1 when proximity open then lock it*/
     if( light_device_minor == iminor(inode) ){
         PROXIMITY_DEBUG("%s:light sensor open\n", __func__);
-		/*it's not necessary to set this flag everytime*/
-        /*aps_first_read = 1;*/
+        //aps_first_read = 1;
     }
 
     if( proximity_device_minor == iminor(inode) ){
@@ -210,6 +210,7 @@ static int aps_9900_open(struct inode *inode, struct file *file)
         open_count = 0;
     }
     open_count ++;
+
     if(p_h != get_9900_register(this_aps_data, APDS9900_PIHTL_REG, 1) \
      ||p_l != get_9900_register(this_aps_data, APDS9900_PILTL_REG, 1) )
     {
@@ -221,6 +222,7 @@ static int aps_9900_open(struct inode *inode, struct file *file)
         }
         printk("%s:reset PH and PL\n!",__func__);
     }
+
     if (!aps_open_flag)
     {
         u8 value_reg0;
@@ -253,6 +255,7 @@ static int aps_9900_open(struct inode *inode, struct file *file)
 
 static int aps_9900_release(struct inode *inode, struct file *file)
 {
+
     int ret;
     aps_open_flag--;
     aps_9900_delay = 1000;//1s
@@ -267,6 +270,7 @@ static int aps_9900_release(struct inode *inode, struct file *file)
         }
         printk("%s:reset PH and PL\n!",__func__);
     }
+
     /*when proximity is released then unlock it*/
     if( proximity_device_minor == iminor(inode) ){
         PROXIMITY_DEBUG("%s: proximity_device_minor == iminor(inode)\n", __func__);
@@ -298,6 +302,7 @@ static int aps_9900_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+/* modify iotcl interface */
 static long
 aps_9900_ioctl(struct file *file, unsigned int cmd,
      unsigned long arg)
@@ -307,7 +312,6 @@ aps_9900_ioctl(struct file *file, unsigned int cmd,
     int value_reg0;
     int set_flag;
     int ret;
-	/*delete one line */
     switch (cmd) 
     {
         case ECS_IOCTL_APP_SET_LFLAG:   /* app set  light sensor flag */
@@ -410,8 +414,8 @@ aps_9900_ioctl(struct file *file, unsigned int cmd,
             }
             break;
         }
-		/*get value of proximity and light*/
-		case ECS_IOCTL_APP_GET_PDATA_VALVE:
+        /*get value of proximity and light*/
+        case ECS_IOCTL_APP_GET_PDATA_VALVE:
         {
             flag = proximity_data_value;
             if (copy_to_user(argp, &flag, sizeof(flag)))
@@ -420,7 +424,7 @@ aps_9900_ioctl(struct file *file, unsigned int cmd,
             }
             break;
         }
-		case ECS_IOCTL_APP_GET_LDATA_VALVE:
+        case ECS_IOCTL_APP_GET_LDATA_VALVE:
         {
             flag = light_data_value;
             if (copy_to_user(argp, &flag, sizeof(flag)))
@@ -429,7 +433,8 @@ aps_9900_ioctl(struct file *file, unsigned int cmd,
             }
             break;
         }
-		case ECS_IOCTL_APP_GET_APSID:
+        /* move the case to the end of the switch */
+        case ECS_IOCTL_APP_GET_APSID:
         {
             if (copy_to_user(argp, light_device_id, strlen(light_device_id)+1))
                 return -EFAULT;
@@ -444,6 +449,7 @@ aps_9900_ioctl(struct file *file, unsigned int cmd,
     return 0;
 }
 
+/* modify iotcl interface */
 static struct file_operations aps_9900_fops = {
     .owner = THIS_MODULE,
     .open = aps_9900_open,
@@ -537,7 +543,7 @@ static void aps_9900_work_func(struct work_struct *work)
             pdata = 200 ;
             APS9900_DBG("%s:pdate value error\n", __func__);
         }
-        /* delete this part */
+        /* delete this part ,because modify sunlight problem bring a new problem,so we should delete it*/
         /* add the arithmetic of setting the proximity thresholds automatically */
 
         if ((pdata + apds_9900_pwave_value) < min_proximity_value)
@@ -550,6 +556,7 @@ static void aps_9900_work_func(struct work_struct *work)
                 printk(KERN_ERR "%s:set APDS9900_PILTL_REG register is error(%d)!", __func__, ret);
             }
             APS9900_DBG("%s:min_proximity_value=%d\n", __func__, min_proximity_value);
+            
         }
         pthreshold_h = get_9900_register(aps, APDS9900_PIHTL_REG, 1);
         pthreshold_l = get_9900_register(aps, APDS9900_PILTL_REG, 1);
@@ -762,32 +769,14 @@ static int aps_9900_probe(
     else if(machine_is_msm7x27a_C8655_NAND())
     {
         apds_9900_pwindows_value = C8655_WINDOW;
-        apds_9900_pwave_value = C8655_WAVE;
+	    apds_9900_pwave_value = C8655_WAVE;
         p = &lsensor_adc_table_c8655[0];
     }
     else if(machine_is_msm7x27a_M660())
     {
         apds_9900_pwindows_value = M660_WINDOW;
-        apds_9900_pwave_value = M660_WAVE;
+	    apds_9900_pwave_value = M660_WAVE;
         p = &lsensor_adc_table_m660[0];
-    }
-    /* C8812 is another name of C8820 */
-    else if( machine_is_msm7x27a_C8820() )
-    {
-        p = &lsensor_adc_table_c8812[0];	
-    }
-    else if( machine_is_msm8255_u8730())
-    {
-        /* delete this line */
-        p = &lsensor_adc_table_u8730[0];
-    }
-    else if ( machine_is_msm8255_u8680())
-    {
-        p = &lsensor_adc_table_u8680[0];
-    }
-    else if( machine_is_msm8255_u8667())
-    {
-        p = &lsensor_adc_table_u8667[0];
     }
     for(i = 0;i < ARRAY_SIZE(lsensor_adc_table) ; i++ )
     {
@@ -797,18 +786,7 @@ static int aps_9900_probe(
     min_proximity_value = origin_prox;
 
     platform_data = client->dev.platform_data;
-    /*27A doesn't need match power*/
-    if (platform_data->aps9900_power)
-    {
-    #ifdef CONFIG_ARCH_MSM7X30
-        ret = platform_data->aps9900_power(IC_PM_ON);
-        if (ret < 0)
-        {
-            pr_err("%s:aps9900 power on error!\n", __func__);
-            goto err_exit ;
-        }
-    #endif
-    }
+
     mdelay(5);
     if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
         PROXIMITY_DEBUG(KERN_ERR "aps_9900_probe: need I2C_FUNC_I2C\n");
@@ -967,12 +945,6 @@ err_detect_failed:
     kfree(aps);
 err_alloc_data_failed:
 err_check_functionality_failed:
-	#ifdef CONFIG_ARCH_MSM7X30
-    if(platform_data->aps9900_power)
-    {
-        platform_data->aps9900_power(IC_PM_OFF);
-    }
-	#endif
 err_exit:
     return ret;
   

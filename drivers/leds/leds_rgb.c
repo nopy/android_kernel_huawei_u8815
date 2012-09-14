@@ -1,4 +1,8 @@
-/*add led driver*/
+/* the three-leds driver */
+/**
+RGB LED DRIVER
+**/
+#ifdef CONFIG_HUAWEI_KERNEL
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -15,18 +19,17 @@
 #include <mach/mpp.h>
 #include <linux/platform_device.h>
 #include <mach/pmic.h>
+
 #include <linux/hardware_self_adapt.h>
 #include <linux/gpio.h>
 
-#define MPP_RED "mpp7"
-#define MPP_BLUE "mpp20"
 #define MAX_BACKLIGHT_BRIGHTNESS 255
 #define LED_ON 1
 #define LED_OFF 0
 
 #define GPIO_LED_RED 4
 #define GPIO_LED_GREEN 11
-#define LEVEL 2
+
 #ifdef RGB_DEBUG
 #define RGB_PRINT(x...) do{ \
 		printk(KERN_INFO "[RGB_LED] "x); \
@@ -34,16 +37,13 @@
 #else
 #define RGB_PRINT(x...) do{}while(0)
 #endif
-#ifdef CONFIG_ARCH_MSM7X27A
-	static hw_ds_type board_ds = HW_NODS;
-#endif
+static hw_ds_type board_ds = HW_NODS;
 static void set_red_brightness(struct led_classdev *led_cdev,
 					enum led_brightness value)
 {
 	int ret = 0;
 
 	RGB_PRINT("%s: value = %d\n",__func__, value);
-#ifdef CONFIG_ARCH_MSM7X27A
     if (HW_DS == board_ds)
     {
 		/*ap side control the gpio*/
@@ -55,15 +55,12 @@ static void set_red_brightness(struct led_classdev *led_cdev,
         ret = pmic_secure_mpp_config_i_sink(PM_MPP_3, PM_MPP__I_SINK__LEVEL_5mA, \
             (!!value) ? PM_MPP__I_SINK__SWITCH_ENA : PM_MPP__I_SINK__SWITCH_DIS);
     }
-#else
-	ret = pmic_set_low_current_led_intensity(PM_LOW_CURRENT_LED_DRV0, (!!value)? LEVEL : 0);
-#endif
+
 	if(ret)
 	{
 		RGB_PRINT("%s: failed,ret=%d\n",__func__,ret);
 		return;
 	}
-
 	RGB_PRINT("%s: success\n",__func__);
 }
 
@@ -72,8 +69,8 @@ static void set_green_brightness(struct led_classdev *led_cdev,
 {
 	int ret = 0;
 	
-	RGB_PRINT("%s: value = %d\n",__func__, value);	
-#ifdef CONFIG_ARCH_MSM7X27A
+	RGB_PRINT("%s: value = %d\n",__func__, value);
+
     if (HW_DS == board_ds)
     {
 		/*ap side control the gpio*/
@@ -85,9 +82,7 @@ static void set_green_brightness(struct led_classdev *led_cdev,
 	    ret = pmic_secure_mpp_config_i_sink(PM_MPP_5, PM_MPP__I_SINK__LEVEL_5mA, \
 			(!!value) ? PM_MPP__I_SINK__SWITCH_ENA : PM_MPP__I_SINK__SWITCH_DIS);
     }
-#else
-	ret = pmic_set_low_current_led_intensity(PM_LOW_CURRENT_LED_DRV1, (!!value)? LEVEL : 0);
-#endif
+
 	if(ret)
 	{
 		RGB_PRINT("%s: failed,ret=%d\n",__func__,ret);
@@ -95,7 +90,6 @@ static void set_green_brightness(struct led_classdev *led_cdev,
 	}
 
 	RGB_PRINT("%s: success\n",__func__);
-
 }
 
 static void set_blue_brightness(struct led_classdev *led_cdev,
@@ -104,12 +98,9 @@ static void set_blue_brightness(struct led_classdev *led_cdev,
 	int ret = 0;
 	
 	RGB_PRINT("%s: value = %d\n",__func__, value);
-#ifdef CONFIG_ARCH_MSM7X27A
+	
 	ret = pmic_secure_mpp_config_i_sink(PM_MPP_8, PM_MPP__I_SINK__LEVEL_5mA, \
 			(!!value) ? PM_MPP__I_SINK__SWITCH_ENA : PM_MPP__I_SINK__SWITCH_DIS);
-#else
-	ret = pmic_set_low_current_led_intensity(PM_LOW_CURRENT_LED_DRV2, (!!value)? LEVEL : 0);
-#endif
 	if(ret)
 	{
 		RGB_PRINT("%s: failed,ret=%d\n",__func__,ret);
@@ -120,7 +111,7 @@ static void set_blue_brightness(struct led_classdev *led_cdev,
 }
 
 static int rgb_leds_probe(struct platform_device *pdev)
-{
+{
 	int rc = -ENODEV;
 	
 	struct led_classdev *p_rgb_data = NULL;
@@ -165,7 +156,6 @@ static int rgb_leds_probe(struct platform_device *pdev)
 		printk(KERN_ERR "rbg blue: led_classdev_register failed\n");
 		goto err_led2_classdev_register_failed;
 	}
-#ifdef CONFIG_ARCH_MSM7X27A
     board_ds = get_hw_ds_type();
     
     /*double sim card phone use gpio to control red led and green led*/
@@ -178,7 +168,7 @@ static int rgb_leds_probe(struct platform_device *pdev)
         gpio_tlmm_config(GPIO_CFG(GPIO_LED_GREEN, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
 	    
     }
-#endif
+
 	RGB_PRINT("led_classdev_register sucess\n");
 	
 	return 0;
@@ -202,8 +192,11 @@ static struct platform_driver rgb_leds_driver = {
 int __init rgb_leds_init(void)
 {
 	int rc = -ENODEV;
+
 	if (platform_driver_register(&rgb_leds_driver))
-			return rc;
+	{
+            return rc;
+        }
 	return 0;
 }
 
@@ -214,4 +207,4 @@ static void __exit rgb_leds_exit(void)
 
 module_init(rgb_leds_init);
 module_exit(rgb_leds_exit);
-
+#endif

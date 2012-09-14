@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/smd_debug.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -18,7 +18,6 @@
 #include <linux/debugfs.h>
 #include <linux/list.h>
 #include <linux/ctype.h>
-#include <linux/jiffies.h>
 
 #include <mach/msm_iomap.h>
 
@@ -247,7 +246,6 @@ struct SMSM_CB_DATA {
 	uint32_t new_state;
 };
 static struct SMSM_CB_DATA smsm_cb_data;
-static struct completion smsm_cb_completion;
 
 static void smsm_state_cb(void *data, uint32_t old_state, uint32_t new_state)
 {
@@ -255,23 +253,12 @@ static void smsm_state_cb(void *data, uint32_t old_state, uint32_t new_state)
 	smsm_cb_data.old_state = old_state;
 	smsm_cb_data.new_state = new_state;
 	smsm_cb_data.data = data;
-	complete_all(&smsm_cb_completion);
 }
 
 #define UT_EQ_INT(a, b) \
 	if ((a) != (b)) { \
 		i += scnprintf(buf + i, max - i, \
 			"%s:%d " #a "(%d) != " #b "(%d)\n", \
-				__func__, __LINE__, \
-				a, b); \
-		break; \
-	} \
-	do {} while (0)
-
-#define UT_GT_INT(a, b) \
-	if ((a) <= (b)) { \
-		i += scnprintf(buf + i, max - i, \
-			"%s:%d " #a "(%d) > " #b "(%d)\n", \
 				__func__, __LINE__, \
 				a, b); \
 		break; \
@@ -303,21 +290,16 @@ static int debug_test_smsm(char *buf, int max)
 
 		/* de-assert SMSM_SMD_INIT to trigger state update */
 		UT_EQ_INT(smsm_cb_data.cb_count, 0);
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 
+		UT_EQ_INT(smsm_cb_data.cb_count, 1);
 		UT_EQ_INT(smsm_cb_data.cb_count, 1);
 		UT_EQ_INT(smsm_cb_data.old_state & SMSM_SMDINIT, SMSM_SMDINIT);
 		UT_EQ_INT(smsm_cb_data.new_state & SMSM_SMDINIT, 0x0);
 		UT_EQ_INT((int)smsm_cb_data.data, 0x1234);
 
 		/* re-assert SMSM_SMD_INIT to trigger state update */
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 2);
 		UT_EQ_INT(smsm_cb_data.old_state & SMSM_SMDINIT, 0x0);
 		UT_EQ_INT(smsm_cb_data.new_state & SMSM_SMDINIT, SMSM_SMDINIT);
@@ -328,11 +310,8 @@ static int debug_test_smsm(char *buf, int max)
 		UT_EQ_INT(ret, 2);
 
 		/* make sure state change doesn't cause any more callbacks */
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
 		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
-		UT_EQ_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 2);
 
 		i += scnprintf(buf + i, max - i, "Test %d - PASS\n", test_num);
@@ -350,49 +329,28 @@ static int debug_test_smsm(char *buf, int max)
 		UT_EQ_INT(ret, 1);
 
 		/* verify both callback bits work */
-		INIT_COMPLETION(smsm_cb_completion);
 		UT_EQ_INT(smsm_cb_data.cb_count, 0);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 1);
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 2);
 
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 3);
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_INIT);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 4);
 
 		/* deregister 1st callback */
 		ret = smsm_state_cb_deregister(SMSM_APPS_STATE, SMSM_SMDINIT,
 				smsm_state_cb, (void *)0x1234);
 		UT_EQ_INT(ret, 1);
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
 		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
-		UT_EQ_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 4);
 
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 5);
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_INIT);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 6);
 
 		/* deregister 2nd callback */
@@ -401,11 +359,8 @@ static int debug_test_smsm(char *buf, int max)
 		UT_EQ_INT(ret, 2);
 
 		/* make sure state change doesn't cause any more callbacks */
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
 		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_INIT);
-		UT_EQ_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 6);
 
 		i += scnprintf(buf + i, max - i, "Test %d - PASS\n", test_num);
@@ -423,18 +378,12 @@ static int debug_test_smsm(char *buf, int max)
 		UT_EQ_INT(ret, 0);
 
 		/* verify both callbacks work */
-		INIT_COMPLETION(smsm_cb_completion);
 		UT_EQ_INT(smsm_cb_data.cb_count, 0);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 1);
 		UT_EQ_INT((int)smsm_cb_data.data, 0x1234);
 
-		INIT_COMPLETION(smsm_cb_completion);
 		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
-		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
-					msecs_to_jiffies(20)), 0);
 		UT_EQ_INT(smsm_cb_data.cb_count, 2);
 		UT_EQ_INT((int)smsm_cb_data.data, 0x3456);
 
@@ -482,8 +431,7 @@ static int debug_read_mem(char *buf, int max)
 	return i;
 }
 
-#if (!defined(CONFIG_MSM_SMD_PKG4) && !defined(CONFIG_MSM_SMD_PKG3))
-static int debug_read_ch(char *buf, int max)
+static int debug_read_ch_v1(char *buf, int max)
 {
 	void *shared;
 	int n, i = 0;
@@ -502,8 +450,8 @@ static int debug_read_ch(char *buf, int max)
 
 	return i;
 }
-#else
-static int debug_read_ch(char *buf, int max)
+
+static int debug_read_ch_v2(char *buf, int max)
 {
 	void *shared, *buffer;
 	unsigned buffer_sz;
@@ -528,7 +476,20 @@ static int debug_read_ch(char *buf, int max)
 
 	return i;
 }
-#endif
+
+static int debug_read_ch(char *buf, int max)
+{
+	uint32_t *smd_ver;
+
+	smd_ver = smem_alloc(SMEM_VERSION_SMD, 32 * sizeof(uint32_t));
+
+	if (smd_ver && (((smd_ver[VERSION_MODEM] >> 16) >= 1) ||
+			((smd_ver[VERSION_QDSP6] >> 16) >= 1) ||
+			((smd_ver[VERSION_DSPS] >> 16) >= 1)))
+		return debug_read_ch_v2(buf, max);
+	else
+		return debug_read_ch_v1(buf, max);
+}
 
 static int debug_read_smem_version(char *buf, int max)
 {
@@ -650,12 +611,7 @@ static ssize_t debug_read(struct file *file, char __user *buf,
 			  size_t count, loff_t *ppos)
 {
 	int (*fill)(char *buf, int max) = file->private_data;
-	int bsize;
-
-	if (*ppos != 0)
-		return 0;
-
-	bsize = fill(debug_buffer, DEBUG_BUFMAX);
+	int bsize = fill(debug_buffer, DEBUG_BUFMAX);
 	return simple_read_from_buffer(buf, count, ppos, debug_buffer, bsize);
 }
 
@@ -715,8 +671,6 @@ static int __init smsm_debugfs_init(void)
 	debug_create("version", 0444, dent, debug_read_smem_version);
 	debug_create("smsm_test", 0444, dent, debug_test_smsm);
 
-	init_completion(&smsm_cb_completion);
-
 	return 0;
 }
 
@@ -724,46 +678,6 @@ late_initcall(smd_debugfs_init);
 late_initcall(smsm_debugfs_init);
 #endif
 
-#ifdef CONFIG_HUAWEI_KERNEL
-struct IRAM_LOG_DESC {
-  //magic number of this structure	
-  int iram_log_magic;
-  //lenght of valid log
-  int iram_log_size;			
-};
-//magic number to valid log
-#define IRAM_LOG_MAGIC 0x8800dead
-
-/* 
- *detect modem crash log validity and return related information
- *return: 1 valid log found in smem; 0 no log found
- */
-int detect_modem_crash_log(void **ppcrash_log,int *plog_len)
-{
-	char *x;
-	int size;
-	
-	//get smem entry address
-	x = smem_get_entry(SMEM_ERR_CRASH_LOG, &size);
-	if (0 != x) {
-		struct IRAM_LOG_DESC *piram_desc=(struct IRAM_LOG_DESC *)x;
-		//valid magic number 
-		if(IRAM_LOG_MAGIC==piram_desc->iram_log_magic) {
-			printk("modem crash log detected len %d\n",piram_desc->iram_log_size);
-			//return the address of data part
-			if(NULL!=ppcrash_log)
-				*ppcrash_log=(x+sizeof(struct IRAM_LOG_DESC));
-			//return the length of daa part
-			if(NULL!=plog_len)
-				*plog_len = piram_desc->iram_log_size;
-			return 1;
-		}else {
-			printk("no modem crash log detected\n");
-		}
-	}	
-	return 0;
-}
-#endif
 
 #define MAX_NUM_SLEEP_CLIENTS		64
 #define MAX_SLEEP_NAME_LEN		8

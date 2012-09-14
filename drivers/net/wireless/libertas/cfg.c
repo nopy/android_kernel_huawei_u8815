@@ -6,8 +6,6 @@
  *
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/sched.h>
 #include <linux/wait.h>
 #include <linux/slab.h>
@@ -124,10 +122,8 @@ static u8 lbs_auth_to_authtype(enum nl80211_auth_type auth_type)
 }
 
 
-/*
- * Various firmware commands need the list of supported rates, but with
- * the hight-bit set for basic rates
- */
+/* Various firmware commands need the list of supported rates, but with
+   the hight-bit set for basic rates */
 static int lbs_add_rates(u8 *rates)
 {
 	size_t i;
@@ -429,7 +425,7 @@ static int lbs_add_wpa_tlv(u8 *tlv, const u8 *ie, u8 ie_len)
 	return ie_len + 2;
 }
 
-/*
+/***************************************************************************
  * Set Channel
  */
 
@@ -456,7 +452,7 @@ static int lbs_cfg_set_channel(struct wiphy *wiphy,
 
 
 
-/*
+/***************************************************************************
  * Scanning
  */
 
@@ -542,10 +538,8 @@ static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 		goto done;
 	}
 
-	/*
-	 * Validity check: the TLV holds TSF values with 8 bytes each, so
-	 * the size in the TLV must match the nr_sets value
-	 */
+	/* Validity check: the TLV holds TSF values with 8 bytes each, so
+	 * the size in the TLV must match the nr_sets value */
 	i = get_unaligned_le16(tsfdesc);
 	tsfdesc += 2;
 	if (i / 8 != scanresp->nr_sets) {
@@ -587,10 +581,8 @@ static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 
 		/* To find out the channel, we must parse the IEs */
 		ie = pos;
-		/*
-		 * 6+1+8+2+2: size of BSSID, RSSI, time stamp, beacon
-		 * interval, capabilities
-		 */
+		/* 6+1+8+2+2: size of BSSID, RSSI, time stamp, beacon
+		   interval, capabilities */
 		ielen = left = len - (6 + 1 + 8 + 2 + 2);
 		while (left >= 2) {
 			u8 id, elen;
@@ -615,8 +607,7 @@ static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 		/* No channel, no luck */
 		if (chan_no != -1) {
 			struct wiphy *wiphy = priv->wdev->wiphy;
-			int freq = ieee80211_channel_to_frequency(chan_no,
-							IEEE80211_BAND_2GHZ);
+			int freq = ieee80211_channel_to_frequency(chan_no);
 			struct ieee80211_channel *channel =
 				ieee80211_get_channel(wiphy, freq);
 
@@ -798,7 +789,7 @@ static int lbs_cfg_scan(struct wiphy *wiphy,
 
 
 
-/*
+/***************************************************************************
  * Events
  */
 
@@ -833,7 +824,7 @@ void lbs_send_mic_failureevent(struct lbs_private *priv, u32 event)
 
 
 
-/*
+/***************************************************************************
  * Connect/disconnect
  */
 
@@ -958,10 +949,8 @@ static int lbs_enable_rsn(struct lbs_private *priv, int enable)
  * Set WPA/WPA key material
  */
 
-/*
- * like "struct cmd_ds_802_11_key_material", but with cmd_header. Once we
- * get rid of WEXT, this should go into host.h
- */
+/* like "struct cmd_ds_802_11_key_material", but with cmd_header. Once we
+ * get rid of WEXT, this should go into host.h */
 
 struct cmd_key_material {
 	struct cmd_header hdr;
@@ -1324,8 +1313,8 @@ static int lbs_cfg_connect(struct wiphy *wiphy, struct net_device *dev,
 		sme->ssid, sme->ssid_len,
 		WLAN_CAPABILITY_ESS, WLAN_CAPABILITY_ESS);
 	if (!bss) {
-		wiphy_err(wiphy, "assoc: bss %pM not in scan results\n",
-			  sme->bssid);
+		lbs_pr_err("assoc: bss %pM not in scan results\n",
+			   sme->bssid);
 		ret = -ENOENT;
 		goto done;
 	}
@@ -1360,7 +1349,7 @@ static int lbs_cfg_connect(struct wiphy *wiphy, struct net_device *dev,
 		 * we remove all keys like in the WPA/WPA2 setup,
 		 * we just don't set RSN.
 		 *
-		 * Therefore: fall-through
+		 * Therefore: fall-throught
 		 */
 	case WLAN_CIPHER_SUITE_TKIP:
 	case WLAN_CIPHER_SUITE_CCMP:
@@ -1382,8 +1371,8 @@ static int lbs_cfg_connect(struct wiphy *wiphy, struct net_device *dev,
 		lbs_enable_rsn(priv, sme->crypto.cipher_group != 0);
 		break;
 	default:
-		wiphy_err(wiphy, "unsupported cipher group 0x%x\n",
-			  sme->crypto.cipher_group);
+		lbs_pr_err("unsupported cipher group 0x%x\n",
+			   sme->crypto.cipher_group);
 		ret = -ENOTSUPP;
 		goto done;
 	}
@@ -1501,7 +1490,7 @@ static int lbs_cfg_add_key(struct wiphy *wiphy, struct net_device *netdev,
 				     params->key, params->key_len);
 		break;
 	default:
-		wiphy_err(wiphy, "unhandled cipher 0x%x\n", params->cipher);
+		lbs_pr_err("unhandled cipher 0x%x\n", params->cipher);
 		ret = -ENOTSUPP;
 		break;
 	}
@@ -1546,7 +1535,7 @@ static int lbs_cfg_del_key(struct wiphy *wiphy, struct net_device *netdev,
 }
 
 
-/*
+/***************************************************************************
  * Get station
  */
 
@@ -1591,7 +1580,7 @@ static int lbs_cfg_get_station(struct wiphy *wiphy, struct net_device *dev,
 
 
 
-/*
+/***************************************************************************
  * "Site survey", here just current channel and noise level
  */
 
@@ -1608,8 +1597,7 @@ static int lbs_get_survey(struct wiphy *wiphy, struct net_device *dev,
 	lbs_deb_enter(LBS_DEB_CFG80211);
 
 	survey->channel = ieee80211_get_channel(wiphy,
-		ieee80211_channel_to_frequency(priv->channel,
-					       IEEE80211_BAND_2GHZ));
+		ieee80211_channel_to_frequency(priv->channel));
 
 	ret = lbs_get_rssi(priv, &signal, &noise);
 	if (ret == 0) {
@@ -1624,7 +1612,7 @@ static int lbs_get_survey(struct wiphy *wiphy, struct net_device *dev,
 
 
 
-/*
+/***************************************************************************
  * Change interface
  */
 
@@ -1666,12 +1654,11 @@ static int lbs_change_intf(struct wiphy *wiphy, struct net_device *dev,
 
 
 
-/*
+/***************************************************************************
  * IBSS (Ad-Hoc)
  */
 
-/*
- * The firmware needs the following bits masked out of the beacon-derived
+/* The firmware needs the following bits masked out of the beacon-derived
  * capability field when associating/joining to a BSS:
  *  9 (QoS), 11 (APSD), 12 (unused), 14 (unused), 15 (unused)
  */
@@ -2010,7 +1997,7 @@ static int lbs_leave_ibss(struct wiphy *wiphy, struct net_device *dev)
 
 
 
-/*
+/***************************************************************************
  * Initialization
  */
 
@@ -2129,13 +2116,13 @@ int lbs_cfg_register(struct lbs_private *priv)
 
 	ret = wiphy_register(wdev->wiphy);
 	if (ret < 0)
-		pr_err("cannot register wiphy device\n");
+		lbs_pr_err("cannot register wiphy device\n");
 
 	priv->wiphy_registered = true;
 
 	ret = register_netdev(priv->dev);
 	if (ret)
-		pr_err("cannot register network device\n");
+		lbs_pr_err("cannot register network device\n");
 
 	INIT_DELAYED_WORK(&priv->scan_work, lbs_scan_worker);
 

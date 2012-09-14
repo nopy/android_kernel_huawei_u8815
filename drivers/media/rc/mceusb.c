@@ -108,12 +108,6 @@ static int debug = 1;
 static int debug;
 #endif
 
-#define mce_dbg(dev, fmt, ...)					\
-	do {							\
-		if (debug)					\
-			dev_info(dev, fmt, ## __VA_ARGS__);	\
-	} while (0)
-
 /* general constants */
 #define SEND_FLAG_IN_PROGRESS	1
 #define SEND_FLAG_COMPLETE	2
@@ -155,8 +149,6 @@ enum mceusb_model_type {
 	POLARIS_EVK,
 	CX_HYBRID_TV,
 	MULTIFUNCTION,
-	TIVO_KIT,
-	MCE_GEN2_NO_TX,
 };
 
 struct mceusb_model {
@@ -180,10 +172,6 @@ static const struct mceusb_model mceusb_model[] = {
 	[MCE_GEN2] = {
 		.mce_gen2 = 1,
 	},
-	[MCE_GEN2_NO_TX] = {
-		.mce_gen2 = 1,
-		.no_tx = 1,
-	},
 	[MCE_GEN2_TX_INV] = {
 		.mce_gen2 = 1,
 		.tx_mask_normal = 1,
@@ -198,7 +186,7 @@ static const struct mceusb_model mceusb_model[] = {
 		 * remotes, but we should have something handy,
 		 * to allow testing it
 		 */
-		.rc_map = RC_MAP_HAUPPAUGE,
+		.rc_map = RC_MAP_RC5_HAUPPAUGE_NEW,
 		.name = "Conexant Hybrid TV (cx231xx) MCE IR",
 	},
 	[CX_HYBRID_TV] = {
@@ -208,10 +196,6 @@ static const struct mceusb_model mceusb_model[] = {
 	[MULTIFUNCTION] = {
 		.mce_gen2 = 1,
 		.ir_intfnum = 2,
-	},
-	[TIVO_KIT] = {
-		.mce_gen2 = 1,
-		.rc_map = RC_MAP_TIVO,
 	},
 };
 
@@ -236,8 +220,6 @@ static struct usb_device_id mceusb_dev_table[] = {
 	{ USB_DEVICE(VENDOR_PHILIPS, 0x206c) },
 	/* Philips/Spinel plus IR transceiver for ASUS */
 	{ USB_DEVICE(VENDOR_PHILIPS, 0x2088) },
-	/* Philips IR transceiver (Dell branded) */
-	{ USB_DEVICE(VENDOR_PHILIPS, 0x2093) },
 	/* Realtek MCE IR Receiver and card reader */
 	{ USB_DEVICE(VENDOR_REALTEK, 0x0161),
 	  .driver_info = MULTIFUNCTION },
@@ -252,9 +234,6 @@ static struct usb_device_id mceusb_dev_table[] = {
 	  .driver_info = MCE_GEN2_TX_INV },
 	/* SMK eHome Infrared Transceiver */
 	{ USB_DEVICE(VENDOR_SMK, 0x0338) },
-	/* SMK/I-O Data GV-MC7/RCKIT Receiver */
-	{ USB_DEVICE(VENDOR_SMK, 0x0353),
-	  .driver_info = MCE_GEN2_NO_TX },
 	/* Tatung eHome Infrared Transceiver */
 	{ USB_DEVICE(VENDOR_TATUNG, 0x9150) },
 	/* Shuttle eHome Infrared Transceiver */
@@ -282,7 +261,7 @@ static struct usb_device_id mceusb_dev_table[] = {
 	  .driver_info = MCE_GEN2_TX_INV },
 	/* Topseed eHome Infrared Transceiver */
 	{ USB_DEVICE(VENDOR_TOPSEED, 0x0011),
-	  .driver_info = MCE_GEN3 },
+	  .driver_info = MCE_GEN2_TX_INV },
 	/* Ricavision internal Infrared Transceiver */
 	{ USB_DEVICE(VENDOR_RICAVISION, 0x0010) },
 	/* Itron ione Libra Q-11 */
@@ -298,8 +277,7 @@ static struct usb_device_id mceusb_dev_table[] = {
 	/* Formosa21 / eHome Infrared Receiver */
 	{ USB_DEVICE(VENDOR_FORMOSA, 0xe016) },
 	/* Formosa aim / Trust MCE Infrared Receiver */
-	{ USB_DEVICE(VENDOR_FORMOSA, 0xe017),
-	  .driver_info = MCE_GEN2_NO_TX },
+	{ USB_DEVICE(VENDOR_FORMOSA, 0xe017) },
 	/* Formosa Industrial Computing / Beanbag Emulation Device */
 	{ USB_DEVICE(VENDOR_FORMOSA, 0xe018) },
 	/* Formosa21 / eHome Infrared Receiver */
@@ -328,8 +306,7 @@ static struct usb_device_id mceusb_dev_table[] = {
 	/* Northstar Systems, Inc. eHome Infrared Transceiver */
 	{ USB_DEVICE(VENDOR_NORTHSTAR, 0xe004) },
 	/* TiVo PC IR Receiver */
-	{ USB_DEVICE(VENDOR_TIVO, 0x2000),
-	  .driver_info = TIVO_KIT },
+	{ USB_DEVICE(VENDOR_TIVO, 0x2000) },
 	/* Conexant Hybrid TV "Shelby" Polaris SDK */
 	{ USB_DEVICE(VENDOR_CONEXANT, 0x58a1),
 	  .driver_info = POLARIS_EVK },
@@ -558,10 +535,9 @@ static void mceusb_dev_printdata(struct mceusb_dev *ir, char *buf,
 				 inout, data1);
 			break;
 		case MCE_CMD_S_TIMEOUT:
-			/* value is in units of 50us, so x*50/1000 ms */
+			/* value is in units of 50us, so x*50/100 or x/2 ms */
 			dev_info(dev, "%s receive timeout of %d ms\n",
-				 inout,
-				 ((data1 << 8) | data2) * MCE_TIME_UNIT / 1000);
+				 inout, ((data1 << 8) | data2) / 2);
 			break;
 		case MCE_CMD_G_TIMEOUT:
 			dev_info(dev, "Get receive timeout\n");
@@ -616,22 +592,20 @@ static void mce_async_callback(struct urb *urb, struct pt_regs *regs)
 	if (ir) {
 		len = urb->actual_length;
 
-		mce_dbg(ir->dev, "callback called (status=%d len=%d)\n",
+		dev_dbg(ir->dev, "callback called (status=%d len=%d)\n",
 			urb->status, len);
 
 		mceusb_dev_printdata(ir, urb->transfer_buffer, 0, len, true);
 	}
 
-	/* the transfer buffer and urb were allocated in mce_request_packet */
-	kfree(urb->transfer_buffer);
-	usb_free_urb(urb);
 }
 
 /* request incoming or send outgoing usb packet - used to initialize remote */
-static void mce_request_packet(struct mceusb_dev *ir, unsigned char *data,
-			       int size, int urb_type)
+static void mce_request_packet(struct mceusb_dev *ir,
+			       struct usb_endpoint_descriptor *ep,
+			       unsigned char *data, int size, int urb_type)
 {
-	int res, pipe;
+	int res;
 	struct urb *async_urb;
 	struct device *dev = ir->dev;
 	unsigned char *async_buf;
@@ -651,11 +625,10 @@ static void mce_request_packet(struct mceusb_dev *ir, unsigned char *data,
 		}
 
 		/* outbound data */
-		pipe = usb_sndintpipe(ir->usbdev,
-				      ir->usb_ep_out->bEndpointAddress);
-		usb_fill_int_urb(async_urb, ir->usbdev, pipe,
+		usb_fill_int_urb(async_urb, ir->usbdev,
+			usb_sndintpipe(ir->usbdev, ep->bEndpointAddress),
 			async_buf, size, (usb_complete_t)mce_async_callback,
-			ir, ir->usb_ep_out->bInterval);
+			ir, ep->bInterval);
 		memcpy(async_buf, data, size);
 
 	} else if (urb_type == MCEUSB_RX) {
@@ -668,27 +641,27 @@ static void mce_request_packet(struct mceusb_dev *ir, unsigned char *data,
 		return;
 	}
 
-	mce_dbg(dev, "receive request called (size=%#x)\n", size);
+	dev_dbg(dev, "receive request called (size=%#x)\n", size);
 
 	async_urb->transfer_buffer_length = size;
 	async_urb->dev = ir->usbdev;
 
 	res = usb_submit_urb(async_urb, GFP_ATOMIC);
 	if (res) {
-		mce_dbg(dev, "receive request FAILED! (res=%d)\n", res);
+		dev_dbg(dev, "receive request FAILED! (res=%d)\n", res);
 		return;
 	}
-	mce_dbg(dev, "receive request complete (res=%d)\n", res);
+	dev_dbg(dev, "receive request complete (res=%d)\n", res);
 }
 
 static void mce_async_out(struct mceusb_dev *ir, unsigned char *data, int size)
 {
-	mce_request_packet(ir, data, size, MCEUSB_TX);
+	mce_request_packet(ir, ir->usb_ep_out, data, size, MCEUSB_TX);
 }
 
-static void mce_flush_rx_buffer(struct mceusb_dev *ir, int size)
+static void mce_sync_in(struct mceusb_dev *ir, unsigned char *data, int size)
 {
-	mce_request_packet(ir, NULL, size, MCEUSB_RX);
+	mce_request_packet(ir, ir->usb_ep_in, data, size, MCEUSB_RX);
 }
 
 /* Send data out the IR blaster port(s) */
@@ -807,7 +780,7 @@ static int mceusb_set_tx_carrier(struct rc_dev *dev, u32 carrier)
 			ir->carrier = carrier;
 			cmdbuf[2] = MCE_CMD_SIG_END;
 			cmdbuf[3] = MCE_IRDATA_TRAILER;
-			mce_dbg(ir->dev, "%s: disabling carrier "
+			dev_dbg(ir->dev, "%s: disabling carrier "
 				"modulation\n", __func__);
 			mce_async_out(ir, cmdbuf, sizeof(cmdbuf));
 			return carrier;
@@ -819,7 +792,7 @@ static int mceusb_set_tx_carrier(struct rc_dev *dev, u32 carrier)
 				ir->carrier = carrier;
 				cmdbuf[2] = prescaler;
 				cmdbuf[3] = divisor;
-				mce_dbg(ir->dev, "%s: requesting %u HZ "
+				dev_dbg(ir->dev, "%s: requesting %u HZ "
 					"carrier\n", __func__, carrier);
 
 				/* Transmit new carrier to mce device */
@@ -848,7 +821,7 @@ static void mceusb_handle_command(struct mceusb_dev *ir, int index)
 	switch (ir->buf_in[index]) {
 	/* 2-byte return value commands */
 	case MCE_CMD_S_TIMEOUT:
-		ir->rc->timeout = US_TO_NS((hi << 8 | lo) * MCE_TIME_UNIT);
+		ir->rc->timeout = US_TO_NS((hi << 8 | lo) / 2);
 		break;
 
 	/* 1-byte return value commands */
@@ -892,7 +865,7 @@ static void mceusb_process_ir_data(struct mceusb_dev *ir, int buf_len)
 			rawir.duration = (ir->buf_in[i] & MCE_PULSE_MASK)
 					 * US_TO_NS(MCE_TIME_UNIT);
 
-			mce_dbg(ir->dev, "Storing %s with duration %d\n",
+			dev_dbg(ir->dev, "Storing %s with duration %d\n",
 				rawir.pulse ? "pulse" : "space",
 				rawir.duration);
 
@@ -924,7 +897,7 @@ static void mceusb_process_ir_data(struct mceusb_dev *ir, int buf_len)
 		if (ir->parser_state != CMD_HEADER && !ir->rem)
 			ir->parser_state = CMD_HEADER;
 	}
-	mce_dbg(ir->dev, "processed IR data, calling ir_raw_event_handle\n");
+	dev_dbg(ir->dev, "processed IR data, calling ir_raw_event_handle\n");
 	ir_raw_event_handle(ir->rc);
 }
 
@@ -946,7 +919,7 @@ static void mceusb_dev_recv(struct urb *urb, struct pt_regs *regs)
 
 	if (ir->send_flags == RECV_FLAG_IN_PROGRESS) {
 		ir->send_flags = SEND_FLAG_COMPLETE;
-		mce_dbg(ir->dev, "setup answer received %d bytes\n",
+		dev_dbg(ir->dev, "setup answer received %d bytes\n",
 			buf_len);
 	}
 
@@ -964,7 +937,7 @@ static void mceusb_dev_recv(struct urb *urb, struct pt_regs *regs)
 
 	case -EPIPE:
 	default:
-		mce_dbg(ir->dev, "Error: urb status = %d\n", urb->status);
+		dev_dbg(ir->dev, "Error: urb status = %d\n", urb->status);
 		break;
 	}
 
@@ -974,6 +947,7 @@ static void mceusb_dev_recv(struct urb *urb, struct pt_regs *regs)
 static void mceusb_gen1_init(struct mceusb_dev *ir)
 {
 	int ret;
+	int maxp = ir->len_in;
 	struct device *dev = ir->dev;
 	char *data;
 
@@ -990,8 +964,8 @@ static void mceusb_gen1_init(struct mceusb_dev *ir)
 	ret = usb_control_msg(ir->usbdev, usb_rcvctrlpipe(ir->usbdev, 0),
 			      USB_REQ_SET_ADDRESS, USB_TYPE_VENDOR, 0, 0,
 			      data, USB_CTRL_MSG_SZ, HZ * 3);
-	mce_dbg(dev, "%s - ret = %d\n", __func__, ret);
-	mce_dbg(dev, "%s - data[0] = %d, data[1] = %d\n",
+	dev_dbg(dev, "%s - ret = %d\n", __func__, ret);
+	dev_dbg(dev, "%s - data[0] = %d, data[1] = %d\n",
 		__func__, data[0], data[1]);
 
 	/* set feature: bit rate 38400 bps */
@@ -999,56 +973,71 @@ static void mceusb_gen1_init(struct mceusb_dev *ir)
 			      USB_REQ_SET_FEATURE, USB_TYPE_VENDOR,
 			      0xc04e, 0x0000, NULL, 0, HZ * 3);
 
-	mce_dbg(dev, "%s - ret = %d\n", __func__, ret);
+	dev_dbg(dev, "%s - ret = %d\n", __func__, ret);
 
 	/* bRequest 4: set char length to 8 bits */
 	ret = usb_control_msg(ir->usbdev, usb_sndctrlpipe(ir->usbdev, 0),
 			      4, USB_TYPE_VENDOR,
 			      0x0808, 0x0000, NULL, 0, HZ * 3);
-	mce_dbg(dev, "%s - retB = %d\n", __func__, ret);
+	dev_dbg(dev, "%s - retB = %d\n", __func__, ret);
 
 	/* bRequest 2: set handshaking to use DTR/DSR */
 	ret = usb_control_msg(ir->usbdev, usb_sndctrlpipe(ir->usbdev, 0),
 			      2, USB_TYPE_VENDOR,
 			      0x0000, 0x0100, NULL, 0, HZ * 3);
-	mce_dbg(dev, "%s - retC = %d\n", __func__, ret);
+	dev_dbg(dev, "%s - retC = %d\n", __func__, ret);
 
 	/* device reset */
 	mce_async_out(ir, DEVICE_RESET, sizeof(DEVICE_RESET));
+	mce_sync_in(ir, NULL, maxp);
 
 	/* get hw/sw revision? */
 	mce_async_out(ir, GET_REVISION, sizeof(GET_REVISION));
+	mce_sync_in(ir, NULL, maxp);
 
 	kfree(data);
 };
 
 static void mceusb_gen2_init(struct mceusb_dev *ir)
 {
+	int maxp = ir->len_in;
+
 	/* device reset */
 	mce_async_out(ir, DEVICE_RESET, sizeof(DEVICE_RESET));
+	mce_sync_in(ir, NULL, maxp);
 
 	/* get hw/sw revision? */
 	mce_async_out(ir, GET_REVISION, sizeof(GET_REVISION));
+	mce_sync_in(ir, NULL, maxp);
 
 	/* unknown what the next two actually return... */
 	mce_async_out(ir, GET_UNKNOWN, sizeof(GET_UNKNOWN));
+	mce_sync_in(ir, NULL, maxp);
 	mce_async_out(ir, GET_UNKNOWN2, sizeof(GET_UNKNOWN2));
+	mce_sync_in(ir, NULL, maxp);
 }
 
 static void mceusb_get_parameters(struct mceusb_dev *ir)
 {
+	int maxp = ir->len_in;
+
 	/* get the carrier and frequency */
 	mce_async_out(ir, GET_CARRIER_FREQ, sizeof(GET_CARRIER_FREQ));
+	mce_sync_in(ir, NULL, maxp);
 
-	if (!ir->flags.no_tx)
+	if (!ir->flags.no_tx) {
 		/* get the transmitter bitmask */
 		mce_async_out(ir, GET_TX_BITMASK, sizeof(GET_TX_BITMASK));
+		mce_sync_in(ir, NULL, maxp);
+	}
 
 	/* get receiver timeout value */
 	mce_async_out(ir, GET_RX_TIMEOUT, sizeof(GET_RX_TIMEOUT));
+	mce_sync_in(ir, NULL, maxp);
 
 	/* get receiver sensor setting */
 	mce_async_out(ir, GET_RX_SENSOR, sizeof(GET_RX_SENSOR));
+	mce_sync_in(ir, NULL, maxp);
 }
 
 static struct rc_dev *mceusb_init_rc_dev(struct mceusb_dev *ir)
@@ -1079,7 +1068,7 @@ static struct rc_dev *mceusb_init_rc_dev(struct mceusb_dev *ir)
 	rc->priv = ir;
 	rc->driver_type = RC_DRIVER_IR_RAW;
 	rc->allowed_protos = RC_TYPE_ALL;
-	rc->timeout = MS_TO_NS(100);
+	rc->timeout = US_TO_NS(1000);
 	if (!ir->flags.no_tx) {
 		rc->s_tx_mask = mceusb_set_tx_mask;
 		rc->s_tx_carrier = mceusb_set_tx_carrier;
@@ -1119,7 +1108,7 @@ static int __devinit mceusb_dev_probe(struct usb_interface *intf,
 	bool tx_mask_normal;
 	int ir_intfnum;
 
-	mce_dbg(&intf->dev, "%s called\n", __func__);
+	dev_dbg(&intf->dev, "%s called\n", __func__);
 
 	idesc  = intf->cur_altsetting;
 
@@ -1147,7 +1136,7 @@ static int __devinit mceusb_dev_probe(struct usb_interface *intf,
 			ep_in = ep;
 			ep_in->bmAttributes = USB_ENDPOINT_XFER_INT;
 			ep_in->bInterval = 1;
-			mce_dbg(&intf->dev, "acceptable inbound endpoint "
+			dev_dbg(&intf->dev, "acceptable inbound endpoint "
 				"found\n");
 		}
 
@@ -1162,12 +1151,12 @@ static int __devinit mceusb_dev_probe(struct usb_interface *intf,
 			ep_out = ep;
 			ep_out->bmAttributes = USB_ENDPOINT_XFER_INT;
 			ep_out->bInterval = 1;
-			mce_dbg(&intf->dev, "acceptable outbound endpoint "
+			dev_dbg(&intf->dev, "acceptable outbound endpoint "
 				"found\n");
 		}
 	}
 	if (ep_in == NULL) {
-		mce_dbg(&intf->dev, "inbound and/or endpoint not found\n");
+		dev_dbg(&intf->dev, "inbound and/or endpoint not found\n");
 		return -ENODEV;
 	}
 
@@ -1212,15 +1201,15 @@ static int __devinit mceusb_dev_probe(struct usb_interface *intf,
 	if (!ir->rc)
 		goto rc_dev_fail;
 
+	/* flush buffers on the device */
+	mce_sync_in(ir, NULL, maxp);
+	mce_sync_in(ir, NULL, maxp);
+
 	/* wire up inbound data handler */
 	usb_fill_int_urb(ir->urb_in, dev, pipe, ir->buf_in,
 		maxp, (usb_complete_t) mceusb_dev_recv, ir, ep_in->bInterval);
 	ir->urb_in->transfer_dma = ir->dma_in;
 	ir->urb_in->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
-
-	/* flush buffers on the device */
-	mce_dbg(&intf->dev, "Flushing receive buffers\n");
-	mce_flush_rx_buffer(ir, maxp);
 
 	/* initialize device */
 	if (ir->flags.microsoft_gen1)

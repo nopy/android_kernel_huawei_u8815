@@ -33,21 +33,6 @@
 #define WM8903_MICBIAS_ENA_WIDTH                     1  /* MICBIAS_ENA */
 
 /*
- * WM8903_GPn_FN values
- *
- * See datasheets for list of valid values per pin
- */
-#define WM8903_GPn_FN_GPIO_OUTPUT                    0
-#define WM8903_GPn_FN_BCLK                           1
-#define WM8903_GPn_FN_IRQ_OUTPT                      2
-#define WM8903_GPn_FN_GPIO_INPUT                     3
-#define WM8903_GPn_FN_MICBIAS_CURRENT_DETECT         4
-#define WM8903_GPn_FN_MICBIAS_SHORT_DETECT           5
-#define WM8903_GPn_FN_DMIC_LR_CLK_OUTPUT             6
-#define WM8903_GPn_FN_FLL_LOCK_OUTPUT                8
-#define WM8903_GPn_FN_FLL_CLOCK_OUTPUT               9
-
-/*
  * R116 (0x74) - GPIO Control 1
  */
 #define WM8903_GP1_FN_MASK                      0x1F00  /* GP1_FN - [12:8] */
@@ -242,8 +227,6 @@
 #define WM8903_GP5_DB_SHIFT                          0  /* GP5_DB */
 #define WM8903_GP5_DB_WIDTH                          1  /* GP5_DB */
 
-#define WM8903_NUM_GPIO 5
-
 struct wm8903_platform_data {
 	bool irq_active_low;   /* Set if IRQ active low, default high */
 
@@ -256,8 +239,7 @@ struct wm8903_platform_data {
 
 	int micdet_delay;      /* Delay after microphone detection (ms) */
 
-	int gpio_base;
-	u32 gpio_cfg[WM8903_NUM_GPIO]; /* Default register values for GPIO pin mux */
+	u32 gpio_cfg[5];       /* Default register values for GPIO pin mux */
 };
 
 #endif

@@ -386,10 +386,8 @@ ep_read (struct file *fd, char __user *buf, size_t len, loff_t *ptr)
 
 	/* halt any endpoint by doing a "wrong direction" i/o call */
 	if (usb_endpoint_dir_in(&data->desc)) {
-		if (usb_endpoint_xfer_isoc(&data->desc)) {
-			mutex_unlock(&data->lock);
+		if (usb_endpoint_xfer_isoc(&data->desc))
 			return -EINVAL;
-		}
 		DBG (data->dev, "%s halt\n", data->name);
 		spin_lock_irq (&data->dev->lock);
 		if (likely (data->ep != NULL))
@@ -431,10 +429,8 @@ ep_write (struct file *fd, const char __user *buf, size_t len, loff_t *ptr)
 
 	/* halt any endpoint by doing a "wrong direction" i/o call */
 	if (!usb_endpoint_dir_in(&data->desc)) {
-		if (usb_endpoint_xfer_isoc(&data->desc)) {
-			mutex_unlock(&data->lock);
+		if (usb_endpoint_xfer_isoc(&data->desc))
 			return -EINVAL;
-		}
 		DBG (data->dev, "%s halt\n", data->name);
 		spin_lock_irq (&data->dev->lock);
 		if (likely (data->ep != NULL))

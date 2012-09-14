@@ -942,13 +942,13 @@ static int cx231xx_load_firmware(struct cx231xx *dev)
 
 	p_current_fw = vmalloc(1884180 * 4);
 	p_fw = p_current_fw;
-	if (p_current_fw == NULL) {
+	if (p_current_fw == 0) {
 		dprintk(2, "FAIL!!!\n");
 		return -1;
 	}
 
 	p_buffer = vmalloc(4096);
-	if (p_buffer == NULL) {
+	if (p_buffer == 0) {
 		dprintk(2, "FAIL!!!\n");
 		return -1;
 	}

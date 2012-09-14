@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,10 +28,10 @@
 #include <linux/android_pmem.h>
 #include <linux/clk.h>
 #include <mach/msm_subsystem_map.h>
-#include <media/msm/vidc_type.h>
-#include <media/msm/vcd_api.h>
-#include <media/msm/vidc_init.h>
+#include "vidc_type.h"
+#include "vcd_api.h"
 #include "venc_internal.h"
+#include "vidc_init.h"
 
 #if DEBUG
 #define DBG(x...) printk(KERN_DEBUG x)
@@ -597,9 +597,6 @@ u32 vid_enc_set_get_profile_level(struct video_client_ctx *client_ctx,
 		case VEN_LEVEL_H264_3p1:
 			level.level = VCD_LEVEL_H264_3p1;
 			break;
-		case VEN_LEVEL_H264_3p2:
-			level.level = VCD_LEVEL_H264_3p2;
-			break;
 		case VEN_LEVEL_H264_4:
 			level.level = VCD_LEVEL_H264_4;
 			break;
@@ -703,7 +700,7 @@ u32 vid_enc_set_get_profile_level(struct video_client_ctx *client_ctx,
 				profile_level->level = VEN_LEVEL_H264_3p1;
 				break;
 			case VCD_LEVEL_H264_3p2:
-				profile_level->level = VEN_LEVEL_H264_3p2;
+				status = false;
 				break;
 			case VCD_LEVEL_H264_4:
 				profile_level->level = VEN_LEVEL_H264_4;
@@ -1592,6 +1589,7 @@ u32 vid_enc_free_buffer(struct video_client_ctx *client_ctx,
 		    __func__, buffer_info->pbuffer);
 		return true;
 	}
+
 	vcd_status = vcd_free_buffer(client_ctx->vcd_handle, buffer_vcd,
 					 (u8 *)kernel_vaddr);
 
@@ -1707,10 +1705,6 @@ u32 vid_enc_set_recon_buffers(struct video_client_ctx *client_ctx,
 	struct vcd_property_hdr vcd_property_hdr;
 	struct vcd_property_enc_recon_buffer *control = NULL;
 	struct msm_mapped_buffer *mapped_buffer = NULL;
-	size_t ion_len = -1;
-	unsigned long phy_addr;
-	int rc = -1;
-	unsigned long ionflag;
 	if (!client_ctx || !venc_recon) {
 		pr_err("%s() Invalid params", __func__);
 		return false;
@@ -1733,86 +1727,39 @@ u32 vid_enc_set_recon_buffers(struct video_client_ctx *client_ctx,
 	control->pmem_fd = venc_recon->pmem_fd;
 	control->offset = venc_recon->offset;
 	control->user_virtual_addr = venc_recon->pbuffer;
+	if (get_pmem_file(control->pmem_fd, (unsigned long *)
+		(&(control->physical_addr)), (unsigned long *)
+		(&control->kernel_virtual_addr),
+		(unsigned long *) (&len), &file)) {
+			ERR("%s(): get_pmem_file failed\n", __func__);
+			return false;
+		}
+		put_pmem_file(file);
+		flags = MSM_SUBSYSTEM_MAP_IOVA;
+		mapped_buffer = msm_subsystem_map_buffer(
+		(unsigned long)control->physical_addr, len,
+		flags, vidc_mmu_subsystem,
+		sizeof(vidc_mmu_subsystem)/sizeof(unsigned int));
+		if (IS_ERR(mapped_buffer)) {
+			pr_err("buffer map failed");
+			return false;
+		}
+		control->client_data = (void *) mapped_buffer;
+		control->dev_addr = (u8 *)mapped_buffer->iova[0];
+		vcd_property_hdr.prop_id = VCD_I_RECON_BUFFERS;
+		vcd_property_hdr.sz =
+			sizeof(struct vcd_property_enc_recon_buffer);
 
-	if (!vcd_get_ion_status()) {
-		if (get_pmem_file(control->pmem_fd, (unsigned long *)
-			(&(control->physical_addr)), (unsigned long *)
-			(&control->kernel_virtual_addr),
-			(unsigned long *) (&len), &file)) {
-				ERR("%s(): get_pmem_file failed\n", __func__);
-				return false;
-			}
-			put_pmem_file(file);
-	} else {
-		client_ctx->recon_buffer_ion_handle[i] = ion_import_fd(
-				client_ctx->user_ion_client, control->pmem_fd);
-		if (IS_ERR_OR_NULL(client_ctx->recon_buffer_ion_handle[i])) {
-			ERR("%s(): get_ION_handle failed\n", __func__);
-			goto ion_error;
+		vcd_status = vcd_set_property(client_ctx->vcd_handle,
+						&vcd_property_hdr, control);
+		if (!vcd_status) {
+			DBG("vcd_set_property returned success\n");
+			return true;
+		} else {
+			ERR("%s(): vid_enc_set_recon_buffers failed = %u\n",
+					__func__, vcd_status);
+			return false;
 		}
-		rc = ion_handle_get_flags(client_ctx->user_ion_client,
-					client_ctx->recon_buffer_ion_handle[i],
-					&ionflag);
-		if (rc) {
-			ERR("%s():get_ION_flags fail\n",
-				 __func__);
-			goto ion_error;
-		}
-		control->kernel_virtual_addr = (u8 *) ion_map_kernel(
-			client_ctx->user_ion_client,
-			client_ctx->recon_buffer_ion_handle[i],
-			ionflag);
-		if (!control->kernel_virtual_addr) {
-			ERR("%s(): get_ION_kernel virtual addr fail\n",
-				 __func__);
-			goto ion_error;
-		}
-		rc = ion_phys(client_ctx->user_ion_client,
-				client_ctx->recon_buffer_ion_handle[i],
-				&phy_addr, &ion_len);
-		if (rc) {
-			ERR("%s():get_ION_kernel physical addr fail\n",
-				 __func__);
-			goto ion_error;
-		}
-		control->physical_addr =  (u8 *) phy_addr;
-		len = (unsigned long) ion_len;
-	}
-	flags = MSM_SUBSYSTEM_MAP_IOVA;
-	mapped_buffer = msm_subsystem_map_buffer(
-	(unsigned long)control->physical_addr, len,
-	flags, vidc_mmu_subsystem,
-	sizeof(vidc_mmu_subsystem)/sizeof(unsigned int));
-	if (IS_ERR(mapped_buffer)) {
-		pr_err("buffer map failed");
-		return false;
-	}
-	control->client_data = (void *) mapped_buffer;
-	control->dev_addr = (u8 *)mapped_buffer->iova[0];
-
-	vcd_property_hdr.prop_id = VCD_I_RECON_BUFFERS;
-	vcd_property_hdr.sz =
-		sizeof(struct vcd_property_enc_recon_buffer);
-
-	vcd_status = vcd_set_property(client_ctx->vcd_handle,
-					&vcd_property_hdr, control);
-	if (!vcd_status) {
-		DBG("vcd_set_property returned success\n");
-		return true;
-	} else {
-		ERR("%s(): vid_enc_set_recon_buffers failed = %u\n",
-				__func__, vcd_status);
-		return false;
-	}
-ion_error:
-	if (control->kernel_virtual_addr)
-		ion_unmap_kernel(client_ctx->user_ion_client,
-			client_ctx->recon_buffer_ion_handle[i]);
-	if (client_ctx->recon_buffer_ion_handle[i])
-		ion_free(client_ctx->user_ion_client,
-			client_ctx->recon_buffer_ion_handle[i]);
-		client_ctx->recon_buffer_ion_handle[i] = NULL;
-	return false;
 }
 
 u32 vid_enc_free_recon_buffers(struct video_client_ctx *client_ctx,
@@ -1851,15 +1798,6 @@ u32 vid_enc_free_recon_buffers(struct video_client_ctx *client_ctx,
 	vcd_property_hdr.sz = sizeof(struct vcd_property_buffer_size);
 	vcd_status = vcd_set_property(client_ctx->vcd_handle,
 						&vcd_property_hdr, control);
-	if (vcd_get_ion_status()) {
-		if (client_ctx->recon_buffer_ion_handle[i]) {
-			ion_unmap_kernel(client_ctx->user_ion_client,
-				client_ctx->recon_buffer_ion_handle[i]);
-			ion_free(client_ctx->user_ion_client,
-				client_ctx->recon_buffer_ion_handle[i]);
-			client_ctx->recon_buffer_ion_handle[i] = NULL;
-		}
-	}
 	memset(control, 0, sizeof(struct vcd_property_enc_recon_buffer));
 	return true;
 }

@@ -201,6 +201,9 @@ struct igbvf_adapter {
 	unsigned int restart_queue;
 	u32 txd_cmd;
 
+	bool detect_tx_hung;
+	u8 tx_timeout_factor;
+
 	u32 tx_int_delay;
 	u32 tx_abs_int_delay;
 

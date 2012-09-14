@@ -90,9 +90,6 @@ struct pm8921_bms_battery_data {
 struct pm8xxx_bms_core_data {
 	unsigned int	batt_temp_channel;
 	unsigned int	vbat_channel;
-	unsigned int	ref625mv_channel;
-	unsigned int	ref1p25v_channel;
-	unsigned int	batt_id_channel;
 };
 
 /**
@@ -102,6 +99,7 @@ struct pm8xxx_bms_core_data {
  *			calculated or the peak system current (mA)
  * @v_failure:		the voltage at which the battery is considered empty(mV)
  * @calib_delay_ms:	how often should the adc calculate gain and offset
+ * @batt_data:		the battery profile data for the one used in the board
  */
 struct pm8921_bms_platform_data {
 	struct pm8xxx_bms_core_data	bms_cdata;
@@ -109,51 +107,25 @@ struct pm8921_bms_platform_data {
 	unsigned int			i_test;
 	unsigned int			v_failure;
 	unsigned int			calib_delay_ms;
-	unsigned int			max_voltage_uv;
+	struct pm8921_bms_battery_data  *batt_data;
 };
 
 #if defined(CONFIG_PM8921_BMS) || defined(CONFIG_PM8921_BMS_MODULE)
-extern struct pm8921_bms_battery_data  palladium_1500_data;
 /**
  * pm8921_bms_get_vsense_avg - return the voltage across the sense
  *				resitor in microvolts
- * @result:	The pointer where the voltage will be updated. A -ve
- *		result means that the current is flowing in
- *		the battery - during battery charging
+ * @result:	The pointer where the voltage will be updated
  *
  * RETURNS:	Error code if there was a problem reading vsense, Zero otherwise
  *		The result won't be updated in case of an error.
- *
- *
  */
 int pm8921_bms_get_vsense_avg(int *result);
-
-/**
- * pm8921_bms_get_battery_current - return the battery current based on vsense
- *				resitor in microamperes
- * @result:	The pointer where the voltage will be updated. A -ve
- *		result means that the current is flowing in
- *		the battery - during battery charging
- *
- * RETURNS:	Error code if there was a problem reading vsense, Zero otherwise
- *		The result won't be updated in case of an error.
- *
- */
-int pm8921_bms_get_battery_current(int *result);
 
 /**
  * pm8921_bms_get_percent_charge - returns the current battery charge in percent
  *
  */
 int pm8921_bms_get_percent_charge(void);
-
-/**
- * pm8921_bms_get_fcc - returns fcc in mAh of the battery depending on its age
- *			and temperature
- *
- */
-int pm8921_bms_get_fcc(void);
-
 /**
  * pm8921_bms_charging_began - function to notify the bms driver that charging
  *				has started. Used by the bms driver to keep
@@ -165,13 +137,9 @@ void pm8921_bms_charging_began(void);
  *				has stopped. Used by the bms driver to keep
  *				track of chargecycles
  */
-void pm8921_bms_charging_end(int is_battery_full);
+void pm8921_bms_charging_end(void);
 #else
 static inline int pm8921_bms_get_vsense_avg(int *result)
-{
-	return -ENXIO;
-}
-static inline int pm8921_bms_get_battery_current(int *result)
 {
 	return -ENXIO;
 }
@@ -179,14 +147,10 @@ static inline int pm8921_bms_get_percent_charge(void)
 {
 	return -ENXIO;
 }
-static inline int pm8921_bms_get_fcc(void)
-{
-	return -ENXIO;
-}
 static inline void pm8921_bms_charging_began(void)
 {
 }
-static inline void pm8921_bms_charging_end(int is_battery_full)
+static inline void pm8921_bms_charging_end(void)
 {
 }
 #endif

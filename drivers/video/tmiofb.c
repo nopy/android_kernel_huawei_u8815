@@ -250,7 +250,8 @@ static irqreturn_t tmiofb_irq(int irq, void *__info)
  */
 static int tmiofb_hw_stop(struct platform_device *dev)
 {
-	struct tmio_fb_data *data = dev->dev.platform_data;
+	struct mfd_cell *cell = dev->dev.platform_data;
+	struct tmio_fb_data *data = cell->driver_data;
 	struct fb_info *info = platform_get_drvdata(dev);
 	struct tmiofb_par *par = info->par;
 
@@ -267,7 +268,7 @@ static int tmiofb_hw_stop(struct platform_device *dev)
  */
 static int tmiofb_hw_init(struct platform_device *dev)
 {
-	const struct mfd_cell *cell = mfd_get_cell(dev);
+	struct mfd_cell *cell = dev->dev.platform_data;
 	struct fb_info *info = platform_get_drvdata(dev);
 	struct tmiofb_par *par = info->par;
 	const struct resource *nlcr = &cell->resources[0];
@@ -311,7 +312,8 @@ static int tmiofb_hw_init(struct platform_device *dev)
  */
 static void tmiofb_hw_mode(struct platform_device *dev)
 {
-	struct tmio_fb_data *data = dev->dev.platform_data;
+	struct mfd_cell *cell = dev->dev.platform_data;
+	struct tmio_fb_data *data = cell->driver_data;
 	struct fb_info *info = platform_get_drvdata(dev);
 	struct fb_videomode *mode = info->mode;
 	struct tmiofb_par *par = info->par;
@@ -359,7 +361,7 @@ tmiofb_acc_wait(struct fb_info *info, unsigned int ccs)
 {
 	struct tmiofb_par *par = info->par;
 	/*
-	 * This code can be called with interrupts disabled.
+	 * This code can be called whith interrupts disabled.
 	 * So instead of relaying on irq to trigger the event,
 	 * poll the state till the necessary command is executed.
 	 */
@@ -557,7 +559,9 @@ static int tmiofb_ioctl(struct fb_info *fbi,
 static struct fb_videomode *
 tmiofb_find_mode(struct fb_info *info, struct fb_var_screeninfo *var)
 {
-	struct tmio_fb_data *data = info->device->platform_data;
+	struct mfd_cell *cell =
+		info->device->platform_data;
+	struct tmio_fb_data *data = cell->driver_data;
 	struct fb_videomode *best = NULL;
 	int i;
 
@@ -577,7 +581,9 @@ static int tmiofb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 
 	struct fb_videomode *mode;
-	struct tmio_fb_data *data = info->device->platform_data;
+	struct mfd_cell *cell =
+		info->device->platform_data;
+	struct tmio_fb_data *data = cell->driver_data;
 
 	mode = tmiofb_find_mode(info, var);
 	if (!mode || var->bits_per_pixel > 16)
@@ -677,8 +683,8 @@ static struct fb_ops tmiofb_ops = {
 
 static int __devinit tmiofb_probe(struct platform_device *dev)
 {
-	const struct mfd_cell *cell = mfd_get_cell(dev);
-	struct tmio_fb_data *data = dev->dev.platform_data;
+	struct mfd_cell *cell = dev->dev.platform_data;
+	struct tmio_fb_data *data = cell->driver_data;
 	struct resource *ccr = platform_get_resource(dev, IORESOURCE_MEM, 1);
 	struct resource *lcr = platform_get_resource(dev, IORESOURCE_MEM, 0);
 	struct resource *vram = platform_get_resource(dev, IORESOURCE_MEM, 2);
@@ -805,7 +811,7 @@ err_ioremap_ccr:
 
 static int __devexit tmiofb_remove(struct platform_device *dev)
 {
-	const struct mfd_cell *cell = mfd_get_cell(dev);
+	struct mfd_cell *cell = dev->dev.platform_data;
 	struct fb_info *info = platform_get_drvdata(dev);
 	int irq = platform_get_irq(dev, 0);
 	struct tmiofb_par *par;
@@ -935,7 +941,7 @@ static int tmiofb_suspend(struct platform_device *dev, pm_message_t state)
 #ifdef CONFIG_FB_TMIO_ACCELL
 	struct tmiofb_par *par = info->par;
 #endif
-	const struct mfd_cell *cell = mfd_get_cell(dev);
+	struct mfd_cell *cell = dev->dev.platform_data;
 	int retval = 0;
 
 	console_lock();
@@ -967,7 +973,7 @@ static int tmiofb_suspend(struct platform_device *dev, pm_message_t state)
 static int tmiofb_resume(struct platform_device *dev)
 {
 	struct fb_info *info = platform_get_drvdata(dev);
-	const struct mfd_cell *cell = mfd_get_cell(dev);
+	struct mfd_cell *cell = dev->dev.platform_data;
 	int retval = 0;
 
 	console_lock();

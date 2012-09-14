@@ -38,7 +38,6 @@
 #include <linux/clk.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
-#include <linux/prefetch.h>
 
 #include <asm/byteorder.h>
 #include <mach/hardware.h>
@@ -827,7 +826,7 @@ done:
 	return status;
 }
 
-/* reinit == restore initial software state */
+/* reinit == restore inital software state */
 static void udc_reinit(struct at91_udc *udc)
 {
 	u32 i;
@@ -1768,7 +1767,7 @@ static int __init at91udc_probe(struct platform_device *pdev)
 	}
 
 	/* newer chips have more FIFO memory than rm9200 */
-	if (cpu_is_at91sam9260() || cpu_is_at91sam9g20()) {
+	if (cpu_is_at91sam9260()) {
 		udc->ep[0].maxpacket = 64;
 		udc->ep[3].maxpacket = 64;
 		udc->ep[4].maxpacket = 512;
@@ -1799,10 +1798,8 @@ static int __init at91udc_probe(struct platform_device *pdev)
 	}
 
 	retval = device_register(&udc->gadget.dev);
-	if (retval < 0) {
-		put_device(&udc->gadget.dev);
+	if (retval < 0)
 		goto fail0b;
-	}
 
 	/* don't do anything until we have both gadget driver and VBUS */
 	clk_enable(udc->iclk);

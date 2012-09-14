@@ -652,7 +652,7 @@ static irqreturn_t znet_interrupt(int irq, void *dev_id)
 					dev->stats.tx_errors++;
 
 				/* Transceiver may be stuck if cable
-				 * was removed while emitting a
+				 * was removed while emiting a
 				 * packet. Flip it off, then on to
 				 * reset it. This is very empirical,
 				 * but it seems to work. */

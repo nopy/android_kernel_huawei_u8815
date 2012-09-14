@@ -2,7 +2,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2008 - 2011 Intel Corporation. All rights reserved.
+ * Copyright(c) 2008 - 2010 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -37,6 +37,54 @@
 #include "iwl-io.h"
 #include "iwl-agn.h"
 
+int iwlagn_send_rxon_assoc(struct iwl_priv *priv,
+			   struct iwl_rxon_context *ctx)
+{
+	int ret = 0;
+	struct iwl5000_rxon_assoc_cmd rxon_assoc;
+	const struct iwl_rxon_cmd *rxon1 = &ctx->staging;
+	const struct iwl_rxon_cmd *rxon2 = &ctx->active;
+
+	if ((rxon1->flags == rxon2->flags) &&
+	    (rxon1->filter_flags == rxon2->filter_flags) &&
+	    (rxon1->cck_basic_rates == rxon2->cck_basic_rates) &&
+	    (rxon1->ofdm_ht_single_stream_basic_rates ==
+	     rxon2->ofdm_ht_single_stream_basic_rates) &&
+	    (rxon1->ofdm_ht_dual_stream_basic_rates ==
+	     rxon2->ofdm_ht_dual_stream_basic_rates) &&
+	    (rxon1->ofdm_ht_triple_stream_basic_rates ==
+	     rxon2->ofdm_ht_triple_stream_basic_rates) &&
+	    (rxon1->acquisition_data == rxon2->acquisition_data) &&
+	    (rxon1->rx_chain == rxon2->rx_chain) &&
+	    (rxon1->ofdm_basic_rates == rxon2->ofdm_basic_rates)) {
+		IWL_DEBUG_INFO(priv, "Using current RXON_ASSOC.  Not resending.\n");
+		return 0;
+	}
+
+	rxon_assoc.flags = ctx->staging.flags;
+	rxon_assoc.filter_flags = ctx->staging.filter_flags;
+	rxon_assoc.ofdm_basic_rates = ctx->staging.ofdm_basic_rates;
+	rxon_assoc.cck_basic_rates = ctx->staging.cck_basic_rates;
+	rxon_assoc.reserved1 = 0;
+	rxon_assoc.reserved2 = 0;
+	rxon_assoc.reserved3 = 0;
+	rxon_assoc.ofdm_ht_single_stream_basic_rates =
+	    ctx->staging.ofdm_ht_single_stream_basic_rates;
+	rxon_assoc.ofdm_ht_dual_stream_basic_rates =
+	    ctx->staging.ofdm_ht_dual_stream_basic_rates;
+	rxon_assoc.rx_chain_select_flags = ctx->staging.rx_chain;
+	rxon_assoc.ofdm_ht_triple_stream_basic_rates =
+		 ctx->staging.ofdm_ht_triple_stream_basic_rates;
+	rxon_assoc.acquisition_data = ctx->staging.acquisition_data;
+
+	ret = iwl_send_cmd_pdu_async(priv, ctx->rxon_assoc_cmd,
+				     sizeof(rxon_assoc), &rxon_assoc, NULL);
+	if (ret)
+		return ret;
+
+	return ret;
+}
+
 int iwlagn_send_tx_ant_config(struct iwl_priv *priv, u8 valid_tx_ant)
 {
 	struct iwl_tx_ant_config_cmd tx_ant_cmd = {
@@ -52,6 +100,12 @@ int iwlagn_send_tx_ant_config(struct iwl_priv *priv, u8 valid_tx_ant)
 		IWL_DEBUG_HC(priv, "TX_ANT_CONFIGURATION_CMD not supported\n");
 		return -EOPNOTSUPP;
 	}
+}
+
+/* Currently this is the superset of everything */
+static u16 iwlagn_get_hcmd_size(u8 cmd_id, u16 len)
+{
+	return len;
 }
 
 static u16 iwlagn_build_addsta_hcmd(const struct iwl_addsta_cmd *cmd, u8 *data)
@@ -163,9 +217,17 @@ static void iwlagn_tx_cmd_protection(struct iwl_priv *priv,
 				     __le16 fc, __le32 *tx_flags)
 {
 	if (info->control.rates[0].flags & IEEE80211_TX_RC_USE_RTS_CTS ||
-	    info->control.rates[0].flags & IEEE80211_TX_RC_USE_CTS_PROTECT ||
-	    info->flags & IEEE80211_TX_CTL_AMPDU)
+	    info->control.rates[0].flags & IEEE80211_TX_RC_USE_CTS_PROTECT) {
 		*tx_flags |= TX_CMD_FLG_PROT_REQUIRE_MSK;
+		return;
+	}
+
+	if (priv->cfg->ht_params &&
+	    priv->cfg->ht_params->use_rts_for_aggregation &&
+	    info->flags & IEEE80211_TX_CTL_AMPDU) {
+		*tx_flags |= TX_CMD_FLG_PROT_REQUIRE_MSK;
+		return;
+	}
 }
 
 /* Calc max signal level (dBm) among 3 possible receivers */
@@ -243,11 +305,7 @@ static int iwlagn_set_pan_params(struct iwl_priv *priv)
 	cmd.slots[0].type = 0; /* BSS */
 	cmd.slots[1].type = 1; /* PAN */
 
-	if (priv->_agn.hw_roc_channel) {
-		/* both contexts must be used for this to happen */
-		slot1 = priv->_agn.hw_roc_duration;
-		slot0 = IWL_MIN_SLOT_TIME;
-	} else if (ctx_bss->vif && ctx_pan->vif) {
+	if (ctx_bss->vif && ctx_pan->vif) {
 		int bcnint = ctx_pan->vif->bss_conf.beacon_int;
 		int dtim = ctx_pan->vif->bss_conf.dtim_period ?: 1;
 
@@ -272,12 +330,12 @@ static int iwlagn_set_pan_params(struct iwl_priv *priv)
 		if (test_bit(STATUS_SCAN_HW, &priv->status) ||
 		    (!ctx_bss->vif->bss_conf.idle &&
 		     !ctx_bss->vif->bss_conf.assoc)) {
-			slot0 = dtim * bcnint * 3 - IWL_MIN_SLOT_TIME;
-			slot1 = IWL_MIN_SLOT_TIME;
+			slot0 = dtim * bcnint * 3 - 20;
+			slot1 = 20;
 		} else if (!ctx_pan->vif->bss_conf.idle &&
 			   !ctx_pan->vif->bss_conf.assoc) {
-			slot1 = bcnint * 3 - IWL_MIN_SLOT_TIME;
-			slot0 = IWL_MIN_SLOT_TIME;
+			slot1 = bcnint * 3 - 20;
+			slot0 = 20;
 		}
 	} else if (ctx_pan->vif) {
 		slot0 = 0;
@@ -286,8 +344,8 @@ static int iwlagn_set_pan_params(struct iwl_priv *priv)
 		slot1 = max_t(int, DEFAULT_BEACON_INTERVAL, slot1);
 
 		if (test_bit(STATUS_SCAN_HW, &priv->status)) {
-			slot0 = slot1 * 3 - IWL_MIN_SLOT_TIME;
-			slot1 = IWL_MIN_SLOT_TIME;
+			slot0 = slot1 * 3 - 20;
+			slot1 = 20;
 		}
 	}
 
@@ -302,6 +360,7 @@ static int iwlagn_set_pan_params(struct iwl_priv *priv)
 }
 
 struct iwl_hcmd_ops iwlagn_hcmd = {
+	.rxon_assoc = iwlagn_send_rxon_assoc,
 	.commit_rxon = iwlagn_commit_rxon,
 	.set_rxon_chain = iwlagn_set_rxon_chain,
 	.set_tx_ant = iwlagn_send_tx_ant_config,
@@ -310,6 +369,7 @@ struct iwl_hcmd_ops iwlagn_hcmd = {
 };
 
 struct iwl_hcmd_ops iwlagn_bt_hcmd = {
+	.rxon_assoc = iwlagn_send_rxon_assoc,
 	.commit_rxon = iwlagn_commit_rxon,
 	.set_rxon_chain = iwlagn_set_rxon_chain,
 	.set_tx_ant = iwlagn_send_tx_ant_config,
@@ -318,6 +378,7 @@ struct iwl_hcmd_ops iwlagn_bt_hcmd = {
 };
 
 struct iwl_hcmd_utils_ops iwlagn_hcmd_utils = {
+	.get_hcmd_size = iwlagn_get_hcmd_size,
 	.build_addsta_hcmd = iwlagn_build_addsta_hcmd,
 	.gain_computation = iwlagn_gain_computation,
 	.chain_noise_reset = iwlagn_chain_noise_reset,

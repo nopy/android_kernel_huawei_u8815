@@ -287,8 +287,7 @@ int iwm_cfg80211_inform_bss(struct iwm_priv *iwm)
 			return -EINVAL;
 		}
 
-		freq = ieee80211_channel_to_frequency(umac_bss->channel,
-						      band->band);
+		freq = ieee80211_channel_to_frequency(umac_bss->channel);
 		channel = ieee80211_get_channel(wiphy, freq);
 		signal = umac_bss->rssi * 100;
 

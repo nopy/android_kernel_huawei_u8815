@@ -111,7 +111,7 @@ static inline unsigned ncm_bitrate(struct usb_gadget *g)
 #define NTB_OUT_SIZE		16384
 
 /*
- * skbs of size less than that will not be aligned
+ * skbs of size less than that will not be alligned
  * to NCM's dwNtbInMaxSize to save bus bandwidth
  */
 

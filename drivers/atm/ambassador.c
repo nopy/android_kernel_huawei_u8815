@@ -497,7 +497,7 @@ static void rx_complete (amb_dev * dev, rx_out * rx) {
 	  // VC layer stats
 	  atomic_inc(&atm_vcc->stats->rx);
 	  __net_timestamp(skb);
-	  // end of our responsibility
+	  // end of our responsability
 	  atm_vcc->push (atm_vcc, skb);
 	  return;
 	  

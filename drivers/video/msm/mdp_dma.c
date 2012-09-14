@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -48,6 +48,12 @@ uint32 mdp_total_vdopkts;
 
 extern u32 msm_fb_debug_enabled;
 extern struct workqueue_struct *mdp_dma_wq;
+/* patch Qualcomm given 
+ * for solving CBAC ctrl backlight freezeing
+ * SR:00702188*/
+#ifdef CONFIG_HUAWEI_KERNEL
+extern struct completion dsi_mdp_comp; 
+#endif
 
 int vsync_start_y_adjust = 4;
 
@@ -274,7 +280,9 @@ enum hrtimer_restart mdp_dma2_vsync_hrtimer_handler(struct hrtimer *ht)
 
 		t = ktime_get_real();
 
-		actual_wait = ktime_to_us(ktime_sub(t, vt));
+		actual_wait =
+		    (t.tv.sec - vt.tv.sec) * 1000000 + (t.tv.nsec -
+							vt.tv.nsec) / 1000;
 		usec_diff = actual_wait - mdp_expected_usec_wait;
 
 		if ((mdp_usec_diff_threshold < usec_diff) || (usec_diff < 0))
@@ -302,12 +310,23 @@ void	mdp3_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
 	spin_lock_irqsave(&mdp_spin_lock, flag);
 #ifdef DSI_CLK_CTRL
 	if (mipi_dsi_clk_on == 0)
-		mipi_dsi_turn_on_clks();
+		mipi_dsi_clk_enable();
 #endif
 
 	if (mfd->dma->busy == TRUE) {
+		/* patch Qualcomm given 
+ 		 * for solving CBAC ctrl backlight freezeing
+ 		 * SR:00702188*/
+#ifdef CONFIG_HUAWEI_KERNEL
+		if (busy_wait_cnt == 0)
+		{
+			INIT_COMPLETION(mfd->dma->comp);
+			INIT_COMPLETION(dsi_mdp_comp); 
+		}
+#else
 		if (busy_wait_cnt == 0)
 			INIT_COMPLETION(mfd->dma->comp);
+#endif 
 		busy_wait_cnt++;
 		need_wait++;
 	}
@@ -316,6 +335,10 @@ void	mdp3_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
 	if (need_wait) {
 		/* wait until DMA finishes the current job */
 		wait_for_completion(&mfd->dma->comp);
+		/* wait until DSI finishes the current job */ 
+#ifdef CONFIG_HUAWEI_KERNEL
+		wait_for_completion(&dsi_mdp_comp); 
+#endif 
 	}
 }
 #endif
@@ -340,7 +363,8 @@ static void mdp_dma_schedule(struct msm_fb_data_type *mfd, uint32 term)
 	if (term == MDP_DMA2_TERM)
 		mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	mdp_dma2_update_time_in_usec = ktime_to_us(mdp_dma2_last_update_time);
+	mdp_dma2_update_time_in_usec =
+	    MDP_KTIME2USEC(mdp_dma2_last_update_time);
 
 	if ((!mfd->ibuf.vsync_enable) || (!mfd->panel_info.lcd.vsync_enable)
 	    || (mfd->use_mdp_vsync)) {
@@ -427,7 +451,8 @@ static void mdp_dma_schedule(struct msm_fb_data_type *mfd, uint32 term)
 	} else {
 		ktime_t wait_time;
 
-		wait_time = ns_to_ktime(usec_wait_time * 1000);
+		wait_time.tv.sec = 0;
+		wait_time.tv.nsec = usec_wait_time * 1000;
 
 		if (msm_fb_debug_enabled) {
 			vt = ktime_get_real();
@@ -487,6 +512,12 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 		mdp_enable_irq(MDP_DMA2_TERM);
 		mfd->dma->busy = TRUE;
 		INIT_COMPLETION(mfd->dma->comp);
+		/* patch Qualcomm given 
+ 		 * for solving CBAC ctrl backlight freezeing
+ 		 * SR:00702188*/
+#ifdef CONFIG_HUAWEI_KERNEL
+		INIT_COMPLETION(dsi_mdp_comp);
+#endif 
 
 		/* schedule DMA to start */
 		mdp_dma_schedule(mfd, MDP_DMA2_TERM);
@@ -494,6 +525,10 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 
 		/* wait until DMA finishes the current job */
 		wait_for_completion_killable(&mfd->dma->comp);
+		/* wait until DSI cmd engine finishes the current job */ 
+#ifdef CONFIG_HUAWEI_KERNEL
+		wait_for_completion_killable(&dsi_mdp_comp); 
+#endif 
 		mdp_disable_irq(MDP_DMA2_TERM);
 
 	/* signal if pan function is waiting for the update completion */
@@ -503,23 +538,6 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 		}
 	}
 	up(&mfd->dma->mutex);
-}
-
-void mdp_dma_vsync_ctrl(int enable)
-{
-	if (vsync_cntrl.vsync_irq_enabled == enable)
-		return;
-
-	vsync_cntrl.vsync_irq_enabled = enable;
-
-	if (enable) {
-		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-		MDP_OUTP(MDP_BASE + 0x021c, 0x10); /* read pointer */
-		mdp3_vsync_irq_enable(MDP_PRIM_RDPTR, MDP_VSYNC_TERM);
-	} else {
-		mdp3_vsync_irq_disable(MDP_PRIM_RDPTR, MDP_VSYNC_TERM);
-		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-	}
 }
 
 void mdp_lcd_update_workqueue_handler(struct work_struct *work)

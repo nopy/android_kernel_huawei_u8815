@@ -75,8 +75,7 @@ static int afs_inode_map_status(struct afs_vnode *vnode, struct key *key)
 	inode->i_ctime.tv_nsec	= 0;
 	inode->i_atime		= inode->i_mtime = inode->i_ctime;
 	inode->i_blocks		= 0;
-	inode->i_generation	= vnode->fid.unique;
-	inode->i_version	= vnode->status.data_version;
+	inode->i_version	= vnode->fid.unique;
 	inode->i_mapping->a_ops	= &afs_fs_aops;
 
 	/* check to see whether a symbolic link is really a mountpoint */
@@ -101,7 +100,7 @@ static int afs_iget5_test(struct inode *inode, void *opaque)
 	struct afs_iget_data *data = opaque;
 
 	return inode->i_ino == data->fid.vnode &&
-		inode->i_generation == data->fid.unique;
+		inode->i_version == data->fid.unique;
 }
 
 /*
@@ -123,7 +122,7 @@ static int afs_iget5_set(struct inode *inode, void *opaque)
 	struct afs_vnode *vnode = AFS_FS_I(inode);
 
 	inode->i_ino = data->fid.vnode;
-	inode->i_generation = data->fid.unique;
+	inode->i_version = data->fid.unique;
 	vnode->fid = data->fid;
 	vnode->volume = data->volume;
 
@@ -381,7 +380,8 @@ int afs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 
 	inode = dentry->d_inode;
 
-	_enter("{ ino=%lu v=%u }", inode->i_ino, inode->i_generation);
+	_enter("{ ino=%lu v=%llu }", inode->i_ino,
+		(unsigned long long)inode->i_version);
 
 	generic_fillattr(inode, stat);
 	return 0;

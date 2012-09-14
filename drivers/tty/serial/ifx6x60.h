@@ -29,6 +29,8 @@
 #define DRVNAME				"ifx6x60"
 #define TTYNAME				"ttyIFX"
 
+/* #define IFX_THROTTLE_CODE */
+
 #define IFX_SPI_MAX_MINORS		1
 #define IFX_SPI_TRANSFER_SIZE		2048
 #define IFX_SPI_FIFO_SIZE		4096
@@ -86,9 +88,7 @@ struct ifx_spi_device {
 	dma_addr_t rx_dma;
 	dma_addr_t tx_dma;
 
-	int modem;		/* Modem type */
-	int use_dma;		/* provide dma-able addrs in SPI msg */
-	long max_hz;		/* max SPI frequency */
+	int is_6160;				/* Modem type */
 
 	spinlock_t write_lock;
 	int write_pending;

@@ -39,11 +39,14 @@
 #ifdef CONFIG_ANDROID_POWER
 #include <linux/android_power.h>
 #endif
-/* modify for 4125 baseline */
 #include <linux/slab.h>
-#include <asm/mach-types.h>
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 #include <linux/hw_dev_dec.h>
+#endif
+
+/* usb rpc to replace pcom mechanism for fix reset issue */
+#ifdef CONFIG_HUAWEI_KERNEL
+#include <mach/oem_rapi_client.h>
 #endif
 
 #include "../../../arch/arm/mach-msm/proc_comm.h"
@@ -196,12 +199,11 @@ static void AKECS_Report_Value(short *rbuf)
 		input_report_abs(data->input_dev, ABS_RUDDER, 3);
 	}
 	
-	/* modify the magnetic values  */
 	/* Report magnetic sensor information */
 	if (atomic_read(&mv_flag)) {
-		input_report_abs(data->input_dev, ABS_HAT0X, -rbuf[3]);
+		input_report_abs(data->input_dev, ABS_HAT0X, rbuf[3]);
 		input_report_abs(data->input_dev, ABS_HAT0Y, rbuf[4]);
-		input_report_abs(data->input_dev, ABS_BRAKE, -rbuf[5]);
+		input_report_abs(data->input_dev, ABS_BRAKE, rbuf[5]);
 	}
 	
 	input_sync(data->input_dev);
@@ -266,6 +268,7 @@ static int st303_aot_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 st303_aot_ioctl(struct file *file,
 	      unsigned int cmd, unsigned long arg)
@@ -365,6 +368,7 @@ static int st303d_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* modify iotcl interface */
 static long
 st303d_ioctl(struct file *file, unsigned int cmd,
 	   unsigned long arg)
@@ -373,7 +377,7 @@ st303d_ioctl(struct file *file, unsigned int cmd,
 
 	char rwbuf[16];
 	int ret = -1, status;
-	short value[12], delay;
+	short value[12], delay;	
 
 	switch (cmd) {
 		case ECS_IOCTL_READ:
@@ -402,6 +406,7 @@ st303d_ioctl(struct file *file, unsigned int cmd,
 			if (rwbuf[0] < 1)
 				return -EINVAL;
 			ret = AKI2C_RxData(&rwbuf[1], rwbuf[0]);
+
 			if(DEV_ID_303DLM == st303_dev_id)
 			{
 				int temp = 0;
@@ -520,6 +525,7 @@ static int st303_init_client(struct i2c_client *client)
 	return 0;
 }
 
+/* modify iotcl interface */
 static struct file_operations st303d_fops = {
 	.owner = THIS_MODULE,
 	.open = st303d_open,
@@ -662,10 +668,15 @@ int st303_probe(struct i2c_client *client, const struct i2c_device_id * devid)
 	unsigned long  nv_value = 1;
     unsigned nv_item = 60019;
     int  rval = -1;
-	struct compass_platform_data *pdata = NULL;
 
 	
+    /* usb rpc to replace pcom mechanism for fix reset issue */
+#ifndef CONFIG_HUAWEI_KERNEL
 	rval = msm_proc_comm(PCOM_NV_READ, &nv_item, (unsigned*)&nv_value); 
+#else
+    rval = (int)oem_rapi_read_nv(nv_item, &nv_value, (u8)sizeof(nv_value));
+#endif
+
 	if(0 == rval)
 	{
 		printk(KERN_ERR"st303_compass: read OK! nv(%d)=%d, rval=%d\n", nv_item, (int)nv_value, rval);
@@ -678,17 +689,8 @@ int st303_probe(struct i2c_client *client, const struct i2c_device_id * devid)
 		err = -ENODEV;
 		goto exit_check_functionality_failed;
 	}
-
-	/*turn on the power*/
-	pdata = client->dev.platform_data;
-	if (pdata){
-		if(pdata->compass_power != NULL){
-			err = pdata->compass_power(IC_PM_ON);
-			if(err < 0 ){
-				goto exit_check_functionality_failed;
-			}
-		}
-	}
+	
+	client->addr = 0x1E;//8bit address is 0x3c
 
 #ifdef DEBUG_WQ
 	#ifndef   GS_POLLING 	
@@ -719,6 +721,7 @@ int st303_probe(struct i2c_client *client, const struct i2c_device_id * devid)
 		printk(KERN_ERR "st303_compass probe: Failed to allocate input device\n");
 		goto exit_input_dev_alloc_failed;
 	}
+
 	for(i=0; i<3; i++)
 	{
 		rc = i2c_smbus_read_byte_data(client,HIDED_EARTH_MAGIC_REG);  /*read HIDED Magic register in order to check who am I*/
@@ -780,7 +783,13 @@ int st303_probe(struct i2c_client *client, const struct i2c_device_id * devid)
 		if( nv_value != COMPASS_INIT_SUCCESS)
 		{
 			nv_compass_state = COMPASS_INIT_SUCCESS;
+            /* usb rpc to replace pcom mechanism for fix reset issue */
+#ifndef CONFIG_HUAWEI_KERNEL            
 			rval = msm_proc_comm(PCOM_NV_WRITE, &nv_item, (unsigned*)&nv_compass_state); 
+#else
+            rval = (int)oem_rapi_write_nv(nv_item, &nv_compass_state, (u8)sizeof(nv_compass_state));
+#endif
+
 	        if(0 == rval)
 	        {
 	            printk(KERN_ERR"st303_compass: probe OK,write OK! nv(%d)=%d, rval=%d\n", nv_item, (int)nv_compass_state, rval);
@@ -869,22 +878,22 @@ exit_misc_device_register_failed1:
 exit_input_dev_alloc_failed:
 	kfree(st303);
 exit_alloc_data_failed:
-/*turn down the power*/
 #ifdef DEBUG_WQ
 #ifndef   GS_POLLING 
 	gs_free_int();
-err_power_failed:
 #endif
 #endif
-	if(pdata->compass_power != NULL){
-		pdata->compass_power(IC_PM_OFF);
-	}
 exit_check_functionality_failed:
 	
 	nv_compass_state = COMPASS_INIT_FAIL;
 	if(nv_compass_state != nv_value)
 	{
+        /* usb rpc to replace pcom mechanism for fix reset issue */
+#ifndef CONFIG_HUAWEI_KERNEL
 		rval = msm_proc_comm(PCOM_NV_WRITE, &nv_item, (unsigned*)&nv_compass_state); 
+#else
+        rval = (int)oem_rapi_write_nv(nv_item, &nv_compass_state, (u8)sizeof(nv_compass_state));
+#endif
 		if(0 == rval)
 		{
 			printk(KERN_ERR"st303_compass:probe failded write OK! nv(%d)=%d, rval=%d\n", nv_item, (int)nv_compass_state, rval);
@@ -894,10 +903,9 @@ exit_check_functionality_failed:
 			printk(KERN_ERR"st303_compass: probe failded write failed! nv(%d)=%d, rval=%d\n", nv_item, (int)nv_compass_state, rval);
 		}
 	}	
-	/*delete 8 lines*/
 	return err;
 }
-/* modify for 4125 baseline */
+
 static int st303_detect(struct i2c_client *client,
 			  struct i2c_board_info *info)
 {

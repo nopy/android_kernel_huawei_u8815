@@ -42,7 +42,6 @@
 #define CTRL_REG4       0x23    /* interrupt control reg */
 #define CTRL_REG5       0x24    /* interrupt control reg */
 #define AXISDATA_REG    0x28
-/*use FAE adviced value*/
 #define MAX_VAL         11000    
 #define MIN_VAL         2800
 #define NORMAL_TM       10000000  /*10 HZ*/
@@ -85,7 +84,7 @@ struct l3g4200d_data {
 	struct mutex  mlock;
 	struct hrtimer timer;
 	struct work_struct  work;	
-	int flags;  
+	int flags;   //dev open flag
 	struct early_suspend early_suspend;
 };
 
@@ -303,15 +302,10 @@ static void gy_work_func(struct work_struct *work)
 	input_report_abs(gy->input_dev, ABS_Y, sensor_data.y);		
 	input_report_abs(gy->input_dev, ABS_Z, sensor_data.z);
 	input_sync(gy->input_dev);
-	/*initalize timer os gyro*/
 	if(gyro->flags > 0)
-	{
 		hrtimer_start(&gy->timer, ktime_set(sesc, NORMAL_TM), HRTIMER_MODE_REL);
-	}
 	else
-	{
 		hrtimer_start(&gy->timer, ktime_set(SUSPEND_VAL, 0), HRTIMER_MODE_REL);
-	}
 }
 /*  i2c read routine for l3g4200d digital gyroscope */
 static char l3g4200d_i2c_read(unsigned char reg_addr,
@@ -406,6 +400,7 @@ static int l3g4200d_close(struct inode *inode, struct file *file)
 
 
 /*  ioctl command for l3g4200d device file */
+/* modify iotcl interface */
 static long l3g4200d_ioctl(struct file *file,
 			       unsigned int cmd, unsigned long arg)
 {
@@ -600,6 +595,7 @@ static int l3g4200d_validate_pdata(struct l3g4200d_data *gyro)
 	return 0;
 }
 
+/* modify iotcl interface */
 static const struct file_operations l3g4200d_fops = {
 	.owner = THIS_MODULE,
 	.read = l3g4200d_read,
@@ -802,7 +798,6 @@ static int l3g4200d_suspend(struct i2c_client *client, pm_message_t state)
 {
 	int ret;
 	struct l3g4200d_data *lis = i2c_get_clientdata(client);
-	/*add mutex if gyro suspend*/
 	mutex_lock(&lis->mlock);
 	ret = l3g4200d_set_mode(PM_OFF);
 	if(ret < 0)
@@ -819,22 +814,16 @@ static int l3g4200d_resume(struct i2c_client *client)
 {
 	int ret;
 	struct l3g4200d_data *lis = i2c_get_clientdata(client);
-	/*if gyro is opened, need to set power reg bit*/
-	/*add mutex if gyro resume*/
+	ret = l3g4200d_set_mode(PM_NORMAL);
+	if(ret < 0)
+	{
+		printk(KERN_ERR "open device i2c set mode PM_NORMAL err!\n");	
+	}
 	mutex_lock(&lis->mlock);
 	if(gyro->flags > 0)
-	{
-		ret = l3g4200d_set_mode(PM_NORMAL);
-		if(ret < 0)
-		{
-			printk(KERN_ERR "open device i2c set mode PM_NORMAL err!\n");	
-		}
 		hrtimer_start(&lis->timer, ktime_set(0, NORMAL_TM), HRTIMER_MODE_REL);
-	}
 	else
-	{
 		hrtimer_start(&lis->timer, ktime_set(SUSPEND_VAL, 0), HRTIMER_MODE_REL);
-	}
 	mutex_unlock(&lis->mlock);
 	return 0;
 }

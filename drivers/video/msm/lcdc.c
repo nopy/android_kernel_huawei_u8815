@@ -29,6 +29,7 @@
 #include <linux/clk.h>
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
+#include <mach/clk.h>
 
 #include "msm_fb.h"
 
@@ -77,7 +78,7 @@ static int lcdc_off(struct platform_device *pdev)
 #ifndef CONFIG_MSM_BUS_SCALING
 	if (mfd->ebi1_clk) {
 		if (mdp_rev == MDP_REV_303) {
-			if (clk_set_rate(mfd->ebi1_clk, 0))
+			if (clk_set_min_rate(mfd->ebi1_clk, 0))
 				pr_err("%s: ebi1_lcdc_clk set rate failed\n",
 					__func__);
 		}
@@ -116,7 +117,7 @@ static int lcdc_on(struct platform_device *pdev)
 
 	if (mfd->ebi1_clk) {
 		if (mdp_rev == MDP_REV_303) {
-			if (clk_set_rate(mfd->ebi1_clk, 65000000))
+			if (clk_set_min_rate(mfd->ebi1_clk, 65000000))
 				pr_err("%s: ebi1_lcdc_clk set rate failed\n",
 					__func__);
 		} else {
@@ -208,11 +209,17 @@ static int lcdc_probe(struct platform_device *pdev)
 	 */
 	mfd->panel_info = pdata->panel_info;
 
+	/* RGB interface settings for RGB_565 */
 	if (mfd->index == 0)
+	{
+	#ifdef CONFIG_HUAWEI_KERNEL
+		mfd->fb_imgType = MDP_RGB_565;
+	#else
 		mfd->fb_imgType = MSMFB_DEFAULT_TYPE;
+	#endif
+	}
 	else
 		mfd->fb_imgType = MDP_RGB_565;
-
 	fbi = mfd->fbi;
 	fbi->var.pixclock = clk_round_rate(pixel_mdp_clk,
 					mfd->panel_info.clk_rate);

@@ -16,6 +16,7 @@
 #include <linux/cdev.h>
 #include <linux/ioport.h>
 #include <linux/pci.h>
+#include <linux/smp_lock.h>
 #include <linux/semaphore.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>

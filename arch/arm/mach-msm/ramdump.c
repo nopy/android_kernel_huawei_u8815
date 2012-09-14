@@ -198,8 +198,8 @@ void *create_ramdump_device(const char *dev_name)
 		return NULL;
 	}
 
-	snprintf(rd_dev->name, ARRAY_SIZE(rd_dev->name), "ramdump_%s",
-		 dev_name);
+	strncpy(rd_dev->name, "ramdump_", 256);
+	strncat(rd_dev->name, dev_name, 256);
 
 	init_completion(&rd_dev->ramdump_complete);
 

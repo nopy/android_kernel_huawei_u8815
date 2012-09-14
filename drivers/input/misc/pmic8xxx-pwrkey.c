@@ -23,7 +23,7 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/input/pmic8xxx-pwrkey.h>
 
-#define PON_CNTL_1 0x1C
+#define PON_CNTL_1	0x1C
 #define PON_CNTL_PULL_UP BIT(7)
 #define PON_CNTL_TRIG_DELAY_MASK (0x7)
 
@@ -58,7 +58,7 @@ static irqreturn_t pwrkey_release_irq(int irq, void *_pwrkey)
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_PM_SLEEP
+#ifdef CONFIG_PM
 static int pmic8xxx_pwrkey_suspend(struct device *dev)
 {
 	struct pmic8xxx_pwrkey *pwrkey = dev_get_drvdata(dev);
@@ -78,10 +78,12 @@ static int pmic8xxx_pwrkey_resume(struct device *dev)
 
 	return 0;
 }
-#endif
 
-static SIMPLE_DEV_PM_OPS(pm8xxx_pwr_key_pm_ops,
-		pmic8xxx_pwrkey_suspend, pmic8xxx_pwrkey_resume);
+static const struct dev_pm_ops pm8xxx_pwr_key_pm_ops = {
+	.suspend	= pmic8xxx_pwrkey_suspend,
+	.resume		= pmic8xxx_pwrkey_resume,
+};
+#endif
 
 static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 {
@@ -93,16 +95,14 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	u8 pon_cntl;
 	struct pmic8xxx_pwrkey *pwrkey;
 	const struct pm8xxx_pwrkey_platform_data *pdata =
-					dev_get_platdata(&pdev->dev);
+						pdev->dev.platform_data;
 
 	if (!pdata) {
 		dev_err(&pdev->dev, "power key platform data not supplied\n");
 		return -EINVAL;
 	}
 
-	/* Valid range of pwr key trigger delay is 1/64 sec to 2 seconds. */
-	if (pdata->kpd_trigger_delay_us > USEC_PER_SEC * 2 ||
-		pdata->kpd_trigger_delay_us < USEC_PER_SEC / 64) {
+	if (pdata->kpd_trigger_delay_us > 62500) {
 		dev_err(&pdev->dev, "invalid power key trigger delay\n");
 		return -EINVAL;
 	}
@@ -126,8 +126,8 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	pwr->phys = "pmic8xxx_pwrkey/input0";
 	pwr->dev.parent = &pdev->dev;
 
-	delay = (pdata->kpd_trigger_delay_us << 6) / USEC_PER_SEC;
-	delay = ilog2(delay);
+	delay = (pdata->kpd_trigger_delay_us << 10) / USEC_PER_SEC;
+	delay = 1 + ilog2(delay);
 
 	err = pm8xxx_readb(pdev->dev.parent, PON_CNTL_1, &pon_cntl);
 	if (err < 0) {
@@ -159,7 +159,7 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwrkey);
 
-	err = request_any_context_irq(key_press_irq, pwrkey_press_irq,
+	err = request_threaded_irq(key_press_irq, NULL, pwrkey_press_irq,
 		IRQF_TRIGGER_RISING, "pmic8xxx_pwrkey_press", pwrkey);
 	if (err < 0) {
 		dev_dbg(&pdev->dev, "Can't get %d IRQ for pwrkey: %d\n",
@@ -167,7 +167,7 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 		goto unreg_input_dev;
 	}
 
-	err = request_any_context_irq(key_release_irq, pwrkey_release_irq,
+	err = request_threaded_irq(key_release_irq, NULL, pwrkey_release_irq,
 		 IRQF_TRIGGER_RISING, "pmic8xxx_pwrkey_release", pwrkey);
 	if (err < 0) {
 		dev_dbg(&pdev->dev, "Can't get %d IRQ for pwrkey: %d\n",
@@ -216,7 +216,9 @@ static struct platform_driver pmic8xxx_pwrkey_driver = {
 	.driver		= {
 		.name	= PM8XXX_PWRKEY_DEV_NAME,
 		.owner	= THIS_MODULE,
+#ifdef CONFIG_PM
 		.pm	= &pm8xxx_pwr_key_pm_ops,
+#endif
 	},
 };
 

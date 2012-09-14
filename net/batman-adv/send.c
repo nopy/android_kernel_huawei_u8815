@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2011 B.A.T.M.A.N. contributors:
+ * Copyright (C) 2007-2010 B.A.T.M.A.N. contributors:
  *
  * Marek Lindner, Simon Wunderlich
  *
@@ -25,6 +25,7 @@
 #include "translation-table.h"
 #include "soft-interface.h"
 #include "hard-interface.h"
+#include "types.h"
 #include "vis.h"
 #include "aggregation.h"
 #include "gateway_common.h"
@@ -48,7 +49,7 @@ static unsigned long own_send_time(struct bat_priv *bat_priv)
 }
 
 /* when do we schedule a forwarded packet to be sent */
-static unsigned long forward_send_time(void)
+static unsigned long forward_send_time(struct bat_priv *bat_priv)
 {
 	return jiffies + msecs_to_jiffies(random32() % (JITTER/2));
 }
@@ -56,20 +57,20 @@ static unsigned long forward_send_time(void)
 /* send out an already prepared packet to the given address via the
  * specified batman interface */
 int send_skb_packet(struct sk_buff *skb,
-				struct hard_iface *hard_iface,
+				struct batman_if *batman_if,
 				uint8_t *dst_addr)
 {
 	struct ethhdr *ethhdr;
 
-	if (hard_iface->if_status != IF_ACTIVE)
+	if (batman_if->if_status != IF_ACTIVE)
 		goto send_skb_err;
 
-	if (unlikely(!hard_iface->net_dev))
+	if (unlikely(!batman_if->net_dev))
 		goto send_skb_err;
 
-	if (!(hard_iface->net_dev->flags & IFF_UP)) {
+	if (!(batman_if->net_dev->flags & IFF_UP)) {
 		pr_warning("Interface %s is not up - can't send packet via "
-			   "that interface!\n", hard_iface->net_dev->name);
+			   "that interface!\n", batman_if->net_dev->name);
 		goto send_skb_err;
 	}
 
@@ -80,7 +81,7 @@ int send_skb_packet(struct sk_buff *skb,
 	skb_reset_mac_header(skb);
 
 	ethhdr = (struct ethhdr *) skb_mac_header(skb);
-	memcpy(ethhdr->h_source, hard_iface->net_dev->dev_addr, ETH_ALEN);
+	memcpy(ethhdr->h_source, batman_if->net_dev->dev_addr, ETH_ALEN);
 	memcpy(ethhdr->h_dest, dst_addr, ETH_ALEN);
 	ethhdr->h_proto = __constant_htons(ETH_P_BATMAN);
 
@@ -88,7 +89,7 @@ int send_skb_packet(struct sk_buff *skb,
 	skb->priority = TC_PRIO_CONTROL;
 	skb->protocol = __constant_htons(ETH_P_BATMAN);
 
-	skb->dev = hard_iface->net_dev;
+	skb->dev = batman_if->net_dev;
 
 	/* dev_queue_xmit() returns a negative result on error.	 However on
 	 * congestion and traffic shaping, it drops and returns NET_XMIT_DROP
@@ -102,16 +103,16 @@ send_skb_err:
 
 /* Send a packet to a given interface */
 static void send_packet_to_if(struct forw_packet *forw_packet,
-			      struct hard_iface *hard_iface)
+			      struct batman_if *batman_if)
 {
-	struct bat_priv *bat_priv = netdev_priv(hard_iface->soft_iface);
+	struct bat_priv *bat_priv = netdev_priv(batman_if->soft_iface);
 	char *fwd_str;
 	uint8_t packet_num;
 	int16_t buff_pos;
 	struct batman_packet *batman_packet;
 	struct sk_buff *skb;
 
-	if (hard_iface->if_status != IF_ACTIVE)
+	if (batman_if->if_status != IF_ACTIVE)
 		return;
 
 	packet_num = 0;
@@ -121,12 +122,12 @@ static void send_packet_to_if(struct forw_packet *forw_packet,
 	/* adjust all flags and log packets */
 	while (aggregated_packet(buff_pos,
 				 forw_packet->packet_len,
-				 batman_packet->num_tt)) {
+				 batman_packet->num_hna)) {
 
 		/* we might have aggregated direct link packets with an
 		 * ordinary base packet */
 		if ((forw_packet->direct_link_flags & (1 << packet_num)) &&
-		    (forw_packet->if_incoming == hard_iface))
+		    (forw_packet->if_incoming == batman_if))
 			batman_packet->flags |= DIRECTLINK;
 		else
 			batman_packet->flags &= ~DIRECTLINK;
@@ -142,11 +143,10 @@ static void send_packet_to_if(struct forw_packet *forw_packet,
 			batman_packet->tq, batman_packet->ttl,
 			(batman_packet->flags & DIRECTLINK ?
 			 "on" : "off"),
-			hard_iface->net_dev->name,
-			hard_iface->net_dev->dev_addr);
+			batman_if->net_dev->name, batman_if->net_dev->dev_addr);
 
 		buff_pos += sizeof(struct batman_packet) +
-			(batman_packet->num_tt * ETH_ALEN);
+			(batman_packet->num_hna * ETH_ALEN);
 		packet_num++;
 		batman_packet = (struct batman_packet *)
 			(forw_packet->skb->data + buff_pos);
@@ -155,13 +155,13 @@ static void send_packet_to_if(struct forw_packet *forw_packet,
 	/* create clone because function is called more than once */
 	skb = skb_clone(forw_packet->skb, GFP_ATOMIC);
 	if (skb)
-		send_skb_packet(skb, hard_iface, broadcast_addr);
+		send_skb_packet(skb, batman_if, broadcast_addr);
 }
 
 /* send a batman packet */
 static void send_packet(struct forw_packet *forw_packet)
 {
-	struct hard_iface *hard_iface;
+	struct batman_if *batman_if;
 	struct net_device *soft_iface;
 	struct bat_priv *bat_priv;
 	struct batman_packet *batman_packet =
@@ -205,56 +205,54 @@ static void send_packet(struct forw_packet *forw_packet)
 
 	/* broadcast on every interface */
 	rcu_read_lock();
-	list_for_each_entry_rcu(hard_iface, &hardif_list, list) {
-		if (hard_iface->soft_iface != soft_iface)
+	list_for_each_entry_rcu(batman_if, &if_list, list) {
+		if (batman_if->soft_iface != soft_iface)
 			continue;
 
-		send_packet_to_if(forw_packet, hard_iface);
+		send_packet_to_if(forw_packet, batman_if);
 	}
 	rcu_read_unlock();
 }
 
 static void rebuild_batman_packet(struct bat_priv *bat_priv,
-				  struct hard_iface *hard_iface)
+				  struct batman_if *batman_if)
 {
 	int new_len;
 	unsigned char *new_buff;
 	struct batman_packet *batman_packet;
 
 	new_len = sizeof(struct batman_packet) +
-			(bat_priv->num_local_tt * ETH_ALEN);
+			(bat_priv->num_local_hna * ETH_ALEN);
 	new_buff = kmalloc(new_len, GFP_ATOMIC);
 
 	/* keep old buffer if kmalloc should fail */
 	if (new_buff) {
-		memcpy(new_buff, hard_iface->packet_buff,
+		memcpy(new_buff, batman_if->packet_buff,
 		       sizeof(struct batman_packet));
 		batman_packet = (struct batman_packet *)new_buff;
 
-		batman_packet->num_tt = tt_local_fill_buffer(bat_priv,
+		batman_packet->num_hna = hna_local_fill_buffer(bat_priv,
 				new_buff + sizeof(struct batman_packet),
 				new_len - sizeof(struct batman_packet));
 
-		kfree(hard_iface->packet_buff);
-		hard_iface->packet_buff = new_buff;
-		hard_iface->packet_len = new_len;
+		kfree(batman_if->packet_buff);
+		batman_if->packet_buff = new_buff;
+		batman_if->packet_len = new_len;
 	}
 }
 
-void schedule_own_packet(struct hard_iface *hard_iface)
+void schedule_own_packet(struct batman_if *batman_if)
 {
-	struct bat_priv *bat_priv = netdev_priv(hard_iface->soft_iface);
-	struct hard_iface *primary_if;
+	struct bat_priv *bat_priv = netdev_priv(batman_if->soft_iface);
 	unsigned long send_time;
 	struct batman_packet *batman_packet;
 	int vis_server;
 
-	if ((hard_iface->if_status == IF_NOT_IN_USE) ||
-	    (hard_iface->if_status == IF_TO_BE_REMOVED))
+	if ((batman_if->if_status == IF_NOT_IN_USE) ||
+	    (batman_if->if_status == IF_TO_BE_REMOVED))
 		return;
 
 	vis_server = atomic_read(&bat_priv->vis_mode);
-	primary_if = primary_if_get_selected(bat_priv);
 
 	/**
 	 * the interface gets activated here to avoid race conditions between
@@ -263,57 +261,53 @@ void schedule_own_packet(struct hard_iface *hard_iface)
 	 * outdated packets (especially uninitialized mac addresses) in the
 	 * packet queue
 	 */
-	if (hard_iface->if_status == IF_TO_BE_ACTIVATED)
-		hard_iface->if_status = IF_ACTIVE;
+	if (batman_if->if_status == IF_TO_BE_ACTIVATED)
+		batman_if->if_status = IF_ACTIVE;
 
-	/* if local tt has changed and interface is a primary interface */
-	if ((atomic_read(&bat_priv->tt_local_changed)) &&
-	    (hard_iface == primary_if))
-		rebuild_batman_packet(bat_priv, hard_iface);
+	/* if local hna has changed and interface is a primary interface */
+	if ((atomic_read(&bat_priv->hna_local_changed)) &&
+	    (batman_if == bat_priv->primary_if))
+		rebuild_batman_packet(bat_priv, batman_if);
 
 	/**
 	 * NOTE: packet_buff might just have been re-allocated in
 	 * rebuild_batman_packet()
 	 */
-	batman_packet = (struct batman_packet *)hard_iface->packet_buff;
+	batman_packet = (struct batman_packet *)batman_if->packet_buff;
 
 	/* change sequence number to network order */
 	batman_packet->seqno =
-		htonl((uint32_t)atomic_read(&hard_iface->seqno));
+		htonl((uint32_t)atomic_read(&batman_if->seqno));
 
 	if (vis_server == VIS_TYPE_SERVER_SYNC)
 		batman_packet->flags |= VIS_SERVER;
 	else
 		batman_packet->flags &= ~VIS_SERVER;
 
-	if ((hard_iface == primary_if) &&
+	if ((batman_if == bat_priv->primary_if) &&
 	    (atomic_read(&bat_priv->gw_mode) == GW_MODE_SERVER))
 		batman_packet->gw_flags =
 				(uint8_t)atomic_read(&bat_priv->gw_bandwidth);
 	else
 		batman_packet->gw_flags = 0;
 
-	atomic_inc(&hard_iface->seqno);
+	atomic_inc(&batman_if->seqno);
 
-	slide_own_bcast_window(hard_iface);
+	slide_own_bcast_window(batman_if);
 	send_time = own_send_time(bat_priv);
 	add_bat_packet_to_list(bat_priv,
-			       hard_iface->packet_buff,
-			       hard_iface->packet_len,
-			       hard_iface, 1, send_time);
-
-	if (primary_if)
-		hardif_free_ref(primary_if);
+			       batman_if->packet_buff,
+			       batman_if->packet_len,
+			       batman_if, 1, send_time);
 }
 
 void schedule_forward_packet(struct orig_node *orig_node,
 			     struct ethhdr *ethhdr,
 			     struct batman_packet *batman_packet,
-			     uint8_t directlink, int tt_buff_len,
-			     struct hard_iface *if_incoming)
+			     uint8_t directlink, int hna_buff_len,
+			     struct batman_if *if_incoming)
 {
 	struct bat_priv *bat_priv = netdev_priv(if_incoming->soft_iface);
-	struct neigh_node *router;
 	unsigned char in_tq, in_ttl, tq_avg = 0;
 	unsigned long send_time;
 
@@ -321,8 +315,6 @@ void schedule_forward_packet(struct orig_node *orig_node,
 		bat_dbg(DBG_BATMAN, bat_priv, "ttl exceeded\n");
 		return;
 	}
-
-	router = orig_node_get_router(orig_node);
 
 	in_tq = batman_packet->tq;
 	in_ttl = batman_packet->ttl;
@@ -332,21 +324,19 @@ void schedule_forward_packet(struct orig_node *orig_node,
 
 	/* rebroadcast tq of our best ranking neighbor to ensure the rebroadcast
 	 * of our best tq value */
-	if (router && router->tq_avg != 0) {
+	if ((orig_node->router) && (orig_node->router->tq_avg != 0)) {
 
 		/* rebroadcast ogm of best ranking neighbor as is */
-		if (!compare_eth(router->addr, ethhdr->h_source)) {
-			batman_packet->tq = router->tq_avg;
+		if (!compare_orig(orig_node->router->addr, ethhdr->h_source)) {
+			batman_packet->tq = orig_node->router->tq_avg;
 
-			if (router->last_ttl)
-				batman_packet->ttl = router->last_ttl - 1;
+			if (orig_node->router->last_ttl)
+				batman_packet->ttl = orig_node->router->last_ttl
+							- 1;
 		}
 
-		tq_avg = router->tq_avg;
+		tq_avg = orig_node->router->tq_avg;
 	}
-
-	if (router)
-		neigh_node_free_ref(router);
 
 	/* apply hop penalty */
 	batman_packet->tq = hop_penalty(batman_packet->tq, bat_priv);
@@ -366,10 +356,10 @@ void schedule_forward_packet(struct orig_node *orig_node,
 	else
 		batman_packet->flags &= ~DIRECTLINK;
 
-	send_time = forward_send_time();
+	send_time = forward_send_time(bat_priv);
 	add_bat_packet_to_list(bat_priv,
 			       (unsigned char *)batman_packet,
-			       sizeof(struct batman_packet) + tt_buff_len,
+			       sizeof(struct batman_packet) + hna_buff_len,
 			       if_incoming, 0, send_time);
 }
 
@@ -377,8 +367,6 @@ static void forw_packet_free(struct forw_packet *forw_packet)
 {
 	if (forw_packet->skb)
 		kfree_skb(forw_packet->skb);
-	if (forw_packet->if_incoming)
-		hardif_free_ref(forw_packet->if_incoming);
 	kfree(forw_packet);
 }
 
@@ -400,6 +388,7 @@ static void _add_bcast_packet_to_list(struct bat_priv *bat_priv,
 			   send_time);
 }
 
+#define atomic_dec_not_zero(v)          atomic_add_unless((v), -1, 0)
 /* add a broadcast packet to the queue and setup timers. broadcast packets
  * are sent multiple times to increase probability for beeing received.
  *
@@ -410,7 +399,6 @@ static void _add_bcast_packet_to_list(struct bat_priv *bat_priv,
  * skb is freed. */
 int add_bcast_packet_to_list(struct bat_priv *bat_priv, struct sk_buff *skb)
 {
-	struct hard_iface *primary_if = NULL;
 	struct forw_packet *forw_packet;
 	struct bcast_packet *bcast_packet;
 
@@ -419,9 +407,8 @@ int add_bcast_packet_to_list(struct bat_priv *bat_priv, struct sk_buff *skb)
 		goto out;
 	}
 
-	primary_if = primary_if_get_selected(bat_priv);
-	if (!primary_if)
-		goto out_and_inc;
+	if (!bat_priv->primary_if)
+		goto out;
 
 	forw_packet = kmalloc(sizeof(struct forw_packet), GFP_ATOMIC);
 
@@ -439,7 +426,7 @@ int add_bcast_packet_to_list(struct bat_priv *bat_priv, struct sk_buff *skb)
 	skb_reset_mac_header(skb);
 
 	forw_packet->skb = skb;
-	forw_packet->if_incoming = primary_if;
+	forw_packet->if_incoming = bat_priv->primary_if;
 
 	/* how often did we send the bcast packet ? */
 	forw_packet->num_packets = 0;
@@ -452,14 +439,12 @@ packet_free:
 out_and_inc:
 	atomic_inc(&bat_priv->bcast_queue_left);
 out:
-	if (primary_if)
-		hardif_free_ref(primary_if);
 	return NETDEV_TX_BUSY;
 }
 
 static void send_outstanding_bcast_packet(struct work_struct *work)
 {
-	struct hard_iface *hard_iface;
+	struct batman_if *batman_if;
 	struct delayed_work *delayed_work =
 		container_of(work, struct delayed_work, work);
 	struct forw_packet *forw_packet =
@@ -477,14 +462,14 @@ static void send_outstanding_bcast_packet(struct work_struct *work)
 
 	/* rebroadcast packet */
 	rcu_read_lock();
-	list_for_each_entry_rcu(hard_iface, &hardif_list, list) {
-		if (hard_iface->soft_iface != soft_iface)
+	list_for_each_entry_rcu(batman_if, &if_list, list) {
+		if (batman_if->soft_iface != soft_iface)
 			continue;
 
 		/* send a copy of the saved skb */
 		skb1 = skb_clone(forw_packet->skb, GFP_ATOMIC);
 		if (skb1)
-			send_skb_packet(skb1, hard_iface, broadcast_addr);
+			send_skb_packet(skb1, batman_if, broadcast_addr);
 	}
 	rcu_read_unlock();
 
@@ -537,16 +522,15 @@ out:
 }
 
 void purge_outstanding_packets(struct bat_priv *bat_priv,
-			       struct hard_iface *hard_iface)
+			       struct batman_if *batman_if)
 {
 	struct forw_packet *forw_packet;
 	struct hlist_node *tmp_node, *safe_tmp_node;
-	bool pending;
 
-	if (hard_iface)
+	if (batman_if)
 		bat_dbg(DBG_BATMAN, bat_priv,
 			"purge_outstanding_packets(): %s\n",
-			hard_iface->net_dev->name);
+			batman_if->net_dev->name);
 	else
 		bat_dbg(DBG_BATMAN, bat_priv,
 			"purge_outstanding_packets()\n");
@@ -560,8 +544,8 @@ void purge_outstanding_packets(struct bat_priv *bat_priv,
 		 * if purge_outstanding_packets() was called with an argmument
 		 * we delete only packets belonging to the given interface
 		 */
-		if ((hard_iface) &&
-		    (forw_packet->if_incoming != hard_iface))
+		if ((batman_if) &&
+		    (forw_packet->if_incoming != batman_if))
 			continue;
 
 		spin_unlock_bh(&bat_priv->forw_bcast_list_lock);
@@ -570,13 +554,8 @@ void purge_outstanding_packets(struct bat_priv *bat_priv,
 		 * send_outstanding_bcast_packet() will lock the list to
 		 * delete the item from the list
 		 */
-		pending = cancel_delayed_work_sync(&forw_packet->delayed_work);
+		cancel_delayed_work_sync(&forw_packet->delayed_work);
 		spin_lock_bh(&bat_priv->forw_bcast_list_lock);
-
-		if (pending) {
-			hlist_del(&forw_packet->list);
-			forw_packet_free(forw_packet);
-		}
 	}
 	spin_unlock_bh(&bat_priv->forw_bcast_list_lock);
 
@@ -589,8 +568,8 @@ void purge_outstanding_packets(struct bat_priv *bat_priv,
 		 * if purge_outstanding_packets() was called with an argmument
 		 * we delete only packets belonging to the given interface
 		 */
-		if ((hard_iface) &&
-		    (forw_packet->if_incoming != hard_iface))
+		if ((batman_if) &&
+		    (forw_packet->if_incoming != batman_if))
 			continue;
 
 		spin_unlock_bh(&bat_priv->forw_bat_list_lock);
@@ -599,13 +578,8 @@ void purge_outstanding_packets(struct bat_priv *bat_priv,
 		 * send_outstanding_bat_packet() will lock the list to
 		 * delete the item from the list
 		 */
-		pending = cancel_delayed_work_sync(&forw_packet->delayed_work);
+		cancel_delayed_work_sync(&forw_packet->delayed_work);
 		spin_lock_bh(&bat_priv->forw_bat_list_lock);
-
-		if (pending) {
-			hlist_del(&forw_packet->list);
-			forw_packet_free(forw_packet);
-		}
 	}
 	spin_unlock_bh(&bat_priv->forw_bat_list_lock);
 }

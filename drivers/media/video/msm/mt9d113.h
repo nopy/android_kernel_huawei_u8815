@@ -32,6 +32,10 @@ struct mt9d113_i2c_reg_conf
 
 struct mt9d113_reg
 {
+    const struct mt9d113_i2c_reg_conf * mt9d113_init_reg_config_common;
+    const unsigned short                mt9d113_init_reg_config_common_size;
+    const struct mt9d113_i2c_reg_conf * mt9d113_init_reg_config_sunny;
+    const unsigned short                mt9d113_init_reg_config_sunny_size;
     const struct mt9d113_i2c_reg_conf * mt9d113_init_reg_config_byd;
     const unsigned short                mt9d113_init_reg_config_byd_size;
     const struct mt9d113_i2c_reg_conf * mt9d113_init_reg_config_byd_2;
@@ -58,18 +62,6 @@ struct mt9d113_reg
     const unsigned short                mt9d113_preview_reg_config_size;
     const struct mt9d113_i2c_reg_conf * mt9d113_snapshot_reg_config;
     const unsigned short                mt9d113_snapshot_reg_config_size;
-    const struct mt9d113_i2c_reg_conf * mt9d113_wb_auto_reg_config;
-    const unsigned short                mt9d113_wb_auto_reg_config_size;
-    const struct mt9d113_i2c_reg_conf * mt9d113_wb_a_reg_config;
-    const unsigned short                mt9d113_wb_a_reg_config_size;
-    const struct mt9d113_i2c_reg_conf * mt9d113_wb_tl84_reg_config;
-    const unsigned short                mt9d113_wb_tl84_reg_config_size;
-    const struct mt9d113_i2c_reg_conf * mt9d113_wb_f_reg_config;
-    const unsigned short                mt9d113_wb_f_reg_config_size;
-    const struct mt9d113_i2c_reg_conf * mt9d113_wb_d65_reg_config;
-    const unsigned short                mt9d113_wb_d65_reg_config_size;
-    const struct mt9d113_i2c_reg_conf * mt9d113_wb_d50_reg_config;
-    const unsigned short                mt9d113_wb_d50_reg_config_size;
 };
 
 #endif /* MT9D113_H */
