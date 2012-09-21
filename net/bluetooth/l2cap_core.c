@@ -929,24 +929,18 @@ static void l2cap_conn_start(struct l2cap_conn *conn)
 }
 
 /* Find socket with fixed cid with given source and destination bdaddrs.
- * Direction of the req/rsp must match.
+ * Returns closest match, locked.
  */
-struct sock *l2cap_find_sock_by_fixed_cid_and_dir(__le16 cid, bdaddr_t *src,
-						bdaddr_t *dst, int incoming)
+static struct sock *l2cap_get_sock_by_fixed_scid(int state,
+				__le16 cid, bdaddr_t *src, bdaddr_t *dst)
 {
 	struct sock *sk = NULL, *sk1 = NULL;
 	struct hlist_node *node;
 
-	BT_DBG(" %d", incoming);
-
 	read_lock(&l2cap_sk_list.lock);
 
 	sk_for_each(sk, node, &l2cap_sk_list.head) {
-
-		if (incoming && !l2cap_pi(sk)->incoming)
-			continue;
-
-		if (!incoming && l2cap_pi(sk)->incoming)
+		if (state && sk->sk_state != state)
 			continue;
 
 		if (l2cap_pi(sk)->scid == cid && !bacmp(&bt_sk(sk)->dst, dst)) {
@@ -1027,11 +1021,12 @@ static void l2cap_le_conn_ready(struct l2cap_conn *conn)
 	l2cap_sock_init(sk, parent);
 	bacpy(&bt_sk(sk)->src, conn->src);
 	bacpy(&bt_sk(sk)->dst, conn->dst);
-	l2cap_pi(sk)->incoming = 1;
 
 	bt_accept_enqueue(parent, sk);
 
 	__l2cap_chan_add(conn, sk);
+
+	l2cap_sock_set_timer(sk, sk->sk_sndtimeo);
 
 	sk->sk_state = BT_CONNECTED;
 	parent->sk_data_ready(parent, 0);
@@ -1085,9 +1080,6 @@ static void l2cap_conn_ready(struct l2cap_conn *conn)
 	}
 
 	read_unlock(&l->lock);
-
-	if (conn->hcon->out && conn->hcon->type == LE_LINK)
-		l2cap_le_conn_ready(conn);
 }
 
 /* Notify sockets that we cannot guaranty reliability anymore */
@@ -3048,8 +3040,7 @@ void l2cap_ertm_recv_done(struct sock *sk)
 {
 	lock_sock(sk);
 
-	if (l2cap_pi(sk)->mode != L2CAP_MODE_ERTM ||
-			sk->sk_state != BT_CONNECTED) {
+	if (l2cap_pi(sk)->mode != L2CAP_MODE_ERTM) {
 		release_sock(sk);
 		return;
 	}
@@ -5126,7 +5117,7 @@ static inline int l2cap_move_channel_confirm(struct l2cap_conn *conn,
 				if (hci_chan_put(ampchan))
 					ampcon->l2cap_data = NULL;
 				else
-					l2cap_deaggregate(ampchan, pi);
+					l2cap_deaggregate(l2cap_pi(sk)->ampchan, pi);
 			}
 			l2cap_amp_move_success(sk);
 		} else {
@@ -7231,24 +7222,16 @@ done:
 	return 0;
 }
 
-static inline int l2cap_att_channel(struct l2cap_conn *conn, __le16 cid,
-							struct sk_buff *skb)
+static inline int l2cap_att_channel(struct l2cap_conn *conn, __le16 cid, struct sk_buff *skb)
 {
 	struct sock *sk;
 	struct sk_buff *skb_rsp;
 	struct l2cap_hdr *lh;
-	int dir;
 	u8 mtu_rsp[] = {L2CAP_ATT_MTU_RSP, 23, 0};
 	u8 err_rsp[] = {L2CAP_ATT_ERROR, 0x00, 0x00, 0x00,
 						L2CAP_ATT_NOT_SUPPORTED};
 
-	dir = (skb->data[0] & L2CAP_ATT_RESPONSE_BIT) ? 0 : 1;
-
-	sk = l2cap_find_sock_by_fixed_cid_and_dir(cid, conn->src,
-							conn->dst, dir);
-
-	BT_DBG("sk %p, dir:%d", sk, dir);
-
+	sk = l2cap_get_sock_by_fixed_scid(0, cid, conn->src, conn->dst);
 	if (!sk)
 		goto drop;
 
@@ -7471,7 +7454,6 @@ static int l2cap_security_cfm(struct hci_conn *hcon, u8 status, u8 encrypt)
 	struct l2cap_chan_list *l;
 	struct l2cap_conn *conn = hcon->l2cap_data;
 	struct sock *sk;
-	int smp = 0;
 
 	if (!conn)
 		return 0;
@@ -7488,12 +7470,13 @@ static int l2cap_security_cfm(struct hci_conn *hcon, u8 status, u8 encrypt)
 		BT_DBG("sk->scid %d", l2cap_pi(sk)->scid);
 
 		if (l2cap_pi(sk)->scid == L2CAP_CID_LE_DATA) {
-			if (!status && encrypt) {
+			if (!status && encrypt)
 				l2cap_pi(sk)->sec_level = hcon->sec_level;
-				l2cap_chan_ready(sk);
-			}
 
-			smp = 1;
+			del_timer(&hcon->smp_timer);
+			l2cap_chan_ready(sk);
+			smp_link_encrypt_cmplt(conn, status, encrypt);
+
 			bh_unlock_sock(sk);
 			continue;
 		}
@@ -7556,11 +7539,6 @@ static int l2cap_security_cfm(struct hci_conn *hcon, u8 status, u8 encrypt)
 	}
 
 	read_unlock(&l->lock);
-
-	if (smp) {
-		del_timer(&hcon->smp_timer);
-		smp_link_encrypt_cmplt(conn, status, encrypt);
-	}
 
 	return 0;
 }

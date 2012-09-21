@@ -12,7 +12,11 @@
 
 #define EVDEV_MINOR_BASE	64
 #define EVDEV_MINORS		32
+#ifdef CONFIG_HUAWEI_KERNEL
+#define EVDEV_MIN_BUFFER_SIZE	128U
+#else
 #define EVDEV_MIN_BUFFER_SIZE	64U
+#endif
 #define EVDEV_BUF_PACKETS	8
 
 #include <linux/poll.h>

@@ -42,7 +42,10 @@ extern uint32 mdp_hw_revision;
 extern ulong mdp4_display_intf;
 extern spinlock_t mdp_spin_lock;
 extern int mdp_rev;
-extern struct mdp_csc_cfg mdp_csc_convert[4];
+#ifdef CONFIG_HUAWEI_KERNEL
+/* Extern the mdp_pipe_ctrl_mutex for process_lcd_table function */
+extern struct semaphore mdp_pipe_ctrl_mutex;
+#endif
 
 extern struct workqueue_struct *mdp_hist_wq;
 
@@ -819,11 +822,6 @@ unsigned long mdp_perf_level2clk_rate(uint32 perf_level);
 
 #ifdef CONFIG_MSM_BUS_SCALING
 int mdp_bus_scale_update_request(uint32_t index);
-#else
-static inline int mdp_bus_scale_update_request(uint32_t index)
-{
-	return 0;
-}
 #endif
 void mdp_dma_vsync_ctrl(int enable);
 void mdp_dma_video_vsync_ctrl(int enable);

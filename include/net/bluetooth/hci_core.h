@@ -631,7 +631,7 @@ static inline void hci_conn_put(struct hci_conn *conn)
 			if (conn->state == BT_CONNECTED) {
 				timeo = msecs_to_jiffies(conn->disc_timeout);
 				if (!conn->out)
-					timeo *= 4;
+					timeo *= 20;
 			} else
 				timeo = msecs_to_jiffies(10);
 		} else
@@ -1062,7 +1062,6 @@ int le_user_confirm_reply(struct hci_conn *conn, u16 mgmt_op, void *cp);
 int mgmt_remote_class(u16 index, bdaddr_t *bdaddr, u8 dev_class[3]);
 int mgmt_remote_version(u16 index, bdaddr_t *bdaddr, u8 ver, u16 mnf,
 							u16 sub_ver);
-int mgmt_remote_features(u16 index, bdaddr_t *bdaddr, u8 features[8]);
 
 /* HCI info for socket */
 #define hci_pi(sk) ((struct hci_pinfo *) sk)

@@ -94,7 +94,7 @@ static void ion_set_base_address(struct ion_platform_heap *heap,
 			BUG();
 		}
 
-		heap->base = fmem_info->phys - fmem_info->reserved_size_low;
+		heap->base = fmem_info->phys - fmem_info->reserved_size;
 		cp_data->virt_addr = fmem_info->virt;
 		pr_info("ION heap %s using FMEM\n", shared_heap->name);
 	} else {
@@ -191,10 +191,6 @@ static void msm_ion_allocate(struct ion_platform_heap *heap)
 				heap->base = fmem_info->phys;
 				data->virt_addr = fmem_info->virt;
 				pr_info("ION heap %s using FMEM\n", heap->name);
-			} else if (data->mem_is_fmem) {
-				const struct fmem_data *fmem_info =
-					fmem_get_info();
-				heap->base = fmem_info->phys + fmem_info->size;
 			}
 			align = data->align;
 			break;

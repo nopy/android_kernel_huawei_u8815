@@ -494,7 +494,6 @@ void mdp4_overlay_dmae_xy(struct mdp4_overlay_pipe *pipe)
 void mdp4_overlay_dmap_cfg(struct msm_fb_data_type *mfd, int lcdc)
 {
 	uint32	dma2_cfg_reg;
-	uint32 mask, curr;
 
 	dma2_cfg_reg = DMA_DITHER_EN;
 #ifdef BLT_RGB565
@@ -527,9 +526,6 @@ void mdp4_overlay_dmap_cfg(struct msm_fb_data_type *mfd, int lcdc)
 #endif
 
 	/* dma2 config register */
-	curr = inpdw(MDP_BASE + 0x90000);
-	mask = 0xBFFFFFFF;
-	dma2_cfg_reg = (dma2_cfg_reg & mask) | (curr & ~mask);
 	MDP_OUTP(MDP_BASE + 0x90000, dma2_cfg_reg);
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
@@ -591,18 +587,17 @@ static int mdp4_leading_0(uint32 num)
 
 static uint32 mdp4_scale_phase_step(int f_num, uint32 src, uint32 dst)
 {
-	uint32 val, s;
+	uint32 val;
 	int	n;
 
 	n = mdp4_leading_0(src);
 	if (n > f_num)
 		n = f_num;
-	s = src << n;	/* maximum to reduce lose of resolution */
-	val = s / dst;
+	val = src << n;	/* maximum to reduce lose of resolution */
+	val /= dst;
 	if (n < f_num) {
 		n = f_num - n;
 		val <<= n;
-		val |= ((s % dst) << n) / dst;
 	}
 
 	return val;
@@ -674,28 +669,14 @@ void mdp4_overlay_rgb_setup(struct mdp4_overlay_pipe *pipe)
 	char *rgb_base;
 	uint32 src_size, src_xy, dst_size, dst_xy;
 	uint32 format, pattern;
-	uint32 curr, mask;
-	uint32 offset = 0;
-	int pnum;
 
-	pnum = pipe->pipe_num - OVERLAY_PIPE_RGB1; /* start from 0 */
 	rgb_base = MDP_BASE + MDP4_RGB_BASE;
-	rgb_base += (MDP4_RGB_OFF * pnum);
+	rgb_base += (MDP4_RGB_OFF * pipe->pipe_num);
 
 	src_size = ((pipe->src_h << 16) | pipe->src_w);
 	src_xy = ((pipe->src_y << 16) | pipe->src_x);
 	dst_size = ((pipe->dst_h << 16) | pipe->dst_w);
 	dst_xy = ((pipe->dst_y << 16) | pipe->dst_x);
-
-	if ((pipe->src_x + pipe->src_w) > 0x7FF) {
-		offset += pipe->src_x * pipe->bpp;
-		src_xy &= 0xFFFF0000;
-	}
-
-	if ((pipe->src_y + pipe->src_h) > 0x7FF) {
-		offset += pipe->src_y * pipe->src_width * pipe->bpp;
-		src_xy &= 0x0000FFFF;
-	}
 
 	format = mdp4_overlay_format(pipe);
 	pattern = mdp4_overlay_unpack_pattern(pipe);
@@ -719,7 +700,7 @@ void mdp4_overlay_rgb_setup(struct mdp4_overlay_pipe *pipe)
 	outpdw(rgb_base + 0x0008, dst_size);	/* MDP_RGB_DST_SIZE */
 	outpdw(rgb_base + 0x000c, dst_xy);	/* MDP_RGB_DST_XY */
 
-	outpdw(rgb_base + 0x0010, pipe->srcp0_addr + offset);
+	outpdw(rgb_base + 0x0010, pipe->srcp0_addr);
 	outpdw(rgb_base + 0x0040, pipe->srcp0_ystride);
 
 	outpdw(rgb_base + 0x0050, format);/* MDP_RGB_SRC_FORMAT */
@@ -805,7 +786,7 @@ void mdp4_overlay_vg_setup(struct mdp4_overlay_pipe *pipe)
 	char *vg_base;
 	uint32 frame_size, src_size, src_xy, dst_size, dst_xy;
 	uint32 format, pattern, luma_offset, chroma_offset;
-	uint32 mask, curr, addr;
+	uint32 mask;
 	int pnum, ptype;
 
 	pnum = pipe->pipe_num - OVERLAY_PIPE_VG1; /* start from 0 */
@@ -823,30 +804,14 @@ void mdp4_overlay_vg_setup(struct mdp4_overlay_pipe *pipe)
 	pattern = mdp4_overlay_unpack_pattern(pipe);
 
 	/* not RGB use VG pipe, pure VG pipe */
-	pipe->op_mode |= MDP4_OP_CSC_EN;
 	if (ptype != OVERLAY_TYPE_RGB)
-		pipe->op_mode |= MDP4_OP_SRC_DATA_YCBCR;
+		pipe->op_mode |= (MDP4_OP_CSC_EN | MDP4_OP_SRC_DATA_YCBCR);
 
 #ifdef MDP4_IGC_LUT_ENABLE
 	pipe->op_mode |= MDP4_OP_IGC_LUT_EN;
 #endif
 
 	mdp4_scale_setup(pipe);
-
-	luma_offset = 0;
-	chroma_offset = 0;
-
-	if (ptype == OVERLAY_TYPE_RGB) {
-		if ((pipe->src_y + pipe->src_h) > 0x7FF) {
-			luma_offset = pipe->src_y * pipe->src_width * pipe->bpp;
-			src_xy &= 0x0000FFFF;
-		}
-
-		if ((pipe->src_x + pipe->src_w) > 0x7FF) {
-			luma_offset += pipe->src_x * pipe->bpp;
-			src_xy &= 0xFFFF0000;
-		}
-	}
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
@@ -867,25 +832,10 @@ void mdp4_overlay_vg_setup(struct mdp4_overlay_pipe *pipe)
 	if (ptype != OVERLAY_TYPE_RGB) {
 		mdp4_overlay_vg_get_src_offset(pipe, vg_base, &luma_offset,
 			&chroma_offset);
-	}
-
-	/* Ensure proper covert matrix loaded when color space swaps */
-	curr = inpdw(vg_base + 0x0058);
-	mask = 0x600;
-
-	if ((curr & mask) != (pipe->op_mode & mask)) {
-		addr = ((uint32_t)vg_base) + 0x4000;
-		if (ptype != OVERLAY_TYPE_RGB)
-			mdp4_csc_write(&(mdp_csc_convert[1]), addr);
-		else
-			mdp4_csc_write(&(mdp_csc_convert[0]), addr);
-
-		mask = 0xFFFCFFFF;
 	} else {
-		/* Don't touch bits you don't want to configure*/
-		mask = 0xFFFCF1FF;
+		luma_offset = 0;
+		chroma_offset = 0;
 	}
-	pipe->op_mode = (pipe->op_mode & mask) | (curr & ~mask);
 
 	/* luma component plane */
 	outpdw(vg_base + 0x0010, pipe->srcp0_addr + luma_offset);
@@ -1439,7 +1389,7 @@ void mdp4_overlayproc_cfg(struct mdp4_overlay_pipe *pipe)
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 	/*
-	 * BLT support both primary and external external
+	 * BLT only siupport at primary display
 	 */
 	if (pipe->ov_blt_addr) {
 		int off, bpp;
@@ -1452,8 +1402,7 @@ void mdp4_overlayproc_cfg(struct mdp4_overlay_pipe *pipe)
 		data <<= 16;
 		data |= pipe->src_width;
 		outpdw(overlay_base + 0x0008, data); /* ROI, height + width */
-		if (pipe->mixer_num == MDP4_MIXER0 ||
-		    pipe->mixer_num == MDP4_MIXER1) {
+		if (pipe->mixer_num == MDP4_MIXER0) {
 			off = 0;
 			if (pipe->ov_cnt & 0x01)
 				off = pipe->src_height * pipe->src_width * bpp;
@@ -2809,15 +2758,13 @@ void mdp4_overlay_mdp_perf_upd(struct msm_fb_data_type *mfd,
 static int get_img(struct msmfb_data *img, struct fb_info *info,
 	struct mdp4_overlay_pipe *pipe, unsigned int plane,
 	unsigned long *start, unsigned long *len, struct file **srcp_file,
-	int *p_need, struct ion_handle **srcp_ihdl)
+	struct ion_handle **srcp_ihdl)
 {
 	struct file *file;
 	int put_needed, ret = 0, fb_num;
 #ifdef CONFIG_ANDROID_PMEM
 	unsigned long vstart;
 #endif
-	*p_need = 0;
-
 	if (img->flags & MDP_BLIT_SRC_GEM) {
 		*srcp_file = NULL;
 		return kgsl_gem_obj_addr(img->memory_id, (int) img->priv,
@@ -2951,6 +2898,8 @@ int mdp4_overlay_set(struct fb_info *info, struct mdp_overlay *req)
 		return -EINTR;
 	}
 
+	perf_level = mdp4_overlay_get_perf_level(req);
+
 	mixer = mfd->panel_info.pdest;	/* DISPLAY_1 or DISPLAY_2 */
 
 	ret = mdp4_overlay_req2pipe(req, mixer, &pipe, mfd);
@@ -3003,6 +2952,13 @@ int mdp4_overlay_set(struct fb_info *info, struct mdp_overlay *req)
 
 	mutex_unlock(&mfd->dma->ov_mutex);
 
+#ifdef CONFIG_MSM_BUS_SCALING
+	if (pipe->mixer_num == MDP4_MIXER0) {
+		mdp_bus_scale_update_request(OVERLAY_BUS_SCALE_TABLE_BASE
+						- perf_level);
+	}
+#endif
+
 	return 0;
 }
 
@@ -3030,6 +2986,7 @@ int mdp4_overlay_unset(struct fb_info *info, int ndx)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 	struct mdp4_overlay_pipe *pipe;
+	uint32 flags;
 	struct dpp_ctrl dpp;
 	int i;
 
@@ -3215,7 +3172,6 @@ int mdp4_overlay_play(struct fb_info *info, struct msmfb_overlay_data *req)
 	struct file *srcp1_file = NULL, *srcp2_file = NULL;
 	struct ion_handle *srcp0_ihdl = NULL;
 	struct ion_handle *srcp1_ihdl = NULL, *srcp2_ihdl = NULL;
-	int ps0_need, p_need;
 	uint32_t overlay_version = 0;
 	int ret = 0;
 
@@ -3376,6 +3332,7 @@ mddi:
 		mdp4_overlay_rgb_setup(pipe);	/* rgb pipe */
 	}
 
+	mdp4_mixer_blend_setup(pipe);
 	mdp4_mixer_stage_up(pipe);
 
 	if (pipe->mixer_num == MDP4_MIXER2) {

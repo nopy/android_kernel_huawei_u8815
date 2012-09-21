@@ -779,8 +779,7 @@ err:
 }
 
 static long venc_set_h264_intra_period(struct video_client_ctx *client_ctx,
-		__s32 period)
-{
+		__s32 period) {
 	struct vcd_property_i_period vcd_property_i_period;
 	struct vcd_property_codec vcd_property_codec;
 	struct vcd_property_hdr vcd_property_hdr;
@@ -807,7 +806,7 @@ static long venc_set_h264_intra_period(struct video_client_ctx *client_ctx,
 	vcd_property_hdr.sz = sizeof(struct vcd_property_i_period);
 
 	vcd_property_i_period.p_frames = period - 1;
-	vcd_property_i_period.b_frames = 0;
+	vcd_property_i_period.b_frames = 1;
 
 	rc = vcd_set_property(client_ctx->vcd_handle,
 				&vcd_property_hdr, &vcd_property_i_period);
@@ -817,47 +816,6 @@ static long venc_set_h264_intra_period(struct video_client_ctx *client_ctx,
 		goto err;
 	}
 
-err:
-	return rc;
-}
-
-static long venc_get_h264_intra_period(struct video_client_ctx *client_ctx,
-		__s32 *period)
-{
-	struct vcd_property_i_period vcd_property_i_period;
-	struct vcd_property_codec vcd_property_codec;
-	struct vcd_property_hdr vcd_property_hdr;
-	int rc = 0;
-
-	vcd_property_hdr.prop_id = VCD_I_CODEC;
-	vcd_property_hdr.sz = sizeof(struct vcd_property_codec);
-
-	rc = vcd_get_property(client_ctx->vcd_handle,
-				&vcd_property_hdr, &vcd_property_codec);
-
-	if (rc < 0) {
-		WFD_MSG_ERR("Error getting codec property\n");
-		goto err;
-	}
-
-	if (vcd_property_codec.codec != VCD_CODEC_H264) {
-		rc = -ENOTSUPP;
-		WFD_MSG_ERR("Control not supported for non H264 codec\n");
-		goto err;
-	}
-
-	vcd_property_hdr.prop_id = VCD_I_INTRA_PERIOD;
-	vcd_property_hdr.sz = sizeof(struct vcd_property_i_period);
-
-	rc = vcd_get_property(client_ctx->vcd_handle,
-				&vcd_property_hdr, &vcd_property_i_period);
-
-	if (rc < 0) {
-		WFD_MSG_ERR("Error getting intra period\n");
-		goto err;
-	}
-
-	*period = vcd_property_i_period.p_frames + 1;
 err:
 	return rc;
 }

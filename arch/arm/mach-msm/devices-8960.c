@@ -1629,7 +1629,7 @@ struct platform_device msm_cpudai_incall_record_tx = {
  * Machine specific data for AUX PCM Interface
  * which the driver will  be unware of.
  */
-struct msm_dai_auxpcm_pdata auxpcm_pdata = {
+struct msm_dai_auxpcm_pdata auxpcm_rx_pdata = {
 	.clk = "pcm_clk",
 	.mode = AFE_PCM_CFG_MODE_PCM,
 	.sync = AFE_PCM_CFG_SYNC_INT,
@@ -1644,16 +1644,13 @@ struct platform_device msm_cpudai_auxpcm_rx = {
 	.name = "msm-dai-q6",
 	.id = 2,
 	.dev = {
-		.platform_data = &auxpcm_pdata,
+		.platform_data = &auxpcm_rx_pdata,
 	},
 };
 
 struct platform_device msm_cpudai_auxpcm_tx = {
 	.name = "msm-dai-q6",
 	.id = 3,
-	.dev = {
-		.platform_data = &auxpcm_pdata,
-	},
 };
 
 struct platform_device msm_cpu_fe = {
@@ -2922,26 +2919,6 @@ struct platform_device msm_etm_device = {
 };
 
 #endif
-
-static struct resource msm_cache_erp_resources[] = {
-	{
-		.name = "l1_irq",
-		.start = SC_SICCPUXEXTFAULTIRPTREQ,
-		.flags = IORESOURCE_IRQ,
-	},
-	{
-		.name = "l2_irq",
-		.start = APCC_QGICL2IRPTREQ,
-		.flags = IORESOURCE_IRQ,
-	}
-};
-
-struct platform_device msm8960_device_cache_erp = {
-	.name		= "msm_cache_erp",
-	.id		= -1,
-	.num_resources	= ARRAY_SIZE(msm_cache_erp_resources),
-	.resource	= msm_cache_erp_resources,
-};
 
 static int msm8960_LPM_latency = 1000; /* >100 usec for WFI */
 

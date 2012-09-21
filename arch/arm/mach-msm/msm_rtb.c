@@ -66,7 +66,7 @@ static atomic_t msm_rtb_idx;
 #endif
 
 struct msm_rtb_state msm_rtb = {
-	.filter = 1 << LOGK_READL | 1 << LOGK_WRITEL | 1 << LOGK_LOGBUF,
+	.filter = 1 << LOGK_LOGBUF | 1 << LOGK_READL | 1 << LOGK_WRITEL,
 	.enabled = 1,
 };
 

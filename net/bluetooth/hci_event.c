@@ -1121,25 +1121,9 @@ static void hci_cs_auth_requested(struct hci_dev *hdev, __u8 status)
 
 	conn = hci_conn_hash_lookup_handle(hdev, __le16_to_cpu(cp->handle));
 	if (conn) {
-		if (status) {
-			mgmt_auth_failed(hdev->id, &conn->dst, status);
-			clear_bit(HCI_CONN_AUTH_PEND, &conn->pend);
-
-			if (conn->state == BT_CONFIG) {
-				conn->state = BT_CONNECTED;
-				hci_proto_connect_cfm(conn, status);
-				hci_conn_put(conn);
-			} else {
-				hci_auth_cfm(conn, status);
-				hci_conn_hold(conn);
-				conn->disc_timeout = HCI_DISCONN_TIMEOUT;
-				hci_conn_put(conn);
-			}
-
-			if (test_bit(HCI_CONN_ENCRYPT_PEND, &conn->pend)) {
-				clear_bit(HCI_CONN_ENCRYPT_PEND, &conn->pend);
-				hci_encrypt_cfm(conn, status, 0x00);
-			}
+		if (status && conn->state == BT_CONFIG) {
+			hci_proto_connect_cfm(conn, status);
+			hci_conn_put(conn);
 		}
 		conn->auth_initiator = 1;
 	}
@@ -1653,6 +1637,30 @@ static inline void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 			hci_send_cmd(hdev, HCI_OP_CHANGE_CONN_PTYPE,
 							sizeof(cp), &cp);
 		}
+
+#ifdef CONFIG_HUAWEI_KERNEL
+        /*If there are more than 1 ACL connections,
+        *we should try to switch to master for BCM bt chip performance
+        */
+        if ((ACL_LINK == conn->type )&&(hdev->conn_hash.acl_num > 1)) 
+        {
+            struct hci_conn_hash *h = &hdev->conn_hash;
+            struct list_head *p = NULL;
+            struct hci_conn  *c = NULL;
+
+            list_for_each(p, &h->list)
+            {
+                c = list_entry(p, struct hci_conn, list);
+                if (ACL_LINK == c->type)
+                {
+                    /* 0x00 is the master role in bt scatter net,define by bt core spec */
+                    hci_conn_switch_role(c, 0x00);
+                    BT_DBG(" force to master when there are two ACL connections");
+                }
+            }
+        }
+#endif
+
 	} else {
 		conn->state = BT_CLOSED;
 		if (conn->type == ACL_LINK || conn->type == LE_LINK)
@@ -1965,10 +1973,8 @@ static inline void hci_remote_features_evt(struct hci_dev *hdev, struct sk_buff 
 	if (!conn)
 		goto unlock;
 
-	if (!ev->status) {
+	if (!ev->status)
 		memcpy(conn->features, ev->features, 8);
-		mgmt_remote_features(hdev->id, &conn->dst, ev->features);
-	}
 
 	if (conn->state != BT_CONFIG)
 		goto unlock;
@@ -1980,6 +1986,44 @@ static inline void hci_remote_features_evt(struct hci_dev *hdev, struct sk_buff 
 		hci_send_cmd(hdev, HCI_OP_READ_REMOTE_EXT_FEATURES,
 							sizeof(cp), &cp);
 		goto unlock;
+	} else {
+        if (!(conn->features[3]&(0x02|0x04)))   /* not support 2M/3M EDR. 0x02=2M  0x04=3M */
+        {                    
+            if (!(conn->link_mode & HCI_LM_MASTER)) /* act as slave */
+            {                        
+                if (!test_and_set_bit(HCI_CONN_RSWITCH_PEND, &conn->pend)) 
+                {
+                    struct hci_cp_switch_role cp;
+                    cp.bdaddr.b[0]= 0;    //init
+                    cp.bdaddr.b[1]= 0;
+                    cp.bdaddr.b[2]= 0;
+                    cp.bdaddr.b[3]= 0;
+                    cp.bdaddr.b[4]= 0;
+                    cp.bdaddr.b[5]= 0;
+                    cp.role = 0; 
+                    
+                    bacpy(&cp.bdaddr, &conn->dst);
+                    /* switch to master */
+                    cp.role = 0x0; 
+                    BT_DBG("switch to master");
+                    hci_send_cmd(conn->hdev, HCI_OP_SWITCH_ROLE, sizeof(cp), &cp);
+                }
+            }
+            else 
+            {
+                struct hci_cp_write_link_policy cp;
+                cp.handle = 0; //init
+                cp.policy = 0;
+
+                /* disable role_switch if already act as master */
+                cp.handle = cpu_to_le16(conn->handle);
+                conn->link_policy |= HCI_LP_SNIFF;
+                conn->link_policy |= HCI_LP_HOLD;
+                conn->link_policy &= ~HCI_LP_RSWITCH;
+                cp.policy = cpu_to_le16(conn->link_policy);
+                hci_send_cmd(conn->hdev, HCI_OP_WRITE_LINK_POLICY, sizeof(cp), &cp);
+            }
+        }                        
 	}
 
 	if (!ev->status) {
@@ -2031,6 +2075,7 @@ static inline void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *sk
 {
 	struct hci_ev_cmd_complete *ev = (void *) skb->data;
 	__u16 opcode;
+    extern unsigned char fm_command_pending;
 
 	skb_pull(skb, sizeof(*ev));
 
@@ -2231,6 +2276,11 @@ static inline void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *sk
 
 	default:
 		BT_DBG("%s opcode 0x%x", hdev->name, opcode);
+        //delete
+        if (opcode == 0xfc15) //0xfc15 means fm cmd
+        {
+            fm_command_pending = 0;
+        }
 		break;
 	}
 
@@ -2365,7 +2415,23 @@ static inline void hci_role_change_evt(struct hci_dev *hdev, struct sk_buff *skb
 			if (ev->role)
 				conn->link_mode &= ~HCI_LM_MASTER;
 			else
-				conn->link_mode |= HCI_LM_MASTER;
+            {
+                conn->link_mode |= HCI_LM_MASTER;
+                if (!(conn->features[3]&(0x02|0x04)))   /* not support 2M/3M EDR. 0x02=2M  0x04=3M */
+                {                   
+                    struct hci_cp_write_link_policy cp; 
+                    cp.handle = 0; //init
+                    cp.policy = 0;
+                  
+                    /* disable role_switch when changed to master */
+                    cp.handle = cpu_to_le16(conn->handle);
+                    conn->link_policy |= HCI_LP_SNIFF;
+                    conn->link_policy |= HCI_LP_HOLD;
+                    conn->link_policy &= ~HCI_LP_RSWITCH;
+                    cp.policy = cpu_to_le16(conn->link_policy);
+                    hci_send_cmd(conn->hdev, HCI_OP_WRITE_LINK_POLICY, sizeof(cp), &cp);
+                }
+            }
 		}
 
 		clear_bit(HCI_CONN_RSWITCH_PEND, &conn->pend);

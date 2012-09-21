@@ -21,6 +21,10 @@
 #define DRIVER_DESC "I2C radio driver for Qualcomm FM Radio Transceiver "
 #define DRIVER_VERSION "1.0.0"
 
+#ifdef CONFIG_HUAWEI_FEATURE_U8800_FM
+#define FM_MIN_DWELLTIME    1
+#endif
+
 #include <linux/version.h>
 #include <linux/init.h>         /* Initdata                     */
 #include <linux/delay.h>        /* udelay                       */
@@ -2747,9 +2751,12 @@ static int tavarua_vidioc_g_ctrl(struct file *file, void *priv,
 {
 	struct tavarua_device *radio = video_get_drvdata(video_devdata(file));
 	int retval = 0;
-	int cnt = 0;
 	unsigned char xfr_buf[XFR_REG_NUM];
 	signed char cRmssiThreshold;
+    /*add the variable for reading the threshold*/
+    #ifdef CONFIG_HUAWEI_FEATURE_U8800_FM
+    signed char   xfr_buf_th[XFR_REG_NUM] = {0};
+    #endif
 	signed char ioc;
 	unsigned char size = 0;
 
@@ -2806,6 +2813,18 @@ static int tavarua_vidioc_g_ctrl(struct file *file, void *priv,
 		ctrl->value = radio->region_params.region;
 		break;
 	case V4L2_CID_PRIVATE_TAVARUA_SIGNAL_TH:
+        /*add the variable for reading the threshold*/
+        #ifdef CONFIG_HUAWEI_FEATURE_U8800_FM
+        retval = sync_read_xfr(radio, RX_CONFIG, xfr_buf_th);
+		if (retval < 0) {
+			FMDBG("[G IOCTL=V4L2_CID_PRIVATE_TAVARUA_SIGNAL_TH]\n");
+			FMDBG("sync_read_xfr error: [retval=%d]\n", retval);
+			break;
+		}
+		cRmssiThreshold = (signed char)xfr_buf_th[0];
+		ctrl->value  = cRmssiThreshold;
+		FMDBG("cRmssiThreshold: %d\n", cRmssiThreshold);
+        #else    
 		retval = sync_read_xfr(radio, RX_CONFIG, xfr_buf);
 		if (retval < 0) {
 			FMDBG("[G IOCTL=V4L2_CID_PRIVATE_TAVARUA_SIGNAL_TH]\n");
@@ -2816,6 +2835,7 @@ static int tavarua_vidioc_g_ctrl(struct file *file, void *priv,
 		cRmssiThreshold = (signed char)xfr_buf[0];
 		ctrl->value  = cRmssiThreshold;
 		FMDBG("cRmssiThreshold: %d\n", cRmssiThreshold);
+        #endif
 		break;
 	case V4L2_CID_PRIVATE_TAVARUA_SRCH_PTY:
 		ctrl->value = radio->srch_params.srch_pty;
@@ -2877,69 +2897,6 @@ static int tavarua_vidioc_g_ctrl(struct file *file, void *priv,
 	case V4L2_CID_PRIVATE_TAVARUA_ANTENNA:
 		ctrl->value = GET_REG_FIELD(radio->registers[IOCTRL],
 			IOC_ANTENNA_OFFSET, IOC_ANTENNA_MASK);
-		break;
-	case V4L2_CID_PRIVATE_INTF_LOW_THRESHOLD:
-		size = 0x04;
-		xfr_buf[0] = (XFR_PEEK_MODE | (size << 1));
-		xfr_buf[1] = ON_CHANNEL_TH_MSB;
-		xfr_buf[2] = ON_CHANNEL_TH_LSB;
-		retval = tavarua_write_registers(radio, XFRCTRL, xfr_buf, 3);
-		if (retval < 0) {
-			pr_err("%s: Failed to write\n", __func__);
-			return retval;
-		}
-		/*Wait for the XFR interrupt */
-		msleep(TAVARUA_DELAY*10);
-		retval = tavarua_read_registers(radio, XFRDAT0, 4);
-		if (retval < 0) {
-			pr_err("%s: On Ch. DET: Read failure\n", __func__);
-			return retval;
-		}
-		for (cnt = 0; cnt < 4; cnt++)
-			FMDBG("On-Channel data set is : 0x%x\t",
-				(int)radio->registers[XFRDAT0+cnt]);
-
-		ctrl->value =	LSH_DATA(radio->registers[XFRDAT0],   24) |
-				LSH_DATA(radio->registers[XFRDAT0+1], 16) |
-				LSH_DATA(radio->registers[XFRDAT0+2],  8) |
-				(radio->registers[XFRDAT0+3]);
-		FMDBG("The On Channel Threshold value is : 0x%x", ctrl->value);
-		break;
-	case V4L2_CID_PRIVATE_INTF_HIGH_THRESHOLD:
-		size = 0x04;
-		xfr_buf[0] = (XFR_PEEK_MODE | (size << 1));
-		xfr_buf[1] = OFF_CHANNEL_TH_MSB;
-		xfr_buf[2] = OFF_CHANNEL_TH_LSB;
-		retval = tavarua_write_registers(radio, XFRCTRL, xfr_buf, 3);
-		if (retval < 0) {
-			pr_err("%s: Failed to write\n", __func__);
-			return retval;
-		}
-		/*Wait for the XFR interrupt */
-		msleep(TAVARUA_DELAY*10);
-		retval = tavarua_read_registers(radio, XFRDAT0, 4);
-		if (retval < 0) {
-			pr_err("%s: Off Ch. DET: Read failure\n", __func__);
-			return retval;
-		}
-		for (cnt = 0; cnt < 4; cnt++)
-			FMDBG("Off-channel data set is : 0x%x\t",
-				(int)radio->registers[XFRDAT0+cnt]);
-
-		ctrl->value =	LSH_DATA(radio->registers[XFRDAT0],   24) |
-				LSH_DATA(radio->registers[XFRDAT0+1], 16) |
-				LSH_DATA(radio->registers[XFRDAT0+2],  8) |
-				(radio->registers[XFRDAT0+3]);
-		FMDBG("The Off Channel Threshold value is : 0x%x", ctrl->value);
-		break;
-	/*
-	 * These IOCTL's are place holders to keep the
-	 * driver compatible with change in frame works for IRIS
-	 */
-	case V4L2_CID_PRIVATE_SINR_THRESHOLD:
-	case V4L2_CID_PRIVATE_SINR_SAMPLES:
-	case V4L2_CID_PRIVATE_IRIS_GET_SINR:
-		retval = 0;
 		break;
 	default:
 		retval = -EINVAL;
@@ -3110,6 +3067,14 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 		radio->registers[SRCHCTRL] = value;
 		break;
 	case V4L2_CID_PRIVATE_TAVARUA_SCANDWELL:
+  /*add the check of Dwell time for FM hardware*/
+  #ifdef CONFIG_HUAWEI_FEATURE_U8800_FM
+		if(ctrl->value <= 0)
+		{
+		    ctrl->value = FM_MIN_DWELLTIME; //the mini value for current hardware
+		} 
+		printk(KERN_WARNING DRIVER_NAME ":  --set the DWELL time:  %d\n",  ctrl->value );
+  #endif
 		value = (radio->registers[SRCHCTRL] & ~SCAN_DWELL) |
 						(ctrl->value << 4);
 		radio->registers[SRCHCTRL] = value;
@@ -3320,7 +3285,7 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 		SET_REG_FIELD(radio->registers[IOCTRL], ctrl->value,
 					IOC_ANTENNA_OFFSET, IOC_ANTENNA_MASK);
 		break;
-	case V4L2_CID_PRIVATE_INTF_LOW_THRESHOLD:
+	case V4L2_CID_PRIVATE_TAVARUA_ON_CHANNEL_THRESHOLD:
 		size = 0x04;
 		/* Poking the value of ON Channel Threshold value */
 		xfr_buf[0] = (XFR_POKE_MODE | (size << 1));
@@ -3340,13 +3305,39 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 		retval = tavarua_write_registers(radio, XFRCTRL,
 				xfr_buf, size+3);
 		if (retval < 0) {
+			FMDBG("Failed to write\n");
+			return retval;
+		}
+		/*Wait for the XFR interrupt */
+		msleep(TAVARUA_DELAY*15);
+
+		for (cnt = 0; cnt < 5; cnt++) {
+			xfr_buf[cnt] = 0;
+			radio->registers[XFRDAT0+cnt] = 0x0;
+		}
+
+		/* Peeking Regs 0x88C2-0x88C4 */
+		size = 0x04;
+		xfr_buf[0] = (XFR_PEEK_MODE | (size << 1));
+		xfr_buf[1] = ON_CHANNEL_TH_MSB;
+		xfr_buf[2] = ON_CHANNEL_TH_LSB;
+		retval = tavarua_write_registers(radio, XFRCTRL, xfr_buf, 3);
+		if (retval < 0) {
 			pr_err("%s: Failed to write\n", __func__);
 			return retval;
 		}
 		/*Wait for the XFR interrupt */
 		msleep(TAVARUA_DELAY*10);
+		retval = tavarua_read_registers(radio, XFRDAT0, 4);
+		if (retval < 0) {
+			pr_err("%s: On Ch. DET: Read failure\n", __func__);
+			return retval;
+		}
+		for (cnt = 0; cnt < 4; cnt++)
+			FMDBG("On-Channel data set is : 0x%x\t",
+				(int)radio->registers[XFRDAT0+cnt]);
 		break;
-	case V4L2_CID_PRIVATE_INTF_HIGH_THRESHOLD:
+	case V4L2_CID_PRIVATE_TAVARUA_OFF_CHANNEL_THRESHOLD:
 		size = 0x04;
 		/* Poking the value of OFF Channel Threshold value */
 		xfr_buf[0] = (XFR_POKE_MODE | (size << 1));
@@ -3371,6 +3362,32 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 		}
 		/*Wait for the XFR interrupt */
 		msleep(TAVARUA_DELAY*10);
+
+		for (cnt = 0; cnt < 5; cnt++) {
+			xfr_buf[cnt] = 0;
+			radio->registers[XFRDAT0+cnt] = 0x0;
+		}
+
+		/* Peeking Regs 0x88C2-0x88C4 */
+		size = 0x04;
+		xfr_buf[0] = (XFR_PEEK_MODE | (size << 1));
+		xfr_buf[1] = OFF_CHANNEL_TH_MSB;
+		xfr_buf[2] = OFF_CHANNEL_TH_LSB;
+		retval = tavarua_write_registers(radio, XFRCTRL, xfr_buf, 3);
+		if (retval < 0) {
+			pr_err("%s: Failed to write\n", __func__);
+			return retval;
+		}
+		/*Wait for the XFR interrupt */
+		msleep(TAVARUA_DELAY*10);
+		retval = tavarua_read_registers(radio, XFRDAT0, 4);
+		if (retval < 0) {
+			pr_err("%s: Off Ch. DET: Read failure\n", __func__);
+			return retval;
+		}
+		for (cnt = 0; cnt < 4; cnt++)
+			FMDBG("Off-channel data set is : 0x%x\t",
+				(int)radio->registers[XFRDAT0+cnt]);
 		break;
 	/* TX Controls */
 

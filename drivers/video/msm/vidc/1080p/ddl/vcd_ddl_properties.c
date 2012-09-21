@@ -1976,16 +1976,8 @@ static u32 ddl_valid_buffer_requirement(struct vcd_buffer_requirement
 		/*original_buf_req->align <= req_buf_req->align,*/
 		original_buf_req->sz <= req_buf_req->sz)
 		status = true;
-	else {
+	else
 		DDL_MSG_ERROR("ddl_valid_buf_req:Failed");
-		DDL_MSG_ERROR("codec_buf_req: min_cnt=%d, mx_cnt=%d, "
-			"align=%d, sz=%d\n", original_buf_req->min_count,
-			original_buf_req->max_count, original_buf_req->align,
-			original_buf_req->sz);
-		DDL_MSG_ERROR("client_buffs: actual_count=%d, align=%d, "
-			"sz=%d\n", req_buf_req->actual_count,
-			req_buf_req->align,	req_buf_req->sz);
-	}
 	return status;
 }
 

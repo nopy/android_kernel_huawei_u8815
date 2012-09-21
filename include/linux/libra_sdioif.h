@@ -37,7 +37,6 @@ typedef void (resume_handler_t)(struct sdio_func *);
 typedef void (notify_card_removal_t)(void);
 typedef void (shutdown_handler_t)(void);
 
-int libra_enable_sdio_irq_in_chip(struct sdio_func *func, u8 enable);
 int    libra_sdio_configure(sdio_irq_handler_t libra_sdio_rxhandler,
 		void (*func_drv_fn)(int *status),
 		u32 funcdrv_timeout, u32 blksize);

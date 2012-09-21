@@ -490,8 +490,9 @@ struct platform_device fmem_device = {
 	.dev = { .platform_data = &fmem_pdata },
 };
 
-static void __init adjust_mem_for_liquid(void)
+static void reserve_ion_memory(void)
 {
+#if defined(CONFIG_ION_MSM) && defined(CONFIG_MSM_MULTIMEDIA_USE_ION)
 	unsigned int i;
 
 	if (!pmem_param_set) {
@@ -709,51 +710,14 @@ static void __init reserve_mdp_memory(void)
 	msm8960_mdp_writeback(msm8960_reserve_table);
 }
 
-#if defined(CONFIG_MSM_CACHE_DUMP)
-static struct msm_cache_dump_platform_data msm_cache_dump_pdata = {
-	.l2_size = L2_BUFFER_SIZE,
-};
-
-static struct platform_device msm_cache_dump_device = {
-	.name           = "msm_cache_dump",
-	.id             = -1,
-	.dev            = {
-		.platform_data = &msm_cache_dump_pdata,
-	},
-};
-
-#endif
-
-static void reserve_cache_dump_memory(void)
-{
-#ifdef CONFIG_MSM_CACHE_DUMP
-	unsigned int spare;
-	unsigned int l1_size;
-	unsigned int total;
-	int ret;
-
-	ret = scm_call(L1C_SERVICE_ID, L1C_BUFFER_GET_SIZE_COMMAND_ID, &spare,
-		sizeof(spare), &l1_size, sizeof(l1_size));
-
-	if (ret)
-		/* Fall back to something reasonable here */
-		l1_size = L1_BUFFER_SIZE;
-
-	total = l1_size + L2_BUFFER_SIZE;
-
-	msm8960_reserve_table[MEMTYPE_EBI1].size += total;
-	msm_cache_dump_pdata.l1_size = l1_size;
-#endif
-}
-
 static void __init msm8960_calculate_reserve_sizes(void)
 {
 	size_pmem_devices();
 	reserve_pmem_memory();
 	reserve_ion_memory();
+	reserve_fmem_memory();
 	reserve_mdp_memory();
 	reserve_rtb_memory();
-	reserve_cache_dump_memory();
 }
 
 static struct reserve_info msm8960_reserve_info __initdata = {
@@ -1529,7 +1493,7 @@ static struct msm_spm_platform_data msm_spm_data[] __initdata = {
 		.reg_init_values[MSM_SPM_REG_SAW2_AVS_HYSTERESIS] = 0x00,
 #endif
 		.reg_init_values[MSM_SPM_REG_SAW2_SPM_CTL] = 0x01,
-		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DLY] = 0x02020204,
+		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DLY] = 0x02020202,
 		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DATA_0] = 0x0060009C,
 		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DATA_1] = 0x0000001C,
 		.vctl_timeout_us = 50,
@@ -1544,7 +1508,7 @@ static struct msm_spm_platform_data msm_spm_data[] __initdata = {
 		.reg_init_values[MSM_SPM_REG_SAW2_AVS_HYSTERESIS] = 0x00,
 #endif
 		.reg_init_values[MSM_SPM_REG_SAW2_SPM_CTL] = 0x01,
-		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DLY] = 0x02020204,
+		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DLY] = 0x02020202,
 		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DATA_0] = 0x0060009C,
 		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DATA_1] = 0x0000001C,
 		.vctl_timeout_us = 50,
@@ -1593,7 +1557,7 @@ static struct msm_spm_platform_data msm_spm_l2_data[] __initdata = {
 	[0] = {
 		.reg_base_addr = MSM_SAW_L2_BASE,
 		.reg_init_values[MSM_SPM_REG_SAW2_SPM_CTL] = 0x00,
-		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DLY] = 0x02020204,
+		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DLY] = 0x02020202,
 		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DATA_0] = 0x00A000AE,
 		.reg_init_values[MSM_SPM_REG_SAW2_PMIC_DATA_1] = 0x00A00020,
 		.modes = msm_spm_l2_seq_list,

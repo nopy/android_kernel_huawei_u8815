@@ -90,6 +90,20 @@
 #define INVALID_SESSION -1
 #define VERSION_KEY_MASK 0xFFFFFF00
 #define MAX_DOWNSCALE_RATIO 3
+#define ROTATOR_REVISION_V0 0 
+#define ROTATOR_REVISION_V1 1 
+#define ROTATOR_REVISION_V2 2 
+#define ROTATOR_REVISION_NONE 0xffffffff 
+
+uint32_t rotator_hw_revision; 
+ 
+/* 
++ * rotator_hw_revision: 
++ * 0 == 7x30 
++ * 1 == 8x60 
++ * 2 == 8960 
++ * 
++ */ 
 
 #define ROTATOR_REVISION_V0		0
 #define ROTATOR_REVISION_V1		1
@@ -154,7 +168,9 @@ struct msm_rotator_dev {
 #define COMPONENT_5BITS 1
 #define COMPONENT_6BITS 2
 #define COMPONENT_8BITS 3
-
+#ifdef CONFIG_HUAWEI_KERNEL 
+static int Mirror_Flip;
+#endif
 static struct msm_rotator_dev *msm_rotator_dev;
 
 enum {
@@ -806,8 +822,6 @@ static int get_img(struct msmfb_data *fbd, unsigned char src,
 	unsigned long vstart;
 #endif
 
-	*p_need = 0;
-
 #ifdef CONFIG_FB
 	if (fbd->flags & MDP_MEMORY_ID_TYPE_FB) {
 		file = fget_light(fbd->memory_id, &put_needed);
@@ -876,7 +890,6 @@ static int msm_rotator_do_rotate(unsigned long arg)
 	struct file *srcp1_file = NULL, *dstp1_file = NULL;
 	struct ion_handle *srcp0_ihdl = NULL, *dstp0_ihdl = NULL;
 	struct ion_handle *srcp1_ihdl = NULL, *dstp1_ihdl = NULL;
-	int ps0_need, p_need;
 	unsigned int in_chroma_paddr = 0, out_chroma_paddr = 0;
 	unsigned int in_chroma2_paddr = 0;
 	struct msm_rotator_img_info *img_info;
@@ -967,7 +980,7 @@ static int msm_rotator_do_rotate(unsigned long arg)
 
 		rc = get_img(&info.src_chroma, 1,
 				(unsigned long *)&in_chroma_paddr,
-				(unsigned long *)&src_len, &srcp1_file, &p_need,
+				(unsigned long *)&src_len, &srcp1_file,
 				&srcp1_ihdl);
 		if (rc) {
 			pr_err("%s: in chroma get_img() failed id=0x%08x\n",
@@ -977,7 +990,7 @@ static int msm_rotator_do_rotate(unsigned long arg)
 
 		rc = get_img(&info.dst_chroma, 0,
 				(unsigned long *)&out_chroma_paddr,
-				(unsigned long *)&dst_len, &dstp1_file, &p_need,
+				(unsigned long *)&dst_len, &dstp1_file,
 				&dstp1_ihdl);
 		if (rc) {
 			pr_err("%s: out chroma get_img() failed id=0x%08x\n",
@@ -1067,6 +1080,13 @@ static int msm_rotator_do_rotate(unsigned long arg)
 		  (msm_rotator_dev->img_info[s]->src.width & 0x1fff),
 		  MSM_ROTATOR_SRC_IMAGE_SIZE);
 
+#ifdef CONFIG_HUAWEI_KERNEL 
+/*when camera preview is used, "Mirror_Flip" is set, and overlay fixedly is rotated 270 degrees.*/
+       if(Mirror_Flip)
+       {
+       	msm_rotator_dev->img_info[s]->rotations = MDP_ROT_270;
+       }
+#endif
 	switch (format) {
 	case MDP_RGB_565:
 	case MDP_BGR_565:
@@ -1128,9 +1148,14 @@ static int msm_rotator_do_rotate(unsigned long arg)
 
 	msm_rotator_dev->processing = 1;
 	iowrite32(0x1, MSM_ROTATOR_START);
-
+#ifndef CONFIG_HUAWEI_KERNEL
 	wait_event(msm_rotator_dev->wq,
 		   (msm_rotator_dev->processing == 0));
+#else
+	wait_event_timeout(msm_rotator_dev->wq,
+		   (msm_rotator_dev->processing == 0),
+		   1 *HZ);
+#endif
 	status = (unsigned char)ioread32(MSM_ROTATOR_INTR_STATUS);
 	if ((status & 0x03) != 0x01) {
 		pr_err("%s(): AXI Bus Error, issuing SW_RESET\n", __func__);
@@ -1150,12 +1175,7 @@ do_rotate_unlock_mutex:
 	put_img(dstp1_file, dstp1_ihdl);
 	put_img(srcp1_file, srcp1_ihdl);
 	put_img(dstp0_file, dstp0_ihdl);
-
-	/* only source may use frame buffer */
-	if (info.src.flags & MDP_MEMORY_ID_TYPE_FB)
-		fput_light(srcp0_file, ps0_need);
-	else
-		put_img(srcp0_file, srcp0_ihdl);
+	put_img(srcp0_file, srcp0_ihdl);
 	mutex_unlock(&msm_rotator_dev->rotator_lock);
 	dev_dbg(msm_rotator_dev->device, "%s() returning rc = %d\n",
 		__func__, rc);
@@ -1392,6 +1412,9 @@ msm_rotator_close(struct inode *inode, struct file *filp)
 static long msm_rotator_ioctl(struct file *file, unsigned cmd,
 						 unsigned long arg)
 {
+#ifdef CONFIG_HUAWEI_KERNEL 
+	int info;
+#endif
 	int pid;
 
 	if (_IOC_TYPE(cmd) != MSM_ROTATOR_IOCTL_MAGIC)
@@ -1406,7 +1429,16 @@ static long msm_rotator_ioctl(struct file *file, unsigned cmd,
 		return msm_rotator_do_rotate(arg);
 	case MSM_ROTATOR_IOCTL_FINISH:
 		return msm_rotator_finish(arg);
-
+/*add a ioctl macro to get a flag that decide how degrees to rotate*/
+#ifdef CONFIG_HUAWEI_KERNEL
+       case MSM_ROTATOR_IOCTL_MIRROR_FLIP:
+	   	if (copy_from_user(&info, (void __user *)arg, sizeof(int)))
+	   	{
+		return -EFAULT;
+	   	}
+	   	Mirror_Flip = info;
+		return 0;
+#endif
 	default:
 		dev_dbg(msm_rotator_dev->device,
 			"unexpected IOCTL %d\n", cmd);

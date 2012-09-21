@@ -51,11 +51,9 @@ static int fmem_probe(struct platform_device *pdev)
 {
 	struct fmem_platform_data *pdata = pdev->dev.platform_data;
 
-	fmem_data.phys = pdata->phys + pdata->reserved_size_low;
-	fmem_data.size = pdata->size - pdata->reserved_size_low -
-					pdata->reserved_size_high;
-	fmem_data.reserved_size_low = pdata->reserved_size_low;
-	fmem_data.reserved_size_high = pdata->reserved_size_high;
+	fmem_data.phys = pdata->phys + pdata->reserved_size;
+	fmem_data.size = pdata->size - pdata->reserved_size;
+	fmem_data.reserved_size = pdata->reserved_size;
 
 	if (!fmem_data.size)
 		return -ENODEV;
@@ -181,7 +179,7 @@ int fmem_set_state(enum fmem_state new_state)
 
 	if (fmem_state == FMEM_UNINITIALIZED) {
 		if (new_state == FMEM_T_STATE) {
-			tmem_enable();
+			tmem_enable(false);
 			create_sysfs = 1;
 			goto out_set;
 		}
@@ -198,7 +196,7 @@ int fmem_set_state(enum fmem_state new_state)
 			ret = PTR_ERR(v);
 			goto out;
 		}
-		tmem_enable();
+		tmem_enable(true);
 	} else {
 		tmem_disable();
 		fmem_unmap_virtual_area();

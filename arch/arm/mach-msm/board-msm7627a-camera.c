@@ -22,6 +22,12 @@
 #include <mach/irqs-7xxx.h>
 #include "devices-msm7x2xa.h"
 #include "board-msm7627a.h"
+#include <linux/hardware_self_adapt.h>
+#ifdef CONFIG_HUAWEI_CAMERA
+#define S5K5CA_IS_NOT_ON 0 
+/*we use the variable to sign whether s5k5ca is on*/
+static int s5k5ca_is_on = S5K5CA_IS_NOT_ON;
+#endif
 
 #ifdef CONFIG_MSM_CAMERA_V4L2
 static uint32_t camera_off_gpio_table[] = {
@@ -307,11 +313,34 @@ static struct i2c_board_info i2c_camera_devices[] = {
 };
 #else
 static uint32_t camera_off_gpio_table[] = {
-	GPIO_CFG(15, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+	GPIO_CFG(8, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* RESET For mt9v113 */
+	GPIO_CFG(15, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA),
+	GPIO_CFG(32, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /*PWD for M660 camera*/
+	GPIO_CFG(37, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /*PWD for U8185 camera*/
+	GPIO_CFG(49, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* RESET */
+
+	/* Camera I2C config like normal gpio with value 0 when camera turn off */
+	GPIO_CFG(60, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_8MA), 
+	GPIO_CFG(61, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_8MA), 
+	GPIO_CFG(119, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /*PWD*/
+	GPIO_CFG(120, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /*PWD for mt9v113 */
 };
 
+/* add the camera reset gpio 49*/
 static uint32_t camera_on_gpio_table[] = {
-	GPIO_CFG(15, 1, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
+	GPIO_CFG(8,  0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* RESET For mt9v113 */
+	/*increase the driving capability of  MCLK*/
+	GPIO_CFG(15, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_16MA), /* MCLK */
+	GPIO_CFG(32, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /*PWD for M660 camera*/
+	GPIO_CFG(37, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /*PWD for U8185 camera*/
+	GPIO_CFG(49, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* RESET */
+
+    GPIO_CFG(7, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* VCM_PWD */
+	/* Camera I2C config to I2C when camera start */
+	GPIO_CFG(60, 1, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_8MA), 
+	GPIO_CFG(61, 1, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_8MA), 
+	GPIO_CFG(119, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* PWD */
+	GPIO_CFG(120, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* PWD for mt9v113 */
 };
 
 #ifdef CONFIG_MSM_CAMERA_FLASH
@@ -323,9 +352,8 @@ static struct msm_camera_sensor_flash_src msm_flash_src = {
 #endif
 
 static struct regulator_bulk_data regs_camera[] = {
-	{ .supply = "msme1", .min_uV = 1800000, .max_uV = 1800000 },
-	{ .supply = "gp2",   .min_uV = 2850000, .max_uV = 2850000 },
-	{ .supply = "usb2",  .min_uV = 1800000, .max_uV = 1800000 },
+	{ .supply = "wlan2", .min_uV = 1300000, .max_uV = 1300000 },
+	{ .supply = "bt",   .min_uV = 2850000, .max_uV = 2850000 },
 };
 
 static void qrd1_camera_gpio_cfg(void)
@@ -413,14 +441,23 @@ static int config_gpio_table(uint32_t *table, int len)
 	return rc;
 }
 
+#ifdef CONFIG_HUAWEI_CAMERA
+/* set and get the value of s5k5ca_is_on*/
+static void set_s5k5ca_is_on(int s5k5ca_probe_success)
+{
+	s5k5ca_is_on = s5k5ca_probe_success ;
+}
+
+static int get_s5k5ca_is_on(void)
+{
+	return  s5k5ca_is_on;
+}
+#endif
 static int config_camera_on_gpios_rear(void)
 {
 	int rc = 0;
-
-	if (machine_is_msm7x27a_ffa() || machine_is_msm7625a_ffa()
-				|| machine_is_msm7627a_qrd1())
-		msm_camera_vreg_config(1);
-
+/*delete some lines for power enable*/
+	
 	rc = config_gpio_table(camera_on_gpio_table,
 			ARRAY_SIZE(camera_on_gpio_table));
 	if (rc < 0) {
@@ -434,9 +471,7 @@ static int config_camera_on_gpios_rear(void)
 
 static void config_camera_off_gpios_rear(void)
 {
-	if (machine_is_msm7x27a_ffa() || machine_is_msm7625a_ffa()
-				|| machine_is_msm7627a_qrd1())
-		msm_camera_vreg_config(0);
+/*delete some lines for power disable*/
 
 	config_gpio_table(camera_off_gpio_table,
 			ARRAY_SIZE(camera_off_gpio_table));
@@ -446,9 +481,7 @@ static int config_camera_on_gpios_front(void)
 {
 	int rc = 0;
 
-	if (machine_is_msm7x27a_ffa() || machine_is_msm7625a_ffa()
-				|| machine_is_msm7627a_qrd1())
-		msm_camera_vreg_config(1);
+	/*delete one line for power enable*/
 
 	rc = config_gpio_table(camera_on_gpio_table,
 			ARRAY_SIZE(camera_on_gpio_table));
@@ -463,9 +496,7 @@ static int config_camera_on_gpios_front(void)
 
 static void config_camera_off_gpios_front(void)
 {
-	if (machine_is_msm7x27a_ffa() || machine_is_msm7625a_ffa()
-				|| machine_is_msm7627a_qrd1())
-		msm_camera_vreg_config(0);
+	/*delete one line for power disable*/
 
 	config_gpio_table(camera_off_gpio_table,
 			ARRAY_SIZE(camera_off_gpio_table));
@@ -480,7 +511,10 @@ struct msm_camera_device_platform_data msm_camera_device_data_rear = {
 	.ioclk.mclk_clk_rate	= 24000000,
 	.ioclk.vfe_clk_rate	= 192000000,
 	.ioext.appphy		= MSM_CLK_CTL_PHYS,
-	.ioext.appsz		= MSM_CLK_CTL_SIZE,
+	.ioext.appsz  = MSM_CLK_CTL_SIZE,
+#ifdef CONFIG_HUAWEI_CAMERA 	
+	.get_board_support_flash = board_support_flash,
+#endif
 };
 
 struct msm_camera_device_platform_data msm_camera_device_data_front = {
@@ -495,27 +529,31 @@ struct msm_camera_device_platform_data msm_camera_device_data_front = {
 	.ioext.appsz		= MSM_CLK_CTL_SIZE,
 };
 
-#ifdef CONFIG_S5K4E1
+#ifdef CONFIG_HUAWEI_SENSOR_S5K4E1
 static struct msm_camera_sensor_platform_info s5k4e1_sensor_7627a_info = {
 	.mount_angle = 90
 };
 
 static struct msm_camera_sensor_flash_data flash_s5k4e1 = {
-	.flash_type	     = MSM_CAMERA_FLASH_LED,
-	.flash_src	      = &msm_flash_src
+	.flash_type             = MSM_CAMERA_FLASH_LED,
+	.flash_src              = &msm_flash_src
 };
 
 static struct msm_camera_sensor_info msm_camera_sensor_s5k4e1_data = {
-	.sensor_name		= "s5k4e1",
-	.sensor_reset_enable	= 1,
-	.sensor_reset		= GPIO_CAM_GP_CAMIF_RESET_N,
-	.sensor_pwd	     = 85,
-	.vcm_pwd		= GPIO_CAM_GP_CAM_PWDN,
-	.vcm_enable	     = 1,
-	.pdata			= &msm_camera_device_data_rear,
-	.flash_data	     = &flash_s5k4e1,
+	.sensor_name    = "s5k4e1",
+	.sensor_reset_enable = 1,
+	.sensor_reset   = 49,
+	.sensor_pwd             = 119,
+	.vcm_pwd                = 7,
+	.vcm_enable             = 1,
+	.pdata                  = &msm_camera_device_data_rear,
+	.flash_data             = &flash_s5k4e1,
 	.sensor_platform_info   = &s5k4e1_sensor_7627a_info,
-	.csi_if			= 1
+	.csi_if                 = 1,
+	.vreg_enable_func = msm_camera_vreg_config,
+	.vreg_disable_func = msm_camera_vreg_config,
+	/*back camera is not slave_sensor, below as the same*/
+	.slave_sensor           = 0
 };
 
 static struct platform_device msm_camera_sensor_s5k4e1 = {
@@ -601,24 +639,205 @@ static struct msm_camera_sensor_flash_data flash_mt9e013 = {
 	.flash_src  = &msm_flash_src
 };
 
+#ifdef CONFIG_HUAWEI_SENSOR_MT9E013
 static struct msm_camera_sensor_info msm_camera_sensor_mt9e013_data = {
-	.sensor_name		= "mt9e013",
-	.sensor_reset		= 0,
-	.sensor_reset_enable	= 1,
-	.sensor_pwd		= 85,
-	.vcm_pwd		= 1,
-	.vcm_enable		= 0,
-	.pdata		= &msm_camera_device_data_rear,
-	.flash_data		= &flash_mt9e013,
+	.sensor_name    = "mt9e013",
+	.sensor_reset   = 49,
+	.sensor_reset_enable = 1,
+	.sensor_pwd     = 119,
+	.vcm_pwd        = 7,
+	.vcm_enable     = 1,
+	.pdata          = &msm_camera_device_data_rear,
+	.flash_data     = &flash_mt9e013,
 	.sensor_platform_info   = &mt9e013_sensor_7627a_info,
-	.csi_if		= 1
+	.csi_if         = 1,
+	.vreg_enable_func = msm_camera_vreg_config,
+	.vreg_disable_func = msm_camera_vreg_config,
+	.slave_sensor   = 0
 };
+#endif
 
 static struct platform_device msm_camera_sensor_mt9e013 = {
 	.name      = "msm_camera_mt9e013",
 	.dev       = {
 		.platform_data = &msm_camera_sensor_mt9e013_data,
 	},
+};
+#endif
+#ifdef CONFIG_HUAWEI_SENSOR_MT9P017
+static struct msm_camera_sensor_platform_info mt9p017_sensor_info = {
+	.mount_angle = 90
+};
+
+static struct msm_camera_sensor_flash_data flash_mt9p017 = {
+	.flash_type = MSM_CAMERA_FLASH_LED,
+	.flash_src  = &msm_flash_src
+};
+
+static struct msm_camera_sensor_info msm_camera_sensor_mt9p017_data = {
+	.sensor_name    = "mt9p017",
+	.sensor_reset   = 49,
+	.sensor_reset_enable = 1,
+	.sensor_pwd     = 119,
+	.vcm_pwd        = 7,
+	.vcm_enable     = 1,
+	.pdata          = &msm_camera_device_data_rear,
+	.flash_data     = &flash_mt9p017,
+	.sensor_platform_info   = &mt9p017_sensor_info,
+	.csi_if         = 1,
+	.vreg_enable_func = msm_camera_vreg_config,
+	.vreg_disable_func = msm_camera_vreg_config,
+	.slave_sensor   = 0
+};
+
+static struct platform_device msm_camera_sensor_mt9p017 = {
+	.name      = "msm_camera_mt9p017",
+	.dev       = {
+		.platform_data = &msm_camera_sensor_mt9p017_data,
+	},
+};
+#endif
+
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_S5K5CA
+static struct msm_camera_sensor_platform_info s5k5ca_sensor_info = {
+	.mount_angle = 90
+};
+
+static struct msm_camera_sensor_flash_data flash_s5k5ca = {
+	.flash_type = MSM_CAMERA_FLASH_LED,
+	.flash_src  = &msm_flash_src
+};
+
+static struct msm_camera_sensor_info msm_camera_sensor_s5k5ca_data = {
+	.sensor_name    = "s5k5ca",
+	.sensor_reset   = 49,
+	.sensor_reset_enable = 1,
+	.sensor_pwd     = 119,
+	.vcm_pwd        = 7,
+	.vcm_enable     = 1,
+	.pdata          = &msm_camera_device_data_rear,
+	.flash_data     = &flash_s5k5ca,
+	.sensor_platform_info   = &s5k5ca_sensor_info,
+	.set_s5k5ca_is_on = set_s5k5ca_is_on,
+	.csi_if         = 1,
+	.vreg_enable_func = msm_camera_vreg_config,
+	.vreg_disable_func = msm_camera_vreg_config,
+	.slave_sensor   = 0
+};
+
+static struct platform_device msm_camera_sensor_s5k5ca = {
+	.name      = "msm_camera_s5k5ca",
+	.dev       = {
+		.platform_data = &msm_camera_sensor_s5k5ca_data,
+	},
+};
+#endif
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9T113
+static struct msm_camera_sensor_platform_info mt9t113_sensor_info = {
+	.mount_angle = 90
+};
+
+static struct msm_camera_sensor_flash_data flash_mt9t113 = {
+	.flash_type = MSM_CAMERA_FLASH_LED,
+	.flash_src  = &msm_flash_src
+};
+
+static struct msm_camera_sensor_info msm_camera_sensor_mt9t113_data = {
+	.sensor_name    = "mt9t113",
+	.sensor_reset   = 49,
+	.sensor_reset_enable = 1,
+	.sensor_pwd     = 119,
+	.vcm_pwd        = 7,
+	.vcm_enable     = 1,
+	.pdata          = &msm_camera_device_data_rear,
+	.flash_data     = &flash_mt9t113,
+	.sensor_platform_info   = &mt9t113_sensor_info,
+	/*delete one line*/
+	.csi_if         = 1,
+	.vreg_enable_func = msm_camera_vreg_config,
+	.vreg_disable_func = msm_camera_vreg_config,
+	.slave_sensor   = 0
+};
+
+static struct platform_device msm_camera_sensor_mt9t113 = {
+	.name      = "msm_camera_mt9t113",
+	.dev       = {
+		.platform_data = &msm_camera_sensor_mt9t113_data,
+	},
+};
+#endif
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9D113
+static struct msm_camera_sensor_platform_info mt9d113_sensor_info = {
+	.mount_angle = 90
+};
+
+static struct msm_camera_sensor_flash_data flash_mt9d113 = {
+	.flash_type = MSM_CAMERA_FLASH_LED,
+	.flash_src  = &msm_flash_src
+};
+
+static struct msm_camera_sensor_info msm_camera_sensor_mt9d113_data = {
+	.sensor_name    = "mt9d113",
+	.sensor_reset   = 49,
+	.sensor_reset_enable = 1,
+	.sensor_pwd     = 119,
+	.vcm_pwd        = 7,
+	.vcm_enable     = 1,
+	.pdata          = &msm_camera_device_data_rear,
+	.flash_data     = &flash_mt9d113,
+	.sensor_platform_info   = &mt9d113_sensor_info,
+	.csi_if         = 1,
+	.vreg_enable_func = msm_camera_vreg_config,
+	.vreg_disable_func = msm_camera_vreg_config,
+	.slave_sensor   = 0
+};
+
+static struct platform_device msm_camera_sensor_mt9d113 = {
+	.name      = "msm_camera_mt9d113",
+	.dev       = {
+		.platform_data = &msm_camera_sensor_mt9d113_data,
+	},
+};
+#endif
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9V113
+static struct msm_camera_sensor_platform_info mt9v113_sensor_info = {
+	.mount_angle = 270
+};
+
+static struct msm_camera_sensor_flash_data flash_mt9v113 = {
+	.flash_type =MSM_CAMERA_FLASH_NONE,
+	.flash_src  = &msm_flash_src
+};
+
+static struct msm_camera_sensor_info msm_camera_sensor_mt9v113_data = {
+	.sensor_name    = "mt9v113",
+	.sensor_reset   = 8,
+	.sensor_reset_enable = 1,
+	.sensor_pwd     = 120,
+	.vcm_pwd        = 7,
+	.vcm_enable     = 1,
+	.pdata          = &msm_camera_device_data_front,
+	.flash_data     = &flash_mt9v113,
+	.sensor_platform_info   = &mt9v113_sensor_info,
+	.csi_if         = 1,
+	.vreg_enable_func = msm_camera_vreg_config,
+	.vreg_disable_func = msm_camera_vreg_config,
+	.get_s5k5ca_is_on = get_s5k5ca_is_on,
+	.slave_sensor   = 1
+};
+
+static struct platform_device msm_camera_sensor_mt9v113 = {
+	.name      = "msm_camera_mt9v113",
+	.dev       = {
+		.platform_data = &msm_camera_sensor_mt9v113_data,
+	},
+};
+#endif
+/* driver for hw device detect */
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+static struct platform_device huawei_device_detect = {
+	.name = "hw-dev-detect",
+	.id   =-1,
 };
 #endif
 
@@ -690,12 +909,12 @@ static struct platform_device msm_camera_sensor_ov7692 = {
 #endif
 
 static struct i2c_board_info i2c_camera_devices[] = {
-	#ifdef CONFIG_S5K4E1
+	#ifdef CONFIG_HUAWEI_SENSOR_S5K4E1
 	{
-		I2C_BOARD_INFO("s5k4e1", 0x36),
+		I2C_BOARD_INFO("s5k4e1", 0x6E >> 1),
 	},
 	{
-		I2C_BOARD_INFO("s5k4e1_af", 0x8c >> 1),
+		I2C_BOARD_INFO("s5k4e1_af", 0x18 >> 1),
 	},
 	#endif
 	#ifdef CONFIG_WEBCAM_OV9726
@@ -716,6 +935,32 @@ static struct i2c_board_info i2c_camera_devices[] = {
 	{
 		I2C_BOARD_INFO("sc628a", 0x6E),
 	},
+	#ifdef CONFIG_HUAWEI_SENSOR_MT9P017
+	{
+		I2C_BOARD_INFO("mt9p017", 0x6C),
+	},
+	#endif
+	#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_S5K5CA
+	{
+		I2C_BOARD_INFO("s5k5ca", 0x2D),
+	},
+	#endif
+	#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9T113
+	{
+		/* mt9t113 real i2c address is 0x3C*/
+		I2C_BOARD_INFO("mt9t113", 0x3C),
+	},
+	#endif
+	#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9D113
+	{
+		I2C_BOARD_INFO("mt9d113", 0x3C >> 1),
+	},
+	#endif
+	#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9V113
+	{
+		I2C_BOARD_INFO("mt9v113", 0x3D),
+	},
+	#endif
 };
 
 static struct i2c_board_info i2c_camera_devices_qrd[] = {
@@ -732,7 +977,7 @@ static struct i2c_board_info i2c_camera_devices_qrd[] = {
 };
 
 static struct platform_device *camera_devices_msm[] __initdata = {
-#ifdef CONFIG_S5K4E1
+#ifdef CONFIG_HUAWEI_SENSOR_S5K4E1
 	&msm_camera_sensor_s5k4e1,
 #endif
 #ifdef CONFIG_IMX072
@@ -743,6 +988,22 @@ static struct platform_device *camera_devices_msm[] __initdata = {
 #endif
 #ifdef CONFIG_MT9E013
 	&msm_camera_sensor_mt9e013,
+#endif
+#ifdef CONFIG_HUAWEI_SENSOR_MT9P017
+	&msm_camera_sensor_mt9p017,
+#endif
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_S5K5CA
+	&msm_camera_sensor_s5k5ca,
+#endif
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9T113
+	&msm_camera_sensor_mt9t113,
+#endif
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9D113
+	&msm_camera_sensor_mt9d113,
+#endif
+
+#ifdef CONFIG_HUAWEI_CAMERA_SENSOR_MT9V113
+    &msm_camera_sensor_mt9v113,
 #endif
 };
 

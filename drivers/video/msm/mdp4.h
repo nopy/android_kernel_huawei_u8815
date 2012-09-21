@@ -145,10 +145,10 @@ enum {
 #endif
 
 enum {
-	OVERLAY_PIPE_VG1,	/* video/graphic */
-	OVERLAY_PIPE_VG2,
 	OVERLAY_PIPE_RGB1,
 	OVERLAY_PIPE_RGB2,
+	OVERLAY_PIPE_VG1,	/* video/graphic */
+	OVERLAY_PIPE_VG2,
 	OVERLAY_PIPE_RGB3,
 	OVERLAY_PIPE_VG3,
 	OVERLAY_PIPE_VG4,
@@ -359,7 +359,6 @@ struct mdp4_overlay_pipe {
 	uint32 blt_changed;
 	uint32 ov_cnt;
 	uint32 dmap_cnt;
-	uint32 dmae_cnt;
 	uint32 blt_end;
 	uint32 blt_ov_koff;
 	uint32 blt_ov_done;
@@ -751,6 +750,7 @@ void mdp4_lcdc_overlay_kickoff(struct msm_fb_data_type *mfd,
 
 void mdp4_mddi_kickoff_video(struct msm_fb_data_type *mfd,
 				struct mdp4_overlay_pipe *pipe);
+void mdp4_dsi_cmd_overlay_restore(void);
 
 void mdp4_mddi_read_ptr_intr(void);
 
@@ -881,7 +881,6 @@ void mdp4_writeback_kickoff_video(struct msm_fb_data_type *mfd,
 		struct mdp4_overlay_pipe *pipe);
 void mdp4_writeback_dma_busy_wait(struct msm_fb_data_type *mfd);
 void mdp4_overlay1_done_writeback(struct mdp_dma_data *dma);
-void mdp4_dma_e_done_dtv(void);
 
 int mdp4_writeback_start(struct fb_info *info);
 int mdp4_writeback_stop(struct fb_info *info);

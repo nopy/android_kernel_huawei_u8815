@@ -874,9 +874,6 @@ static int __devinit
 	} else
 		DEV_ERR("adv7520_probe: failed to add fb device\n");
 
-	if (hdmi_prim_display)
-		external_common_state->sdev.name = "hdmi_as_primary";
-	else
 		external_common_state->sdev.name = "hdmi";
 
 	if (switch_dev_register(&external_common_state->sdev) < 0)

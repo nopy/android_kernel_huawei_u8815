@@ -810,24 +810,26 @@ void tmem_new_pool(struct tmem_pool *pool, uint32_t flags)
 }
 
 /* The following must be called with tmem state locked */
-static void tmem_cleanup(void)
+static void tmem_reset(void)
 {
 	(*tmem_hostops.flush_all_obj)();
 }
 
-void tmem_enable(void)
+void tmem_enable(bool reset)
 {
 	pr_info("turning tmem on\n");
 	tmem_enabled = true;
 
+	if (!reset)
+		return;
+
+	tmem_reset();
 	(*tmem_hostops.control)(false);
 }
 
 void tmem_disable(void)
 {
 	pr_info("turning tmem off\n");
-	tmem_enabled = false;
-
-	tmem_cleanup();
 	(*tmem_hostops.control)(true);
+	tmem_enabled = false;
 }

@@ -20,6 +20,7 @@ params_phys-$(CONFIG_ARCH_MSM7X27A)	:= 0x00200100
 # MSM7x30
    zreladdr-$(CONFIG_ARCH_MSM7X30)	:= 0x00208000
 params_phys-$(CONFIG_ARCH_MSM7X30)	:= 0x00200100
+#/* roll back DTS2011091305498, for kernel3.0 have solving the ramdisk conflict */
 initrd_phys-$(CONFIG_ARCH_MSM7X30)	:= 0x01200000
 
 ifeq ($(CONFIG_MSM_SOC_REV_A),y)

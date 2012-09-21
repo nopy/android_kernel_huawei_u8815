@@ -559,7 +559,8 @@ static void handle_bam_mux_cmd(struct work_struct *work)
 
 		if (!a2_pc_disabled) {
 			a2_pc_disabled = 1;
-			ul_wakeup();
+			schedule_delayed_work(&ul_timeout_work,
+				msecs_to_jiffies(UL_TIMEOUT_DELAY));
 		}
 
 		handle_bam_mux_cmd_open(rx_hdr);

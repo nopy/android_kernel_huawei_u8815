@@ -665,7 +665,7 @@ int tabla_i2c_write_device(u16 reg, u8 *value,
 	struct tabla_i2c *tabla;
 
 	tabla = get_i2c_tabla_device_info(reg);
-	if (tabla == NULL || tabla->client == NULL) {
+	if (tabla->client == NULL) {
 		pr_err("failed to get device info\n");
 		return -ENODEV;
 	}
@@ -702,7 +702,7 @@ int tabla_i2c_read_device(unsigned short reg,
 	u8 i = 0;
 
 	tabla = get_i2c_tabla_device_info(reg);
-	if (tabla == NULL || tabla->client == NULL) {
+	if (tabla->client == NULL) {
 		pr_err("failed to get device info\n");
 		return -ENODEV;
 	}
@@ -771,14 +771,13 @@ static int __devinit tabla_i2c_probe(struct i2c_client *client,
 	if (!pdata) {
 		dev_dbg(&client->dev, "no platform data?\n");
 		ret = -EINVAL;
-		goto err_tabla;
+		goto fail;
 	}
 	if (i2c_check_functionality(client->adapter, I2C_FUNC_I2C) == 0) {
 		dev_dbg(&client->dev, "can't talk I2C?\n");
 		ret = -EIO;
-		goto err_tabla;
+		goto fail;
 	}
-	dev_set_drvdata(&client->dev, tabla);
 	tabla->dev = &client->dev;
 	tabla->reset_gpio = pdata->reset_gpio;
 
@@ -985,7 +984,8 @@ static int tabla_slim_remove(struct slim_device *pdev)
 	tabla_device_exit(tabla);
 	tabla_disable_supplies(tabla);
 	slim_remove_device(tabla->slim_slave);
-	tabla_device_exit(tabla);
+	kfree(tabla);
+
 	return 0;
 }
 
@@ -1018,10 +1018,7 @@ static int tabla_slim_resume(struct slim_device *sldev)
 static int tabla_i2c_resume(struct i2c_client *i2cdev)
 {
 	struct tabla *tabla = dev_get_drvdata(&i2cdev->dev);
-	if (tabla)
-		return tabla_resume(tabla);
-	else
-		return 0;
+	return tabla_resume(tabla);
 }
 
 static int tabla_suspend(struct tabla *tabla, pm_message_t pmesg)
@@ -1075,10 +1072,7 @@ static int tabla_slim_suspend(struct slim_device *sldev, pm_message_t pmesg)
 static int tabla_i2c_suspend(struct i2c_client *i2cdev, pm_message_t pmesg)
 {
 	struct tabla *tabla = dev_get_drvdata(&i2cdev->dev);
-	if (tabla)
-		return tabla_suspend(tabla, pmesg);
-	else
-		return 0;
+	return tabla_suspend(tabla, pmesg);
 }
 
 static const struct slim_device_id slimtest_id[] = {

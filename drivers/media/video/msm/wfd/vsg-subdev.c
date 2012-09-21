@@ -62,29 +62,10 @@ static void vsg_set_last_buffer(struct vsg_context *context,
 			(void *)buf->mdp_buf_info.paddr);
 }
 
-static void vsg_encode_helper_func(struct work_struct *task)
-{
-	struct vsg_encode_work *work =
-		container_of(task, struct vsg_encode_work, work);
-
-	/*
-	 * Note: don't need to lock for context below as we only
-	 * access fields that are "static".
-	 */
-	int rc = vsg_encode_frame(work->context, work->buf);
-	if (rc < 0) {
-		mutex_lock(&work->context->mutex);
-		work->context->state = VSG_STATE_ERROR;
-		mutex_unlock(&work->context->mutex);
-	}
-	kfree(work);
-}
-
 static void vsg_work_func(struct work_struct *task)
 {
 	struct vsg_work *work =
 		container_of(task, struct vsg_work, work);
-	struct vsg_encode_work *encode_work;
 	struct vsg_context *context = work->context;
 	struct vsg_buf_info *buf_info = NULL, *temp = NULL;
 	int rc = 0, count = 0;
@@ -93,9 +74,8 @@ static void vsg_work_func(struct work_struct *task)
 	if (list_empty(&context->free_queue.node)) {
 		WFD_MSG_DBG("%s: queue empty doing nothing\n", __func__);
 		goto err_skip_encode;
-	} else if (context->state != VSG_STATE_STARTED) {
-		WFD_MSG_DBG("%s: vsg is stopped or in error state "
-				"doing nothing\n", __func__);
+	} else if (context->stopped) {
+		WFD_MSG_DBG("%s: vsg is stopped doing nothing\n", __func__);
 		goto err_skip_encode;
 	}
 
@@ -180,7 +160,7 @@ static void vsg_timer_helper_func(struct work_struct *task)
 
 	mutex_lock(&context->mutex);
 
-	if (context->state != VSG_STATE_STARTED)
+	if (context->stopped)
 		goto err_locked;
 
 	if (list_empty(&context->free_queue.node)
@@ -287,7 +267,7 @@ static int vsg_open(struct v4l2_subdev *sd, void *arg)
 
 	context->last_buffer = NULL;
 	context->mode = DEFAULT_MODE;
-	context->state = VSG_STATE_NONE;
+	context->stopped = false;
 	mutex_init(&context->mutex);
 
 	sd->dev_priv = context;
@@ -344,7 +324,7 @@ static int vsg_stop(struct v4l2_subdev *sd)
 	context = (struct vsg_context *)sd->dev_priv;
 
 	mutex_lock(&context->mutex);
-	context->state = VSG_STATE_STOPPED;
+	context->stopped = true;
 	{ /*delete pending buffers as we're not going to encode them*/
 		struct list_head *pos, *next;
 		list_for_each_safe(pos, next, &context->free_queue.node) {
@@ -479,26 +459,27 @@ static long vsg_return_ip_buffer(struct v4l2_subdev *sd, void *arg)
 	WFD_MSG_DBG("Return frame with paddr %p\n",
 			(void *)buf_info->mdp_buf_info.paddr);
 
-	if (!expected_buffer) {
-		WFD_MSG_ERR("Unexpectedly received buffer from enc with "
-			"paddr %p\n", (void *)buf_info->mdp_buf_info.paddr);
-		goto return_ip_buf_bad_buf;
-	}
-
-	expected_buffer->flags &= ~VSG_BUF_BEING_ENCODED;
 	if (mdp_buf_info_equals(&expected_buffer->mdp_buf_info,
 				&buf_info->mdp_buf_info)) {
-		bool is_same_buffer = context->last_buffer &&
-			mdp_buf_info_equals(
+		list_del(&expected_buffer->node);
+
+		if (!(expected_buffer->flags & VSG_NEVER_SET_LAST_BUFFER)) {
+			bool is_same_buffer = context->last_buffer &&
+				mdp_buf_info_equals(
 					&context->last_buffer->mdp_buf_info,
 					&expected_buffer->mdp_buf_info);
 
-		list_del(&expected_buffer->node);
-		if (!is_same_buffer &&
-			!(expected_buffer->flags & VSG_NEVER_RELEASE)) {
-			vsg_release_input_buffer(context, expected_buffer);
-			kfree(expected_buffer);
-		}
+			if (!context->last_buffer || !is_same_buffer) {
+				struct vsg_buf_info *old_last_buffer =
+					context->last_buffer;
+				if (context->last_buffer)
+					vsg_release_input_buffer(context,
+							context->last_buffer);
+				vsg_set_last_buffer(context, expected_buffer);
+				kfree(old_last_buffer);
+			}
+		} else
+			WFD_MSG_WARN("Couldn't set the last buffer\n");
 	} else {
 		WFD_MSG_ERR("Returned buffer %p is not latest buffer, "
 				"expected %p\n",
