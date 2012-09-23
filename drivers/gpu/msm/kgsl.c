@@ -753,6 +753,9 @@ kgsl_sharedmem_find_region(struct kgsl_process_private *private,
 {
 	struct rb_node *node = private->mem_rb.rb_node;
 
+	if (!kgsl_mmu_gpuaddr_in_range(gpuaddr))
+		return NULL;
+
 	while (node != NULL) {
 		struct kgsl_mem_entry *entry;
 
@@ -2342,8 +2345,8 @@ EXPORT_SYMBOL(kgsl_device_platform_remove);
 static int __devinit
 kgsl_ptdata_init(void)
 {
-	kgsl_driver.ptpool = kgsl_mmu_ptpool_init(KGSL_PAGETABLE_SIZE,
-						kgsl_pagetable_count);
+	kgsl_driver.ptpool = kgsl_mmu_ptpool_init(kgsl_pagetable_count);
+
 	if (!kgsl_driver.ptpool)
 		return -ENOMEM;
 	return 0;

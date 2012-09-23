@@ -580,9 +580,10 @@ int mdp4_overlay_dsi_state_get(void);
 void mdp4_overlay_rgb_setup(struct mdp4_overlay_pipe *pipe);
 void mdp4_overlay_reg_flush(struct mdp4_overlay_pipe *pipe, int all);
 void mdp4_mixer_blend_setup(int mixer);
+void mdp4_mixer_blend_cfg(int);
 struct mdp4_overlay_pipe *mdp4_overlay_stage_pipe(int mixer, int stage);
-void mdp4_mixer_stage_up(struct mdp4_overlay_pipe *pipe);
-void mdp4_mixer_stage_down(struct mdp4_overlay_pipe *pipe);
+void mdp4_mixer_stage_up(struct mdp4_overlay_pipe *pipe, int commit);
+void mdp4_mixer_stage_down(struct mdp4_overlay_pipe *pipe, int commit);
 void mdp4_mixer_pipe_cleanup(int mixer);
 int mdp4_mixer_stage_can_run(struct mdp4_overlay_pipe *pipe);
 void mdp4_overlayproc_cfg(struct mdp4_overlay_pipe *pipe);
@@ -735,6 +736,14 @@ static inline void mdp4_dsi_video_base_swap(int cndx,
 			struct mdp4_overlay_pipe *pipe)
 {
 	/* empty */
+}
+static inline void mdp4_dsi_cmd_blt_start(struct msm_fb_data_type *mfd)
+{
+        /* empty */
+}
+static inline void mdp4_dsi_cmd_blt_stop(struct msm_fb_data_type *mfd)
+{
+        /* empty */
 }
 #endif  /* CONFIG_FB_MSM_MIPI_DSI */
 
