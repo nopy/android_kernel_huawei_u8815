@@ -1845,6 +1845,10 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 	struct mdp_dirty_region *dirtyPtr = NULL;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 	struct msm_fb_panel_data *pdata;
+	
+#ifdef CONFIG_HUAWEI_KERNEL
+    static bool is_first_frame = TRUE;
+#endif
 
 	/*
 	 * If framebuffer is 2, io pen display is not allowed.
@@ -1854,10 +1858,6 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 		       __func__, info->node);
 		return -EPERM;
 	}
-
-#ifdef CONFIG_HUAWEI_KERNEL
-    static bool is_first_frame = TRUE;
-#endif
 
 	if (info->node != 0 || mfd->cont_splash_done)	/* primary */
 		if ((!mfd->op_enable) || (!mfd->panel_power_on))

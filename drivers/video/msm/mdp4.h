@@ -644,10 +644,6 @@ static inline void mdp4_mddi_blt_dmap_busy_wait(struct msm_fb_data_type *mfd)
 {
 	/* empty */
 }
-static inline void mdp4_mddi_overlay_restore(void)
-{
-	/* empty */
-}
 static inline void mdp4_mddi_overlay_blt_start(struct msm_fb_data_type *mfd)
 {
 	/*empty*/
