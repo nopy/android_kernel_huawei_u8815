@@ -110,14 +110,14 @@ static int mipi_nt35560_lcd_on(struct platform_device *pdev)
 		return -EINVAL; 
 
 	mipi_set_tx_power_mode(1);
-	mipi_dsi_cmds_tx(mfd, &nt35560_tx_buf, nt35560_sleep_out_cmds,
+	mipi_dsi_cmds_tx(&nt35560_tx_buf, nt35560_sleep_out_cmds,
 			ARRAY_SIZE(nt35560_sleep_out_cmds));
 	
-	mipi_dsi_cmds_tx(mfd, &nt35560_tx_buf, nt35560_lcd_init_cmds,
+	mipi_dsi_cmds_tx(&nt35560_tx_buf, nt35560_lcd_init_cmds,
 			ARRAY_SIZE(nt35560_lcd_init_cmds));
-	mipi_dsi_cmds_tx(mfd, &nt35560_tx_buf, nt35560_lcd_cabc_cmds,
+	mipi_dsi_cmds_tx(&nt35560_tx_buf, nt35560_lcd_cabc_cmds,
 			ARRAY_SIZE(nt35560_lcd_cabc_cmds));
-	mipi_dsi_cmds_tx(mfd, &nt35560_tx_buf, nt35560_display_on_cmds,
+	mipi_dsi_cmds_tx(&nt35560_tx_buf, nt35560_display_on_cmds,
 			ARRAY_SIZE(nt35560_display_on_cmds));
 	mipi_set_tx_power_mode(0);
 
@@ -136,9 +136,9 @@ static int mipi_nt35560_lcd_off(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
-	mipi_dsi_cmds_tx(mfd, &nt35560_tx_buf, nt35560_display_off_cmds,
+	mipi_dsi_cmds_tx(&nt35560_tx_buf, nt35560_display_off_cmds,
 			ARRAY_SIZE(nt35560_display_off_cmds));
-	mipi_dsi_cmds_tx(mfd, &nt35560_tx_buf, nt35560_sleep_in_cmds,
+	mipi_dsi_cmds_tx(&nt35560_tx_buf, nt35560_sleep_in_cmds,
 			ARRAY_SIZE(nt35560_sleep_in_cmds));
 	pr_info("leave mipi_nt35560_lcd_off \n");
 	return 0;
