@@ -271,7 +271,7 @@ void mipi_lcd_register_write(struct msm_fb_data_type *mfd,struct dsi_buf *tp,
 		dsi_cmd.dlen = param_num;
 		dsi_cmd.payload = mipi_packet_struct;
 		
-		mipi_dsi_cmds_tx(mfd, tp, &dsi_cmd,1);
+		mipi_dsi_cmds_tx(tp, &dsi_cmd,1);
 		packet_ok = FALSE;
 		param_num = 0;
 		last_datatype = 0;
