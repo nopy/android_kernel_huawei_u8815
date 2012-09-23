@@ -628,6 +628,14 @@ void mdp4_mddi_overlay_kickoff(struct msm_fb_data_type *mfd,
 {
 	unsigned long flag;
 
+	/* use dma_p(overlay) pipe ,change bpp into 16 */
+#ifdef CONFIG_FB_MSM_BPP_SWITCH
+	if(16 != mfd->panel_info.bpp)
+	{
+		mdp4_switch_bpp_config(mfd,16);	
+	}
+#endif
+	
 	if (mdp_hw_revision == MDP4_REVISION_V2_1) {
 		if (mdp4_overlay_status_read(MDP4_OVERLAY_TYPE_UNSET)) {
 			uint32  data;
