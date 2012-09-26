@@ -1,0 +1,11 @@
+--- drivers/video/msm/msm_fb.h
++++ drivers/video/msm/msm_fb.h
+@@ -225,5 +229,7 @@
+ #endif
+ int msm_fb_check_frame_rate(struct msm_fb_data_type *mfd,
+ 				struct fb_info *info);
+-
++#ifdef CONFIG_FB_MSM_VSYNC_SYSFS
++int msm_fb_notify_vsync(struct msm_fb_data_type *mfd, ktime_t vsync_time);
++#endif
+ #endif /* MSM_FB_H */
