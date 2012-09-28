@@ -410,7 +410,9 @@ static void msm_fb_remove_sysfs(struct platform_device *pdev)
 	sysfs_remove_group(&mfd->fbi->dev->kobj, &msm_fb_attr_group);
 }
 
+#ifndef CONFIG_HUAWEI_KERNEL
 static void bl_workqueue_handler(struct work_struct *work);
+#endif
 
 static int msm_fb_probe(struct platform_device *pdev)
 {
@@ -455,7 +457,9 @@ static int msm_fb_probe(struct platform_device *pdev)
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
+#ifndef CONFIG_HUAWEI_KERNEL
 	INIT_DELAYED_WORK(&mfd->backlight_worker, bl_workqueue_handler);
+#endif
 
 	if (!mfd)
 		return -ENODEV;
@@ -1865,6 +1869,7 @@ static int msm_fb_release(struct fb_info *info, int user)
 
 DEFINE_SEMAPHORE(msm_fb_pan_sem);
 
+#ifndef CONFIG_HUAWEI_KERNEL
 static void bl_workqueue_handler(struct work_struct *work)
 {
 	struct msm_fb_data_type *mfd = container_of(to_delayed_work(work),
@@ -1880,6 +1885,7 @@ static void bl_workqueue_handler(struct work_struct *work)
 		up(&mfd->sem);
 	}
 }
+#endif
 
 static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 			      struct fb_info *info)
